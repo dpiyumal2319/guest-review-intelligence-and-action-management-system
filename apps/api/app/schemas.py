@@ -136,6 +136,9 @@ class ReviewResponse(BaseModel):
 
     id: int
     source_code: str
+    source_name: str
+    source_type: str
+    is_verified_channel: bool
     external_review_id: str
     reviewer_name: str | None
     review_date: datetime | None

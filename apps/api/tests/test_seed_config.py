@@ -7,8 +7,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
-from app.database import get_session
 from app.connectors.registry import CONNECTORS
+from app.database import get_session
 from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
 from app.main import app
 from app.models import (
@@ -22,15 +22,19 @@ from app.models import (
     ReviewSource,
     SeverityThreshold,
 )
+from app.reddit_import import run_reddit_social_listening_ingestion
 from app.seed import seed_reference_config
+
+
+def migrate(database_url: str) -> None:
+    config = Config("alembic.ini")
+    command.upgrade(config, "head")
 
 
 def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'config.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url)
     with Session(engine) as session:
@@ -63,9 +67,7 @@ def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None
 def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'ingestion.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url)
     with Session(engine) as session:
@@ -89,9 +91,7 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'verified-connectors.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url)
     with Session(engine) as session:
@@ -123,18 +123,51 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
         assert normalized_google.normalized_payload["mock_official_shaped_connector"] is True
 
 
-def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypatch) -> None:
+def test_reddit_social_listening_ingestion_is_repeatable_and_marked_separately(
+    tmp_path: Path, monkeypatch
+) -> None:
+    database_url = f"sqlite:///{tmp_path / 'reddit-ingestion.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        first_run = run_reddit_social_listening_ingestion(session)
+        second_run = run_reddit_social_listening_ingestion(session)
+
+        assert first_run.status == "completed"
+        assert first_run.source_code == "reddit_social_listening"
+        assert first_run.connector_key == "reddit_social_listening"
+        assert first_run.records_created == 2
+        assert second_run.records_created == 0
+        assert second_run.records_skipped == 2
+
+        reddit_records = list(
+            session.scalars(
+                select(NormalizedReview)
+                .join(NormalizedReview.source)
+                .where(ReviewSource.source_type == "social_listening")
+            )
+        )
+        assert len(reddit_records) == 2
+        assert {record.source_type for record in reddit_records} == {"social_listening"}
+        assert {record.is_verified_channel for record in reddit_records} == {False}
+        assert all(record.rating is None for record in reddit_records)
+
+
+def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'api-config.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url, connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     with TestingSessionLocal() as session:
         seed_reference_config(session)
         run_seed_ingestion(session)
+        run_reddit_social_listening_ingestion(session)
 
     def override_get_session():
         with TestingSessionLocal() as session:
@@ -145,10 +178,13 @@ def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypat
         client = TestClient(app)
         config_response = client.get("/config")
         reviews_response = client.get("/reviews")
+        reddit_reviews_response = client.get("/reviews", params={"source_type": "social_listening"})
+        all_reviews_response = client.get("/reviews", params={"include_social_listening": "true"})
         runs_response = client.get("/ingestion/runs")
         ingestion_response = client.post("/ingestion/seed")
         connector_response = client.post("/ingestion/connectors/google_business_profile")
         repeat_connector_response = client.post("/ingestion/connectors/google_business_profile")
+        reddit_ingestion_response = client.post("/ingestion/reddit")
         source_status_response = client.get("/ingestion/source-status")
     finally:
         app.dependency_overrides.clear()
@@ -169,29 +205,43 @@ def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypat
     assert len(payload["demo_roles"]) == 4
 
     assert reviews_response.status_code == 200
-    assert len(reviews_response.json()["reviews"]) == 6
+    default_reviews = reviews_response.json()["reviews"]
+    assert len(default_reviews) == 6
+    assert {review["source_type"] for review in default_reviews} == {"seed_dataset"}
+
+    assert reddit_reviews_response.status_code == 200
+    reddit_reviews = reddit_reviews_response.json()["reviews"]
+    assert len(reddit_reviews) == 2
+    assert {review["source_type"] for review in reddit_reviews} == {"social_listening"}
+    assert all(review["is_verified_channel"] is False for review in reddit_reviews)
+
+    assert all_reviews_response.status_code == 200
+    assert len(all_reviews_response.json()["reviews"]) == 8
     assert runs_response.status_code == 200
-    assert len(runs_response.json()["runs"]) == 1
+    assert len(runs_response.json()["runs"]) == 2
     assert ingestion_response.status_code == 200
     assert ingestion_response.json()["records_skipped"] == 6
     assert connector_response.status_code == 200
     assert connector_response.json()["records_created"] == 2
     assert repeat_connector_response.status_code == 200
     assert repeat_connector_response.json()["records_skipped"] == 2
+    assert reddit_ingestion_response.status_code == 200
+    assert reddit_ingestion_response.json()["records_skipped"] == 2
     assert source_status_response.status_code == 200
     source_statuses = source_status_response.json()["sources"]
     google_status = next(source for source in source_statuses if source["source_code"] == "google_business_profile")
+    reddit_status = next(source for source in source_statuses if source["source_code"] == "reddit_social_listening")
     assert google_status["is_verified_channel"] is True
     assert google_status["latest_run"]["status"] == "completed"
     assert google_status["errors"] == []
+    assert reddit_status["is_verified_channel"] is False
+    assert reddit_status["source_type"] == "social_listening"
 
 
 def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'apify-json.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     export_path = tmp_path / "apify-export.json"
     export_path.write_text(
@@ -266,9 +316,7 @@ def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, 
 def test_apify_csv_import_can_be_triggered_through_api(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'apify-api.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url, connect_args={"check_same_thread": False})
     TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
@@ -311,9 +359,7 @@ def test_apify_csv_import_can_be_triggered_through_api(tmp_path: Path, monkeypat
 def test_apify_import_reports_unsupported_input(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'apify-invalid.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-
-    alembic_config = Config("alembic.ini")
-    command.upgrade(alembic_config, "head")
+    migrate(database_url)
 
     engine = create_engine(database_url)
     with Session(engine) as session:

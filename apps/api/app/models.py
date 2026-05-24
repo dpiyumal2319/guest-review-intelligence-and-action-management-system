@@ -192,3 +192,15 @@ class NormalizedReview(Base):
     source: Mapped[ReviewSource] = relationship()
     issue_category: Mapped[IssueCategory] = relationship()
     department: Mapped[Department] = relationship()
+
+    @property
+    def source_name(self) -> str:
+        return self.source.name
+
+    @property
+    def source_type(self) -> str:
+        return self.source.source_type
+
+    @property
+    def is_verified_channel(self) -> bool:
+        return self.source.is_verified_channel

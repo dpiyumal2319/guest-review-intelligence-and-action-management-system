@@ -1,7 +1,7 @@
 "use client"
 
 import type * as React from "react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import {
   Area,
   AreaChart,
@@ -103,6 +103,9 @@ const queues = [
 type Review = {
   id: number
   source_code: string
+  source_name: string
+  source_type: string
+  is_verified_channel: boolean
   external_review_id: string
   reviewer_name: string | null
   review_date: string | null
@@ -142,6 +145,13 @@ type IngestionSourceStatus = {
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+const reviewScopeLabels = {
+  default: "Verified and dataset imports",
+  social: "Reddit social listening",
+  all: "All imported records",
+} as const
+
+type ReviewScope = keyof typeof reviewScopeLabels
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -159,12 +169,14 @@ export default function Page() {
   const [reviews, setReviews] = useState<Review[]>([])
   const [runs, setRuns] = useState<IngestionRun[]>([])
   const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
+  const [reviewScope, setReviewScope] = useState<ReviewScope>("default")
   const [isLoading, setIsLoading] = useState(true)
-  const [isImporting, setIsImporting] = useState(false)
+  const [importingSource, setImportingSource] = useState<"seed" | "reddit" | null>(null)
   const [importingConnector, setImportingConnector] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const latestRun = runs[0]
+  const socialListeningCount = reviews.filter((review) => review.source_type === "social_listening").length
   const verifiedSourceStatuses = useMemo(
     () => sourceStatuses.filter((source) => source.is_verified_channel && source.connector_key),
     [sourceStatuses]
@@ -173,23 +185,35 @@ export default function Page() {
     () => [
       ...metrics,
       {
-        label: "Imported seed reviews",
+        label: reviewScope === "social" ? "Reddit mentions" : "Imported records",
         value: reviews.length.toString(),
-        detail: latestRun ? `last run ${latestRun.status}` : "awaiting import",
+        detail: latestRun ? `${reviewScopeLabels[reviewScope]} · last run ${latestRun.status}` : reviewScopeLabels[reviewScope],
       },
       {
         label: "High severity",
         value: reviews.filter((review) => review.severity === "high").length.toString(),
-        detail: "from imported reviews",
+        detail: reviewScope === "social" ? "from Reddit mentions" : "excludes Reddit by default",
+      },
+      {
+        label: "Social listening",
+        value: socialListeningCount.toString(),
+        detail: reviewScope === "default" ? "hidden from default review KPI scope" : "public discussion, not verified reviews",
       },
     ],
-    [latestRun, reviews]
+    [latestRun, reviewScope, reviews, socialListeningCount]
   )
 
-  async function loadIngestionData() {
+  const loadIngestionData = useCallback(async () => {
     setError(null)
+    const reviewsUrl = new URL(`${apiBaseUrl}/reviews`)
+    if (reviewScope === "social") {
+      reviewsUrl.searchParams.set("source_type", "social_listening")
+    }
+    if (reviewScope === "all") {
+      reviewsUrl.searchParams.set("include_social_listening", "true")
+    }
     const [reviewsResponse, runsResponse, sourceStatusResponse] = await Promise.all([
-      fetch(`${apiBaseUrl}/reviews`),
+      fetch(reviewsUrl),
       fetch(`${apiBaseUrl}/ingestion/runs`),
       fetch(`${apiBaseUrl}/ingestion/source-status`),
     ])
@@ -202,27 +226,28 @@ export default function Page() {
     setReviews(reviewsPayload.reviews)
     setRuns(runsPayload.runs)
     setSourceStatuses(sourceStatusPayload.sources)
-  }
+  }, [reviewScope])
 
   useEffect(() => {
+    setIsLoading(true)
     loadIngestionData()
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load data"))
       .finally(() => setIsLoading(false))
-  }, [])
+  }, [loadIngestionData])
 
-  async function triggerSeedImport() {
-    setIsImporting(true)
+  async function triggerImport(source: "seed" | "reddit") {
+    setImportingSource(source)
     setError(null)
     try {
-      const response = await fetch(`${apiBaseUrl}/ingestion/seed`, { method: "POST" })
+      const response = await fetch(`${apiBaseUrl}/ingestion/${source}`, { method: "POST" })
       if (!response.ok) {
-        throw new Error("Seed import failed")
+        throw new Error(source === "reddit" ? "Reddit import failed" : "Seed import failed")
       }
       await loadIngestionData()
     } catch (importError) {
-      setError(importError instanceof Error ? importError.message : "Seed import failed")
+      setError(importError instanceof Error ? importError.message : "Import failed")
     } finally {
-      setIsImporting(false)
+      setImportingSource(null)
     }
   }
 
@@ -353,9 +378,14 @@ export default function Page() {
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <CardTitle>Verified source imports</CardTitle>
-                  <Button onClick={triggerSeedImport} disabled={isImporting}>
-                    {isImporting ? "Importing" : "Run seed import"}
-                  </Button>
+                  <div className="flex flex-wrap gap-2">
+                    <Button onClick={() => triggerImport("seed")} disabled={importingSource !== null} variant="outline">
+                      {importingSource === "seed" ? "Importing" : "Run seed import"}
+                    </Button>
+                    <Button onClick={() => triggerImport("reddit")} disabled={importingSource !== null}>
+                      {importingSource === "reddit" ? "Importing" : "Import Reddit mentions"}
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4 text-sm">
@@ -419,18 +449,38 @@ export default function Page() {
 
             <Card id="reviews">
               <CardHeader>
-                <CardTitle>Imported reviews</CardTitle>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <CardTitle>Imported records</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Reddit is shown as social listening, not verified guest reviews.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {(Object.keys(reviewScopeLabels) as ReviewScope[]).map((scope) => (
+                      <Button
+                        key={scope}
+                        size="sm"
+                        variant={reviewScope === scope ? "default" : "outline"}
+                        onClick={() => setReviewScope(scope)}
+                      >
+                        {reviewScopeLabels[scope]}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 {reviews.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Run the seed import to populate normalized reviews.
+                    Run the seed import or Reddit import to populate normalized records.
                   </p>
                 ) : (
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Review</TableHead>
+                        <TableHead>Source</TableHead>
                         <TableHead>Rating</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
@@ -447,6 +497,12 @@ export default function Page() {
                               {review.reviewer_name ?? "Anonymous"} · {formatDate(review.review_date)}
                             </div>
                             <p className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground">{review.body}</p>
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{review.source_name}</div>
+                            <Badge variant={review.source_type === "social_listening" ? "outline" : "secondary"}>
+                              {review.source_type === "social_listening" ? "Social listening" : "Review source"}
+                            </Badge>
                           </TableCell>
                           <TableCell>{review.rating ?? "N/A"}</TableCell>
                           <TableCell>{review.issue_category_code}</TableCell>
