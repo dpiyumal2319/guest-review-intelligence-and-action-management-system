@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.apify_importer import ApifyImportInput, run_apify_dataset_import
 from app.database import get_session
 from app.connectors.registry import CONNECTORS
 from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
@@ -183,3 +184,146 @@ def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypat
     assert google_status["is_verified_channel"] is True
     assert google_status["latest_run"]["status"] == "completed"
     assert google_status["errors"] == []
+
+
+def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'apify-json.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    alembic_config = Config("alembic.ini")
+    command.upgrade(alembic_config, "head")
+
+    export_path = tmp_path / "apify-export.json"
+    export_path.write_text(
+        """
+        {
+          "actorName": "apify/google-maps-reviews-scraper",
+          "exportedAt": "2026-05-20T09:00:00+00:00",
+          "platform": "google",
+          "sourceUrl": "https://example.test/hotel",
+          "items": [
+            {
+              "reviewId": "g-001",
+              "reviewerName": "Ayesha F.",
+              "publishedAt": "2026-05-19T12:30:00Z",
+              "stars": "5",
+              "reviewText": "Excellent stay and helpful staff."
+            },
+            {
+              "reviewId": "g-002",
+              "reviewerName": "Michael R.",
+              "publishedAt": "2026-05-18T10:00:00+00:00",
+              "stars": "2",
+              "reviewText": "Check-in queue was very slow."
+            },
+            {
+              "reviewId": "g-003",
+              "stars": "4"
+            }
+          ]
+        }
+        """,
+        encoding="utf-8",
+    )
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        first_run = run_apify_dataset_import(session, ApifyImportInput(file_path=str(export_path)))
+        second_run = run_apify_dataset_import(session, ApifyImportInput(file_path=str(export_path)))
+
+        assert first_run.status == "completed_with_errors"
+        assert first_run.records_seen == 3
+        assert first_run.records_created == 2
+        assert first_run.error_count == 1
+        assert "row 3: missing review text" in first_run.errors
+        assert second_run.status == "completed_with_errors"
+        assert second_run.records_created == 0
+        assert second_run.records_skipped == 2
+        assert session.query(RawReview).filter(RawReview.source_code == "apify_dataset_import").count() == 2
+        assert session.query(NormalizedReview).filter(NormalizedReview.source_code == "apify_dataset_import").count() == 2
+
+        raw_review = session.scalar(select(RawReview).where(RawReview.external_review_id == "g-001"))
+        assert raw_review is not None
+        assert raw_review.raw_payload["record"]["reviewText"] == "Excellent stay and helpful staff."
+        assert raw_review.raw_payload["dataset_metadata"]["actor_name"] == "apify/google-maps-reviews-scraper"
+
+        normalized_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "g-001")
+        )
+        assert normalized_review is not None
+        metadata = normalized_review.normalized_payload["dataset_metadata"]
+        assert normalized_review.source_code == "apify_dataset_import"
+        assert normalized_review.source.is_verified_channel is False
+        assert normalized_review.normalized_payload["source_kind"] == "dataset_import"
+        assert metadata["actor_name"] == "apify/google-maps-reviews-scraper"
+        assert metadata["export_date"] == "2026-05-20T09:00:00+00:00"
+        assert metadata["platform"] == "google"
+        assert metadata["source_url"] == "https://example.test/hotel"
+
+
+def test_apify_csv_import_can_be_triggered_through_api(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'apify-api.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    alembic_config = Config("alembic.ini")
+    command.upgrade(alembic_config, "head")
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        response = client.post(
+            "/ingestion/apify-dataset",
+            json={
+                "file_name": "apify-export.csv",
+                "content": (
+                    "reviewId,reviewerName,publishedAt,stars,reviewText,reviewUrl\n"
+                    "csv-001,Nadeesha P.,2026-05-17T08:00:00Z,4,Great breakfast,https://example.test/reviews/csv-001\n"
+                ),
+                "actor_name": "apify/tripadvisor-reviews",
+                "export_date": "2026-05-21T15:00:00+00:00",
+                "platform": "tripadvisor",
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "completed"
+    assert payload["connector_key"] == "apify_dataset_import"
+    assert payload["source_code"] == "apify_dataset_import"
+    assert payload["records_seen"] == 1
+    assert payload["records_created"] == 1
+    assert payload["error_count"] == 0
+
+
+def test_apify_import_reports_unsupported_input(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'apify-invalid.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    alembic_config = Config("alembic.ini")
+    command.upgrade(alembic_config, "head")
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        run = run_apify_dataset_import(
+            session,
+            ApifyImportInput(content="not an export", file_name="reviews.txt"),
+        )
+
+        assert run.status == "failed"
+        assert run.error_count == 1
+        assert run.errors == ["Unsupported Apify import input. Provide a .json or .csv export."]

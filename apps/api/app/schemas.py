@@ -112,6 +112,25 @@ class IngestionSourceStatusesResponse(BaseModel):
     sources: list[IngestionSourceStatusResponse]
 
 
+class ApifyDatasetImportRequest(BaseModel):
+    file_path: str | None = Field(
+        default=None,
+        description="Server-local path to an offline Apify JSON or CSV export.",
+    )
+    content: str | None = Field(
+        default=None,
+        description="Raw JSON or CSV export content for offline dataset preparation.",
+    )
+    file_name: str | None = Field(
+        default=None,
+        description="Original export file name used to infer JSON or CSV when content is supplied.",
+    )
+    actor_name: str | None = None
+    export_date: str | None = None
+    platform: str | None = None
+    source_url: str | None = None
+
+
 class ReviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
