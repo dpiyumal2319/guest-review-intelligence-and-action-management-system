@@ -1,0 +1,9 @@
+review_id,text,issue_category_code,source_code,rating,notes
+sample-001,"The bathroom floor was dirty and the towels smelled damp.",cleanliness,kingsbury_seed_dataset,2,"Offline research label only"
+sample-002,"Check-in took too long and our room was not ready on arrival.",booking_checkin,kingsbury_seed_dataset,2,
+sample-003,"Breakfast was excellent and the restaurant team was very helpful.",food_beverage,kingsbury_seed_dataset,5,
+sample-004,"Loud music from the event hall kept us awake past midnight.",noise_events,kingsbury_seed_dataset,2,
+sample-005,"The room air conditioning was broken and hot water was unreliable.",room_condition,kingsbury_seed_dataset,2,
+sample-006,"The staff were friendly and made the stay wonderful.",positive_general,kingsbury_seed_dataset,5,
+sample-007,"Room service was slow and nobody followed up on our request.",service_delay,kingsbury_seed_dataset,2,
+sample-008,"The pool area and gym were closed without any notice.",amenities_facilities,kingsbury_seed_dataset,3,
