@@ -12,6 +12,27 @@ API health: http://localhost:8000/health
 
 API docs: http://localhost:8000/docs
 
+## Configure API persistence
+
+The API uses PostgreSQL through SQLAlchemy and Alembic. With the Compose database
+running, create the schema and load repeatable reference data:
+
+```bash
+npm run api:migrate
+npm run api:seed
+```
+
+Seeded configuration is exposed at http://localhost:8000/config.
+
+The fallback seed review connector can be triggered through the API:
+
+```bash
+curl -X POST http://localhost:8000/ingestion/seed
+```
+
+Imported normalized reviews are exposed at http://localhost:8000/reviews, and
+recent ingestion runs are exposed at http://localhost:8000/ingestion/runs.
+
 ## Run the web app only
 
 Use Node.js 20 or newer.
@@ -30,6 +51,8 @@ cd apps/api
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+alembic upgrade head
+python -m app.seed
 uvicorn app.main:app --reload
 ```
 
