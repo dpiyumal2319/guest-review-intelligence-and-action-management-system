@@ -1,0 +1,9 @@
+review_id,text,issue_category_code
+test-001,"Dirty bathroom and stained linen.",cleanliness
+test-002,"Dusty room and unclean towels.",cleanliness
+test-003,"Breakfast buffet and dinner were excellent.",food_beverage
+test-004,"Restaurant food was cold and breakfast was late.",food_beverage
+test-005,"Check-in queue was long and reservation was missing.",booking_checkin
+test-006,"Payment deposit caused a check in delay.",booking_checkin
+test-007,"The stay was wonderful and staff were friendly.",positive_general
+test-008,"Excellent hotel and beautiful experience.",positive_general

@@ -16,3 +16,10 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Offline ML research artifacts.
+artifacts/
+reports/
+apps/api/artifacts/
+apps/api/reports/
+apps/api/data/labelled/
