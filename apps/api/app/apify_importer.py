@@ -7,11 +7,15 @@ import io
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.ingestion import parse_review_date, stable_payload_hash
-from app.models import IngestionRun, NormalizedReview, RawReview, ReviewSource
+from app.ingestion import (
+    count_duplicate_flagged_for_run,
+    parse_review_date,
+    stable_payload_hash,
+    upsert_ingested_review,
+)
+from app.models import IngestionRun, ReviewSource
 
 
 APIFY_SOURCE_CODE = "apify_dataset_import"
@@ -57,6 +61,7 @@ def run_apify_dataset_import(session: Session, import_input: ApifyImportInput) -
         records_created=0,
         records_updated=0,
         records_skipped=0,
+        records_duplicate_flagged=0,
         error_count=0,
         errors=[],
     )
@@ -73,56 +78,16 @@ def run_apify_dataset_import(session: Session, import_input: ApifyImportInput) -
                 payload = normalize_apify_row(row, row_number, dataset_metadata)
             except ValueError as exc:
                 run.error_count += 1
-                run.errors.append(f"row {row_number}: {exc}")
+                run.errors = [*run.errors, f"row {row_number}: {exc}"]
                 continue
 
-            payload_hash = stable_payload_hash(hashable_payload(payload))
-            raw_review = session.scalar(
-                select(RawReview).where(
-                    RawReview.source_code == APIFY_SOURCE_CODE,
-                    RawReview.external_review_id == payload["external_review_id"],
-                )
-            )
-            payload_changed = True
             raw_payload = {
                 "dataset_metadata": dataset_metadata,
                 "record": row,
             }
-            if raw_review is None:
-                raw_review = RawReview(
-                    source_code=APIFY_SOURCE_CODE,
-                    external_review_id=payload["external_review_id"],
-                    ingestion_run_id=run.id,
-                    raw_payload=raw_payload,
-                    payload_hash=payload_hash,
-                    ingested_at=now,
-                )
-                session.add(raw_review)
-                session.flush()
-            else:
-                payload_changed = raw_review.payload_hash != payload_hash
-                raw_review.ingestion_run_id = run.id
-                raw_review.raw_payload = raw_payload
-                raw_review.payload_hash = payload_hash
-                raw_review.ingested_at = now
+            upsert_ingested_review(session, run, raw_payload, payload, now)
 
-            values = normalized_values(raw_review.id, payload, now)
-            normalized_review = session.scalar(
-                select(NormalizedReview).where(
-                    NormalizedReview.source_code == APIFY_SOURCE_CODE,
-                    NormalizedReview.external_review_id == payload["external_review_id"],
-                )
-            )
-            if normalized_review is None:
-                session.add(NormalizedReview(**values))
-                run.records_created += 1
-            elif payload_changed:
-                for field, value in values.items():
-                    setattr(normalized_review, field, value)
-                run.records_updated += 1
-            else:
-                run.records_skipped += 1
-
+        run.records_duplicate_flagged = count_duplicate_flagged_for_run(session, run)
         run.status = "completed_with_errors" if run.error_count else "completed"
         run.completed_at = datetime.now(UTC)
         session.commit()
@@ -241,53 +206,25 @@ def normalize_apify_row(row: dict[str, Any], row_number: int, dataset_metadata: 
         "severity": severity,
         "department_code": department_code,
         "dataset_metadata": compact_metadata(dataset_metadata | row_metadata),
-    }
-
-
-def normalized_values(raw_review_id: int, payload: dict[str, Any], now: datetime) -> dict[str, Any]:
-    return {
-        "raw_review_id": raw_review_id,
-        "source_code": APIFY_SOURCE_CODE,
-        "external_review_id": payload["external_review_id"],
-        "reviewer_name": payload.get("reviewer_name"),
-        "review_date": payload.get("review_date"),
-        "rating": payload.get("rating"),
-        "language": payload.get("language", "en"),
-        "title": payload.get("title"),
-        "body": payload["body"],
-        "sentiment_label": payload["sentiment_label"],
-        "sentiment_score": payload["sentiment_score"],
-        "issue_category_code": payload["issue_category_code"],
-        "severity": payload["severity"],
-        "department_code": payload["department_code"],
-        "action_status": "new",
         "normalized_payload": {
             "source_kind": "dataset_import",
             "connector_key": APIFY_CONNECTOR_KEY,
-            "dataset_metadata": payload["dataset_metadata"],
+            "dataset_metadata": compact_metadata(dataset_metadata | row_metadata),
             "normalization_note": "Offline Apify dataset preparation import; not a production connector.",
         },
-        "updated_at": now,
-    }
-
-
-def hashable_payload(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        **payload,
-        "review_date": payload["review_date"].isoformat() if payload.get("review_date") else None,
     }
 
 
 def merge_dataset_metadata(metadata: dict[str, Any], import_input: ApifyImportInput) -> dict[str, Any]:
     return compact_metadata(
         metadata
-        | {
+        | compact_metadata({
             "actor_name": import_input.actor_name,
             "export_date": import_input.export_date,
             "platform": import_input.platform,
             "source_url": import_input.source_url,
             "file_name": import_input.file_name or metadata.get("file_name"),
-        }
+        })
     )
 
 

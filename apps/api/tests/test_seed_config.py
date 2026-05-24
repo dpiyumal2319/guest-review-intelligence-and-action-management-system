@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
-from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
+from app.ingestion import normalized_content_hash, run_mock_connector_by_key, run_payload_ingestion, run_seed_ingestion
 from app.main import app
 from app.models import (
     CategoryDepartmentMapping,
@@ -83,9 +83,84 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert second_run.records_seen == 6
         assert second_run.records_created == 0
         assert second_run.records_skipped == 6
+        assert second_run.records_duplicate_flagged == 0
         assert session.query(IngestionRun).count() == 2
         assert session.query(RawReview).count() == 6
         assert session.query(NormalizedReview).count() == 6
+        assert all(review.content_hash for review in session.scalars(select(NormalizedReview)))
+
+
+def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'content-dedupe.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        payloads = [
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": "dedupe-001",
+                "reviewer_name": "Guest One",
+                "review_date": "2026-05-20T10:00:00+00:00",
+                "rating": 2.0,
+                "language": "en",
+                "title": "Slow check-in",
+                "body": "Check-in queue was very slow.",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.65,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": "dedupe-002",
+                "reviewer_name": "Guest Two",
+                "review_date": "2026-05-21T12:00:00+00:00",
+                "rating": 2,
+                "language": "EN",
+                "title": "  slow   check-in ",
+                "body": " check-in   queue was VERY slow. ",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.62,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+        ]
+
+        first_run = run_payload_ingestion(
+            session,
+            source_code="kingsbury_seed_dataset",
+            connector_key="test_content_dedupe",
+            payloads=payloads,
+        )
+        second_run = run_payload_ingestion(
+            session,
+            source_code="kingsbury_seed_dataset",
+            connector_key="test_content_dedupe",
+            payloads=payloads,
+        )
+
+        reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
+
+        assert first_run.status == "completed"
+        assert first_run.records_created == 2
+        assert first_run.records_duplicate_flagged == 2
+        assert second_run.records_created == 0
+        assert second_run.records_skipped == 2
+        assert second_run.records_duplicate_flagged == 2
+        assert session.query(RawReview).count() == 2
+        assert session.query(NormalizedReview).count() == 2
+        assert {review.external_review_id for review in reviews} == {"dedupe-001", "dedupe-002"}
+        assert len({review.content_hash for review in reviews}) == 1
+        assert reviews[0].content_hash == normalized_content_hash(payloads[0])
+        assert {review.is_content_duplicate for review in reviews} == {True}
+        assert reviews[0].duplicate_of_review_id is None
+        assert reviews[1].duplicate_of_review_id == reviews[0].id
 
 
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:

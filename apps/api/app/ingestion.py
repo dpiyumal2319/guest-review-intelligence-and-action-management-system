@@ -1,9 +1,11 @@
 from datetime import UTC, datetime
 import hashlib
 import json
+from decimal import Decimal
+import unicodedata
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.connectors.base import MockConnector
@@ -21,37 +23,37 @@ def stable_payload_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def parse_review_date(value: str | None) -> datetime | None:
+def canonical_text(value: Any | None) -> str | None:
     if value is None:
         return None
-    return datetime.fromisoformat(value)
+    text = unicodedata.normalize("NFKC", str(value)).casefold()
+    compacted = " ".join(text.split())
+    return compacted or None
 
 
-def normalized_values(raw_review_id: int, payload: dict[str, Any], now: datetime, connector_key: str) -> dict[str, Any]:
-    return {
-        "raw_review_id": raw_review_id,
-        "source_code": payload["source_code"],
-        "external_review_id": payload["external_review_id"],
-        "reviewer_name": payload.get("reviewer_name"),
-        "review_date": parse_review_date(payload.get("review_date")),
-        "rating": payload.get("rating"),
-        "language": payload.get("language", "en"),
-        "title": payload.get("title"),
-        "body": payload["body"],
-        "sentiment_label": payload["sentiment_label"],
-        "sentiment_score": payload["sentiment_score"],
-        "issue_category_code": payload["issue_category_code"],
-        "severity": payload["severity"],
-        "department_code": payload["department_code"],
-        "action_status": "new",
-        "normalized_payload": {
-            "source_name": payload.get("source_name"),
-            "connector_key": connector_key,
-            "source_type": payload.get("source_type"),
-            "source_url": payload.get("source_url"),
-        },
-        "updated_at": now,
+def canonical_rating(value: Any | None) -> str | None:
+    if value is None:
+        return None
+    rating = Decimal(str(value)).normalize()
+    return format(rating, "f")
+
+
+def normalized_content_hash(payload: dict[str, Any]) -> str:
+    canonical_payload = {
+        "body": canonical_text(payload.get("body")),
+        "language": canonical_text(payload.get("language", "en")),
+        "rating": canonical_rating(payload.get("rating")),
+        "title": canonical_text(payload.get("title")),
     }
+    return stable_payload_hash(canonical_payload)
+
+
+def parse_review_date(value: str | datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    return datetime.fromisoformat(value)
 
 
 def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -70,6 +72,7 @@ def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: da
         "language": payload.get("language", "en"),
         "title": payload.get("title"),
         "body": payload["body"],
+        "content_hash": normalized_content_hash(payload),
         "sentiment_label": payload["sentiment_label"],
         "sentiment_score": payload["sentiment_score"],
         "issue_category_code": payload["issue_category_code"],
@@ -81,6 +84,42 @@ def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: da
     }
 
 
+def refresh_content_duplicate_group(session: Session, content_hash: str) -> None:
+    if not content_hash:
+        return
+    reviews = list(
+        session.scalars(
+            select(NormalizedReview)
+            .where(NormalizedReview.content_hash == content_hash)
+            .order_by(NormalizedReview.id)
+        )
+    )
+    if len(reviews) <= 1:
+        for review in reviews:
+            review.is_content_duplicate = False
+            review.duplicate_of_review_id = None
+        return
+
+    canonical_review = reviews[0]
+    for review in reviews:
+        review.is_content_duplicate = True
+        review.duplicate_of_review_id = None if review.id == canonical_review.id else canonical_review.id
+
+
+def count_duplicate_flagged_for_run(session: Session, run: IngestionRun) -> int:
+    return (
+        session.scalar(
+            select(func.count(NormalizedReview.id))
+            .join(RawReview, NormalizedReview.raw_review_id == RawReview.id)
+            .where(
+                RawReview.ingestion_run_id == run.id,
+                NormalizedReview.is_content_duplicate.is_(True),
+            )
+        )
+        or 0
+    )
+
+
 def upsert_ingested_review(
     session: Session,
     run: IngestionRun,
@@ -89,6 +128,7 @@ def upsert_ingested_review(
     now: datetime,
 ) -> None:
     payload_hash = stable_payload_hash(raw_payload)
+    previous_content_hash: str | None = None
     raw_review = session.scalar(
         select(RawReview).where(
             RawReview.source_code == normalized_payload["source_code"],
@@ -122,14 +162,24 @@ def upsert_ingested_review(
         )
     )
     if normalized_review is None:
-        session.add(NormalizedReview(**values))
+        normalized_review = NormalizedReview(**values)
+        session.add(normalized_review)
+        session.flush()
         run.records_created += 1
     elif payload_changed:
+        previous_content_hash = normalized_review.content_hash
         for field, value in values.items():
             setattr(normalized_review, field, value)
         run.records_updated += 1
     else:
+        if normalized_review.content_hash != values["content_hash"]:
+            previous_content_hash = normalized_review.content_hash
+            normalized_review.content_hash = values["content_hash"]
         run.records_skipped += 1
+
+    if previous_content_hash and previous_content_hash != values["content_hash"]:
+        refresh_content_duplicate_group(session, previous_content_hash)
+    refresh_content_duplicate_group(session, values["content_hash"])
 
 
 def run_mock_connector(session: Session, connector: MockConnector) -> IngestionRun:
@@ -150,6 +200,7 @@ def run_mock_connector(session: Session, connector: MockConnector) -> IngestionR
         records_created=0,
         records_updated=0,
         records_skipped=0,
+        records_duplicate_flagged=0,
         error_count=0,
         errors=[],
     )
@@ -161,6 +212,7 @@ def run_mock_connector(session: Session, connector: MockConnector) -> IngestionR
             normalized_payload = connector.normalize(raw_payload)
             upsert_ingested_review(session, run, raw_payload, normalized_payload, now)
 
+        run.records_duplicate_flagged = count_duplicate_flagged_for_run(session, run)
         run.status = "completed"
         run.completed_at = datetime.now(UTC)
         session.commit()
@@ -208,6 +260,7 @@ def run_payload_ingestion(
         records_created=0,
         records_updated=0,
         records_skipped=0,
+        records_duplicate_flagged=0,
         error_count=0,
         errors=[],
     )
@@ -231,6 +284,7 @@ def run_payload_ingestion(
             }
             upsert_ingested_review(session, run, payload, payload_with_metadata, now)
 
+        run.records_duplicate_flagged = count_duplicate_flagged_for_run(session, run)
         run.status = "completed"
         run.completed_at = datetime.now(UTC)
         session.commit()
