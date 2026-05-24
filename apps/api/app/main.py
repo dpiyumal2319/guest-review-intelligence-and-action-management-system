@@ -2,6 +2,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.apify_importer import ApifyImportInput, run_apify_dataset_import
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
@@ -16,6 +17,7 @@ from app.models import (
     SeverityThreshold,
 )
 from app.schemas import (
+    ApifyDatasetImportRequest,
     HealthResponse,
     IngestionRunResponse,
     IngestionRunsResponse,
@@ -67,6 +69,23 @@ async def import_verified_connector(connector_key: str, session: Session = Depen
     if connector_key not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown connector '{connector_key}'")
     return run_mock_connector_by_key(session, connector_key)
+
+
+@app.post(
+    "/ingestion/apify-dataset",
+    tags=["ingestion"],
+    response_model=IngestionRunResponse,
+    summary="Import an offline Apify dataset export",
+    description=(
+        "Loads a JSON or CSV file prepared outside the app for research/demo dataset preparation. "
+        "This is not a production Apify connector or live scraping integration."
+    ),
+)
+async def import_apify_dataset(
+    request: ApifyDatasetImportRequest,
+    session: Session = Depends(get_session),
+) -> IngestionRun:
+    return run_apify_dataset_import(session, ApifyImportInput(**request.model_dump()))
 
 
 @app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)

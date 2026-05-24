@@ -79,9 +79,13 @@ REVIEW_SOURCES = [
         "description": "Offline Apify export import source for JSON or CSV datasets.",
         "default_enabled": False,
         "is_verified_channel": False,
-        "connector_key": "apify_dataset",
+        "connector_key": "apify_dataset_import",
         "sample_import_path": "data/imports/apify/export.json",
-        "source_metadata": {"kpi_scope": "dataset_import", "live_scraping": False},
+        "source_metadata": {
+            "kpi_scope": "dataset_import",
+            "live_scraping": False,
+            "import_policy": "offline_dataset_preparation_only",
+        },
     },
 ]
 
