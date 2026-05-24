@@ -4,6 +4,10 @@ When approaching a solution, think critically and recommend industry-standard ap
 
 ## Agent skills
 
+### PRD
+
+To see the full prd See `docs/agents/prd-guest-review-intelligence/md`. or gh issue #1
+
 ### Issue tracker
 
 Issues and PRDs for this repo live in GitHub Issues. See `docs/agents/issue-tracker.md`.
