@@ -199,6 +199,11 @@ class NormalizedReview(Base):
     source: Mapped[ReviewSource] = relationship()
     issue_category: Mapped[IssueCategory] = relationship()
     department: Mapped[Department] = relationship()
+    analysis: Mapped["ReviewAnalysis | None"] = relationship(
+        back_populates="review",
+        cascade="all, delete-orphan",
+        uselist=False,
+    )
 
     @property
     def source_name(self) -> str:
@@ -211,3 +216,40 @@ class NormalizedReview(Base):
     @property
     def is_verified_channel(self) -> bool:
         return self.source.is_verified_channel
+
+
+class ReviewAnalysis(Base):
+    __tablename__ = "review_analyses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    review_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("normalized_reviews.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+    )
+    sentiment_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    sentiment_score: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False)
+    sentiment_confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+    issue_category_code: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    severity_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    severity_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    department_code: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("departments.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    analysis_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    explanation_factors: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    review: Mapped[NormalizedReview] = relationship(back_populates="analysis")
+    issue_category: Mapped[IssueCategory] = relationship()
+    department: Mapped[Department] = relationship()

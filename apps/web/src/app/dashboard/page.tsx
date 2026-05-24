@@ -3,8 +3,6 @@
 import type * as React from "react"
 import { useCallback, useEffect, useMemo, useState } from "react"
 import {
-  Area,
-  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -32,32 +30,10 @@ import {
 } from "@/components/ui/chart"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
-const trendData = [
-  { day: "Mon", positive: 34, negative: 9 },
-  { day: "Tue", positive: 28, negative: 14 },
-  { day: "Wed", positive: 41, negative: 12 },
-  { day: "Thu", positive: 36, negative: 18 },
-  { day: "Fri", positive: 49, negative: 16 },
-  { day: "Sat", positive: 56, negative: 21 },
-  { day: "Sun", positive: 44, negative: 13 },
-]
-
-const issueData = [
-  { category: "Cleanliness", count: 31 },
-  { category: "Service", count: 27 },
-  { category: "Room", count: 22 },
-  { category: "F&B", count: 18 },
-  { category: "Noise", count: 12 },
-]
-
-const trendConfig = {
-  positive: {
-    label: "Positive",
+const sentimentConfig = {
+  reviews: {
+    label: "Reviews",
     color: "var(--chart-1)",
-  },
-  negative: {
-    label: "Negative",
-    color: "var(--chart-3)",
   },
 } satisfies ChartConfig
 
@@ -67,11 +43,6 @@ const issueConfig = {
     color: "var(--chart-2)",
   },
 } satisfies ChartConfig
-
-const metrics = [
-  { label: "Verified reviews", value: "1,248", detail: "mock baseline" },
-  { label: "Negative sentiment", value: "18%", detail: "verified sources only" },
-]
 
 const queues = [
   {
@@ -116,10 +87,38 @@ type Review = {
   is_content_duplicate: boolean
   duplicate_of_review_id: number | null
   sentiment_label: string
+  sentiment_score: number
   issue_category_code: string
   severity: string
   department_code: string
   action_status: string
+  analysis: ReviewAnalysis | null
+}
+
+type ReviewAnalysis = {
+  id: number
+  sentiment_label: string
+  sentiment_score: number
+  sentiment_confidence: number
+  issue_category_code: string
+  severity_score: number
+  severity_label: string
+  department_code: string
+  model_name: string
+  model_version: string
+  analysis_version: string
+  analyzed_at: string
+  is_active: boolean
+  explanation_factors: {
+    model?: {
+      fallback_note?: string
+    }
+    signals?: {
+      recurrence_count_7d?: number
+      duplicate_signal?: boolean
+      urgency_terms?: string[]
+    }
+  }
 }
 
 type IngestionRun = {
@@ -180,32 +179,73 @@ export default function Page() {
   const [error, setError] = useState<string | null>(null)
 
   const latestRun = runs[0]
-  const socialListeningCount = reviews.filter((review) => review.source_type === "social_listening").length
   const verifiedSourceStatuses = useMemo(
     () => sourceStatuses.filter((source) => source.is_verified_channel && source.connector_key),
     [sourceStatuses]
   )
+  const activeAnalyses = useMemo(
+    () => reviews.map((review) => review.analysis).filter((analysis): analysis is ReviewAnalysis => analysis !== null),
+    [reviews]
+  )
+  const negativeCount = activeAnalyses.filter((analysis) => analysis.sentiment_label === "negative").length
+  const highSeverityCount = activeAnalyses.filter((analysis) => ["high", "critical"].includes(analysis.severity_label)).length
+  const averageSeverity = activeAnalyses.length
+    ? Math.round(activeAnalyses.reduce((total, analysis) => total + analysis.severity_score, 0) / activeAnalyses.length)
+    : 0
+  const departmentCounts = activeAnalyses.reduce<Record<string, number>>((counts, analysis) => {
+    counts[analysis.department_code] = (counts[analysis.department_code] ?? 0) + 1
+    return counts
+  }, {})
+  const topDepartment = Object.entries(departmentCounts).sort((a, b) => b[1] - a[1])[0]
+  const latestAnalysis = [...activeAnalyses].sort((a, b) => Date.parse(b.analyzed_at) - Date.parse(a.analyzed_at))[0]
   const importedMetrics = useMemo(
     () => [
-      ...metrics,
       {
         label: reviewScope === "social" ? "Reddit mentions" : "Imported records",
         value: reviews.length.toString(),
         detail: latestRun ? `${reviewScopeLabels[reviewScope]} · last run ${latestRun.status}` : reviewScopeLabels[reviewScope],
       },
       {
-        label: "High severity",
-        value: reviews.filter((review) => review.severity === "high").length.toString(),
-        detail: reviewScope === "social" ? "from Reddit mentions" : "excludes Reddit by default",
+        label: "Negative sentiment",
+        value: activeAnalyses.length ? `${Math.round((negativeCount / activeAnalyses.length) * 100)}%` : "0%",
+        detail: `${negativeCount} analyzed records`,
       },
       {
-        label: "Social listening",
-        value: socialListeningCount.toString(),
-        detail: reviewScope === "default" ? "hidden from default review KPI scope" : "public discussion, not verified reviews",
+        label: "High severity",
+        value: highSeverityCount.toString(),
+        detail: `average severity score ${averageSeverity}`,
+      },
+      {
+        label: "Department focus",
+        value: topDepartment ? topDepartment[0].replaceAll("_", " ") : "N/A",
+        detail: topDepartment ? `${topDepartment[1]} assigned analyses` : "no analysis results yet",
+      },
+      {
+        label: "Analysis model",
+        value: latestAnalysis?.analysis_version ?? "N/A",
+        detail: latestAnalysis?.model_version ?? "run an import to analyze reviews",
       },
     ],
-    [latestRun, reviewScope, reviews, socialListeningCount]
+    [activeAnalyses.length, averageSeverity, highSeverityCount, latestAnalysis, latestRun, negativeCount, reviewScope, reviews.length, topDepartment]
   )
+  const sentimentData = useMemo(
+    () =>
+      ["positive", "mixed", "negative"].map((sentiment) => ({
+        sentiment,
+        reviews: activeAnalyses.filter((analysis) => analysis.sentiment_label === sentiment).length,
+      })),
+    [activeAnalyses]
+  )
+  const issueData = useMemo(() => {
+    const counts = activeAnalyses.reduce<Record<string, number>>((totals, analysis) => {
+      totals[analysis.issue_category_code] = (totals[analysis.issue_category_code] ?? 0) + 1
+      return totals
+    }, {})
+    return Object.entries(counts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([category, count]) => ({ category: category.replaceAll("_", " "), count }))
+  }, [activeAnalyses])
 
   const loadIngestionData = useCallback(async () => {
     setError(null)
@@ -329,24 +369,23 @@ export default function Page() {
           <section className="grid gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Sentiment trend</CardTitle>
+                <CardTitle>Sentiment analysis</CardTitle>
               </CardHeader>
               <CardContent>
-                <ChartContainer config={trendConfig} className="h-72 w-full">
-                  <AreaChart data={trendData}>
+                <ChartContainer config={sentimentConfig} className="h-72 w-full">
+                  <BarChart data={sentimentData}>
                     <CartesianGrid vertical={false} />
-                    <XAxis dataKey="day" tickLine={false} axisLine={false} />
+                    <XAxis dataKey="sentiment" tickLine={false} axisLine={false} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Area dataKey="positive" type="natural" fill="var(--color-positive)" fillOpacity={0.25} stroke="var(--color-positive)" />
-                    <Area dataKey="negative" type="natural" fill="var(--color-negative)" fillOpacity={0.2} stroke="var(--color-negative)" />
-                  </AreaChart>
+                    <Bar dataKey="reviews" fill="var(--color-reviews)" radius={6} />
+                  </BarChart>
                 </ChartContainer>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader>
-                <CardTitle>Recurring issue categories</CardTitle>
+                <CardTitle>Issue categories</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartContainer config={issueConfig} className="h-72 w-full">
@@ -486,9 +525,11 @@ export default function Page() {
                         <TableHead>Review</TableHead>
                         <TableHead>Source</TableHead>
                         <TableHead>Rating</TableHead>
+                        <TableHead>Sentiment</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Severity</TableHead>
+                        <TableHead>Analysis</TableHead>
                         <TableHead>Dedupe</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
@@ -510,12 +551,30 @@ export default function Page() {
                             </Badge>
                           </TableCell>
                           <TableCell>{review.rating ?? "N/A"}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{review.analysis?.sentiment_label ?? review.sentiment_label}</div>
+                            <div className="text-xs text-muted-foreground">
+                              score {review.analysis?.sentiment_score.toFixed(2) ?? review.sentiment_score.toFixed(2)}
+                            </div>
+                          </TableCell>
                           <TableCell>{review.issue_category_code}</TableCell>
                           <TableCell>{review.department_code}</TableCell>
                           <TableCell>
-                            <Badge variant={review.severity === "high" ? "destructive" : "outline"}>
-                              {review.severity}
+                            <Badge variant={["high", "critical"].includes(review.analysis?.severity_label ?? review.severity) ? "destructive" : "outline"}>
+                              {review.analysis?.severity_label ?? review.severity}
                             </Badge>
+                            <div className="mt-1 text-xs text-muted-foreground">
+                              score {review.analysis?.severity_score ?? "N/A"}
+                            </div>
+                          </TableCell>
+                          <TableCell className="min-w-48">
+                            <div className="font-medium">{review.analysis?.analysis_version ?? "not analyzed"}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {review.analysis?.model_version ?? "No model metadata"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              recurrence {review.analysis?.explanation_factors.signals?.recurrence_count_7d ?? 0}
+                            </div>
                           </TableCell>
                           <TableCell>
                             {review.is_content_duplicate ? <Badge variant="outline">Content duplicate</Badge> : "Unique"}

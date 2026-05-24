@@ -19,6 +19,7 @@ from app.models import (
     IssueCategory,
     NormalizedReview,
     RawReview,
+    ReviewAnalysis,
     ReviewSource,
     SeverityThreshold,
 )
@@ -88,6 +89,22 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert session.query(RawReview).count() == 6
         assert session.query(NormalizedReview).count() == 6
         assert all(review.content_hash for review in session.scalars(select(NormalizedReview)))
+        assert session.query(ReviewAnalysis).count() == 6
+
+        analyzed_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "seed-kg-005")
+        )
+        assert analyzed_review is not None
+        assert analyzed_review.analysis is not None
+        assert analyzed_review.analysis.is_active is True
+        assert analyzed_review.analysis.model_name == "local-deterministic-review-analysis"
+        assert analyzed_review.analysis.model_version == "2026.07.demo-fallback"
+        assert analyzed_review.analysis.analysis_version == "analysis-v1"
+        assert analyzed_review.analysis.issue_category_code == "cleanliness"
+        assert analyzed_review.analysis.department_code == "housekeeping"
+        assert analyzed_review.analysis.severity_label in {"high", "critical"}
+        assert analyzed_review.analysis.explanation_factors["severity"]["weights"]["rating"] > 0
+        assert "fallback_note" in analyzed_review.analysis.explanation_factors["model"]
 
 
 def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monkeypatch) -> None:
@@ -155,12 +172,14 @@ def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monk
         assert second_run.records_duplicate_flagged == 2
         assert session.query(RawReview).count() == 2
         assert session.query(NormalizedReview).count() == 2
+        assert session.query(ReviewAnalysis).count() == 2
         assert {review.external_review_id for review in reviews} == {"dedupe-001", "dedupe-002"}
         assert len({review.content_hash for review in reviews}) == 1
         assert reviews[0].content_hash == normalized_content_hash(payloads[0])
         assert {review.is_content_duplicate for review in reviews} == {True}
         assert reviews[0].duplicate_of_review_id is None
         assert reviews[1].duplicate_of_review_id == reviews[0].id
+        assert all(review.analysis is not None for review in reviews)
 
 
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:
@@ -187,6 +206,7 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
         assert session.query(IngestionRun).count() == 6
         assert session.query(RawReview).count() == 6
         assert session.query(NormalizedReview).count() == 6
+        assert session.query(ReviewAnalysis).count() == 6
         raw_google = session.scalar(select(RawReview).where(RawReview.source_code == "google_business_profile"))
         assert raw_google is not None
         assert "reviewId" in raw_google.raw_payload
@@ -196,6 +216,8 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
         assert normalized_google is not None
         assert normalized_google.normalized_payload["verified_review_source"] is True
         assert normalized_google.normalized_payload["mock_official_shaped_connector"] is True
+        assert normalized_google.analysis is not None
+        assert normalized_google.analysis.explanation_factors["department"]["mapping_source"] == "category_department_mappings.primary"
 
 
 def test_reddit_social_listening_ingestion_is_repeatable_and_marked_separately(
@@ -230,6 +252,7 @@ def test_reddit_social_listening_ingestion_is_repeatable_and_marked_separately(
         assert {record.source_type for record in reddit_records} == {"social_listening"}
         assert {record.is_verified_channel for record in reddit_records} == {False}
         assert all(record.rating is None for record in reddit_records)
+        assert all(record.analysis is not None for record in reddit_records)
 
 
 def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Path, monkeypatch) -> None:
@@ -283,6 +306,10 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
     default_reviews = reviews_response.json()["reviews"]
     assert len(default_reviews) == 6
     assert {review["source_type"] for review in default_reviews} == {"seed_dataset"}
+    assert all(review["analysis"] is not None for review in default_reviews)
+    assert all(review["analysis"]["severity_score"] >= 0 for review in default_reviews)
+    assert all(review["analysis"]["model_version"] == "2026.07.demo-fallback" for review in default_reviews)
+    assert all("severity" in review["analysis"]["explanation_factors"] for review in default_reviews)
 
     assert reddit_reviews_response.status_code == 200
     reddit_reviews = reddit_reviews_response.json()["reviews"]
@@ -368,6 +395,7 @@ def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, 
         assert second_run.records_skipped == 2
         assert session.query(RawReview).filter(RawReview.source_code == "apify_dataset_import").count() == 2
         assert session.query(NormalizedReview).filter(NormalizedReview.source_code == "apify_dataset_import").count() == 2
+        assert session.query(ReviewAnalysis).count() == 2
 
         raw_review = session.scalar(select(RawReview).where(RawReview.external_review_id == "g-001"))
         assert raw_review is not None
@@ -386,6 +414,69 @@ def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, 
         assert metadata["export_date"] == "2026-05-20T09:00:00+00:00"
         assert metadata["platform"] == "google"
         assert metadata["source_url"] == "https://example.test/hotel"
+        assert normalized_review.analysis is not None
+        assert normalized_review.analysis.sentiment_label == "positive"
+        assert normalized_review.analysis.department_code == "guest_relations"
+
+
+def test_apify_import_reanalyzes_changed_reviews(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'apify-update.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    first_export_path = tmp_path / "apify-first.json"
+    first_export_path.write_text(
+        """
+        [
+          {
+            "reviewId": "g-update-001",
+            "reviewerName": "Ayesha F.",
+            "publishedAt": "2026-05-19T12:30:00Z",
+            "stars": "5",
+            "reviewText": "Excellent stay and helpful staff."
+          }
+        ]
+        """,
+        encoding="utf-8",
+    )
+    changed_export_path = tmp_path / "apify-changed.json"
+    changed_export_path.write_text(
+        """
+        [
+          {
+            "reviewId": "g-update-001",
+            "reviewerName": "Ayesha F.",
+            "publishedAt": "2026-05-19T12:30:00Z",
+            "stars": "1",
+            "reviewText": "Dirty bathroom floor and broken shower made the stay difficult."
+          }
+        ]
+        """,
+        encoding="utf-8",
+    )
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        first_run = run_apify_dataset_import(session, ApifyImportInput(file_path=str(first_export_path)))
+        changed_run = run_apify_dataset_import(session, ApifyImportInput(file_path=str(changed_export_path)))
+
+        assert first_run.records_created == 1
+        assert changed_run.records_updated == 1
+        assert session.query(ReviewAnalysis).count() == 1
+
+        normalized_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "g-update-001")
+        )
+        assert normalized_review is not None
+        assert normalized_review.analysis is not None
+        assert normalized_review.analysis.sentiment_label == "negative"
+        assert normalized_review.analysis.issue_category_code == "cleanliness"
+        assert normalized_review.analysis.department_code == "housekeeping"
+        assert normalized_review.analysis.severity_label in {"high", "critical"}
+        assert normalized_review.sentiment_label == normalized_review.analysis.sentiment_label
+        assert normalized_review.department_code == normalized_review.analysis.department_code
 
 
 def test_apify_csv_import_can_be_triggered_through_api(tmp_path: Path, monkeypatch) -> None:

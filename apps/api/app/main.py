@@ -134,7 +134,11 @@ async def reviews(
     include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
-    query = select(NormalizedReview).join(NormalizedReview.source).options(selectinload(NormalizedReview.source))
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(selectinload(NormalizedReview.source), selectinload(NormalizedReview.analysis))
+    )
     if source_type is not None:
         query = query.where(ReviewSource.source_type == source_type)
     elif not include_social_listening:

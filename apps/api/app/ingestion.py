@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.analysis import analyze_and_persist_review
 from app.connectors.base import MockConnector
 from app.connectors.registry import get_connector
 from app.models import IngestionRun, NormalizedReview, RawReview, ReviewSource
@@ -165,11 +166,13 @@ def upsert_ingested_review(
         normalized_review = NormalizedReview(**values)
         session.add(normalized_review)
         session.flush()
+        analyze_and_persist_review(session, normalized_review, now)
         run.records_created += 1
     elif payload_changed:
         previous_content_hash = normalized_review.content_hash
         for field, value in values.items():
             setattr(normalized_review, field, value)
+        analyze_and_persist_review(session, normalized_review, now)
         run.records_updated += 1
     else:
         if normalized_review.content_hash != values["content_hash"]:
