@@ -3,15 +3,24 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.database import get_session
+from app.ingestion import run_seed_ingestion
 from app.models import (
     CategoryDepartmentMapping,
     DemoRole,
     Department,
+    IngestionRun,
     IssueCategory,
+    NormalizedReview,
     ReviewSource,
     SeverityThreshold,
 )
-from app.schemas import HealthResponse, ReferenceConfigResponse
+from app.schemas import (
+    HealthResponse,
+    IngestionRunResponse,
+    IngestionRunsResponse,
+    ReferenceConfigResponse,
+    ReviewsResponse,
+)
 
 
 app = FastAPI(
@@ -44,3 +53,20 @@ async def reference_config(session: Session = Depends(get_session)) -> Reference
         severity_thresholds=list(session.scalars(select(SeverityThreshold).order_by(SeverityThreshold.category_code))),
         demo_roles=list(session.scalars(select(DemoRole).order_by(DemoRole.code))),
     )
+
+
+@app.post("/ingestion/seed", tags=["ingestion"], response_model=IngestionRunResponse)
+async def import_seed_reviews(session: Session = Depends(get_session)) -> IngestionRun:
+    return run_seed_ingestion(session)
+
+
+@app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)
+async def ingestion_runs(session: Session = Depends(get_session)) -> IngestionRunsResponse:
+    runs = list(session.scalars(select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(10)))
+    return IngestionRunsResponse(runs=runs)
+
+
+@app.get("/reviews", tags=["reviews"], response_model=ReviewsResponse)
+async def reviews(session: Session = Depends(get_session)) -> ReviewsResponse:
+    imported_reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.review_date.desc())))
+    return ReviewsResponse(reviews=imported_reviews)

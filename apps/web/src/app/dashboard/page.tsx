@@ -1,6 +1,7 @@
 "use client"
 
 import type * as React from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   Area,
   AreaChart,
@@ -13,7 +14,16 @@ import {
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 import {
   ChartConfig,
   ChartContainer,
@@ -59,10 +69,8 @@ const issueConfig = {
 } satisfies ChartConfig
 
 const metrics = [
-  { label: "Verified reviews", value: "1,248", detail: "+14% this month" },
+  { label: "Verified reviews", value: "1,248", detail: "mock baseline" },
   { label: "Negative sentiment", value: "18%", detail: "verified sources only" },
-  { label: "High severity", value: "37", detail: "needs review" },
-  { label: "Open tickets", value: "22", detail: "7 waiting on department" },
 ]
 
 const queues = [
@@ -92,7 +100,113 @@ const queues = [
   },
 ]
 
+type Review = {
+  id: number
+  source_code: string
+  external_review_id: string
+  reviewer_name: string | null
+  review_date: string | null
+  rating: number | null
+  title: string | null
+  body: string
+  sentiment_label: string
+  issue_category_code: string
+  severity: string
+  department_code: string
+  action_status: string
+}
+
+type IngestionRun = {
+  id: number
+  connector_key: string
+  source_code: string
+  status: string
+  started_at: string
+  completed_at: string | null
+  records_seen: number
+  records_created: number
+  records_updated: number
+  records_skipped: number
+  error_count: number
+  errors: string[]
+}
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+
+function formatDate(value: string | null) {
+  if (!value) {
+    return "Not recorded"
+  }
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
+}
+
 export default function Page() {
+  const [reviews, setReviews] = useState<Review[]>([])
+  const [runs, setRuns] = useState<IngestionRun[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isImporting, setIsImporting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const latestRun = runs[0]
+  const importedMetrics = useMemo(
+    () => [
+      ...metrics,
+      {
+        label: "Imported seed reviews",
+        value: reviews.length.toString(),
+        detail: latestRun ? `last run ${latestRun.status}` : "awaiting import",
+      },
+      {
+        label: "High severity",
+        value: reviews.filter((review) => review.severity === "high").length.toString(),
+        detail: "from imported reviews",
+      },
+    ],
+    [latestRun, reviews]
+  )
+
+  async function loadIngestionData() {
+    setError(null)
+    const [reviewsResponse, runsResponse] = await Promise.all([
+      fetch(`${apiBaseUrl}/reviews`),
+      fetch(`${apiBaseUrl}/ingestion/runs`),
+    ])
+    if (!reviewsResponse.ok || !runsResponse.ok) {
+      throw new Error("Unable to load review ingestion data")
+    }
+    const reviewsPayload = await reviewsResponse.json()
+    const runsPayload = await runsResponse.json()
+    setReviews(reviewsPayload.reviews)
+    setRuns(runsPayload.runs)
+  }
+
+  useEffect(() => {
+    loadIngestionData()
+      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load data"))
+      .finally(() => setIsLoading(false))
+  }, [])
+
+  async function triggerSeedImport() {
+    setIsImporting(true)
+    setError(null)
+    try {
+      const response = await fetch(`${apiBaseUrl}/ingestion/seed`, { method: "POST" })
+      if (!response.ok) {
+        throw new Error("Seed import failed")
+      }
+      await loadIngestionData()
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : "Seed import failed")
+    } finally {
+      setIsImporting(false)
+    }
+  }
+
   return (
     <SidebarProvider
       style={
@@ -133,7 +247,7 @@ export default function Page() {
           </section>
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {metrics.map((metric) => (
+            {importedMetrics.map((metric) => (
               <Card key={metric.label}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -185,7 +299,7 @@ export default function Page() {
 
           <section className="grid gap-4 xl:grid-cols-4">
             {queues.map((queue) => (
-              <Card key={queue.title} id={queue.id}>
+              <Card key={queue.title}>
                 <CardHeader>
                   <div className="flex items-center justify-between gap-3">
                     <CardTitle>{queue.title}</CardTitle>
@@ -197,6 +311,99 @@ export default function Page() {
                 </CardContent>
               </Card>
             ))}
+          </section>
+
+          <section id="ingestion" className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <CardTitle>Ingestion run</CardTitle>
+                  <Button onClick={triggerSeedImport} disabled={isImporting}>
+                    {isImporting ? "Importing" : "Run seed import"}
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4 text-sm">
+                {error ? <p className="text-destructive">{error}</p> : null}
+                {isLoading ? (
+                  <p className="text-muted-foreground">Loading ingestion status.</p>
+                ) : latestRun ? (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <p className="text-muted-foreground">Status</p>
+                      <Badge variant={latestRun.status === "completed" ? "secondary" : "outline"}>
+                        {latestRun.status}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Connector</p>
+                      <p className="font-medium">{latestRun.connector_key}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Completed</p>
+                      <p className="font-medium">{formatDate(latestRun.completed_at)}</p>
+                    </div>
+                    <div>
+                      <p className="text-muted-foreground">Counts</p>
+                      <p className="font-medium">
+                        {latestRun.records_seen} seen, {latestRun.records_created} created,{" "}
+                        {latestRun.records_updated} updated, {latestRun.records_skipped} skipped
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground">No ingestion runs yet.</p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card id="reviews">
+              <CardHeader>
+                <CardTitle>Imported reviews</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {reviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Run the seed import to populate normalized reviews.
+                  </p>
+                ) : (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Review</TableHead>
+                        <TableHead>Rating</TableHead>
+                        <TableHead>Category</TableHead>
+                        <TableHead>Department</TableHead>
+                        <TableHead>Severity</TableHead>
+                        <TableHead>Status</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {reviews.map((review) => (
+                        <TableRow key={review.id}>
+                          <TableCell className="min-w-80 whitespace-normal">
+                            <div className="font-medium">{review.title ?? review.external_review_id}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {review.reviewer_name ?? "Anonymous"} · {formatDate(review.review_date)}
+                            </div>
+                            <p className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground">{review.body}</p>
+                          </TableCell>
+                          <TableCell>{review.rating ?? "N/A"}</TableCell>
+                          <TableCell>{review.issue_category_code}</TableCell>
+                          <TableCell>{review.department_code}</TableCell>
+                          <TableCell>
+                            <Badge variant={review.severity === "high" ? "destructive" : "outline"}>
+                              {review.severity}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>{review.action_status}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </CardContent>
+            </Card>
           </section>
         </main>
       </SidebarInset>

@@ -24,6 +24,15 @@ npm run api:seed
 
 Seeded configuration is exposed at http://localhost:8000/config.
 
+The fallback seed review connector can be triggered through the API:
+
+```bash
+curl -X POST http://localhost:8000/ingestion/seed
+```
+
+Imported normalized reviews are exposed at http://localhost:8000/reviews, and
+recent ingestion runs are exposed at http://localhost:8000/ingestion/runs.
+
 ## Run the web app only
 
 Use Node.js 20 or newer.

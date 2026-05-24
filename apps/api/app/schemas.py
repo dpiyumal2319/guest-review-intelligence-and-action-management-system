@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -77,3 +79,49 @@ class ReferenceConfigResponse(BaseModel):
     category_department_mappings: list[CategoryDepartmentMappingResponse]
     severity_thresholds: list[SeverityThresholdResponse]
     demo_roles: list[DemoRoleResponse]
+
+
+class IngestionRunResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    connector_key: str
+    source_code: str
+    status: str
+    started_at: datetime
+    completed_at: datetime | None
+    records_seen: int
+    records_created: int
+    records_updated: int
+    records_skipped: int
+    error_count: int
+    errors: list[str]
+
+
+class ReviewResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    source_code: str
+    external_review_id: str
+    reviewer_name: str | None
+    review_date: datetime | None
+    rating: float | None
+    language: str
+    title: str | None
+    body: str
+    sentiment_label: str
+    sentiment_score: float
+    issue_category_code: str
+    severity: str
+    department_code: str
+    action_status: str
+    updated_at: datetime
+
+
+class ReviewsResponse(BaseModel):
+    reviews: list[ReviewResponse]
+
+
+class IngestionRunsResponse(BaseModel):
+    runs: list[IngestionRunResponse]
