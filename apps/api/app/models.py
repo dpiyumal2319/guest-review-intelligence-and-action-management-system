@@ -114,6 +114,7 @@ class IngestionRun(Base):
     records_created: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     records_updated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     records_skipped: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    records_duplicate_flagged: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     error_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     errors: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
 
@@ -171,6 +172,12 @@ class NormalizedReview(Base):
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="en")
     title: Mapped[str | None] = mapped_column(String(255))
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    is_content_duplicate: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    duplicate_of_review_id: Mapped[int | None] = mapped_column(
+        Integer,
+        ForeignKey("normalized_reviews.id", ondelete="SET NULL"),
+    )
     sentiment_label: Mapped[str] = mapped_column(String(32), nullable=False)
     sentiment_score: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
     issue_category_code: Mapped[str] = mapped_column(

@@ -112,6 +112,9 @@ type Review = {
   rating: number | null
   title: string | null
   body: string
+  content_hash: string
+  is_content_duplicate: boolean
+  duplicate_of_review_id: number | null
   sentiment_label: string
   issue_category_code: string
   severity: string
@@ -130,6 +133,7 @@ type IngestionRun = {
   records_created: number
   records_updated: number
   records_skipped: number
+  records_duplicate_flagged: number
   error_count: number
   errors: string[]
 }
@@ -424,7 +428,7 @@ export default function Page() {
                               <p>Completed: {formatDate(run.completed_at)}</p>
                               <p>
                                 {run.records_seen} seen, {run.records_created} created, {run.records_updated} updated,{" "}
-                                {run.records_skipped} skipped
+                                {run.records_skipped} skipped, {run.records_duplicate_flagged} duplicate flagged
                               </p>
                             </div>
                           ) : (
@@ -485,6 +489,7 @@ export default function Page() {
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Severity</TableHead>
+                        <TableHead>Dedupe</TableHead>
                         <TableHead>Status</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -511,6 +516,9 @@ export default function Page() {
                             <Badge variant={review.severity === "high" ? "destructive" : "outline"}>
                               {review.severity}
                             </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {review.is_content_duplicate ? <Badge variant="outline">Content duplicate</Badge> : "Unique"}
                           </TableCell>
                           <TableCell>{review.action_status}</TableCell>
                         </TableRow>

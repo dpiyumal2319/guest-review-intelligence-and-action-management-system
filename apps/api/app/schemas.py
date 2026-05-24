@@ -94,6 +94,7 @@ class IngestionRunResponse(BaseModel):
     records_created: int
     records_updated: int
     records_skipped: int
+    records_duplicate_flagged: int
     error_count: int
     errors: list[str]
 
@@ -146,6 +147,9 @@ class ReviewResponse(BaseModel):
     language: str
     title: str | None
     body: str
+    content_hash: str
+    is_content_duplicate: bool
+    duplicate_of_review_id: int | None
     sentiment_label: str
     sentiment_score: float
     issue_category_code: str
