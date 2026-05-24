@@ -131,6 +131,16 @@ type IngestionRun = {
   errors: string[]
 }
 
+type IngestionSourceStatus = {
+  source_code: string
+  source_name: string
+  connector_key: string | null
+  source_type: string
+  is_verified_channel: boolean
+  latest_run: IngestionRun | null
+  errors: string[]
+}
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
 function formatDate(value: string | null) {
@@ -148,11 +158,17 @@ function formatDate(value: string | null) {
 export default function Page() {
   const [reviews, setReviews] = useState<Review[]>([])
   const [runs, setRuns] = useState<IngestionRun[]>([])
+  const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isImporting, setIsImporting] = useState(false)
+  const [importingConnector, setImportingConnector] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const latestRun = runs[0]
+  const verifiedSourceStatuses = useMemo(
+    () => sourceStatuses.filter((source) => source.is_verified_channel && source.connector_key),
+    [sourceStatuses]
+  )
   const importedMetrics = useMemo(
     () => [
       ...metrics,
@@ -172,17 +188,20 @@ export default function Page() {
 
   async function loadIngestionData() {
     setError(null)
-    const [reviewsResponse, runsResponse] = await Promise.all([
+    const [reviewsResponse, runsResponse, sourceStatusResponse] = await Promise.all([
       fetch(`${apiBaseUrl}/reviews`),
       fetch(`${apiBaseUrl}/ingestion/runs`),
+      fetch(`${apiBaseUrl}/ingestion/source-status`),
     ])
-    if (!reviewsResponse.ok || !runsResponse.ok) {
+    if (!reviewsResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok) {
       throw new Error("Unable to load review ingestion data")
     }
     const reviewsPayload = await reviewsResponse.json()
     const runsPayload = await runsResponse.json()
+    const sourceStatusPayload = await sourceStatusResponse.json()
     setReviews(reviewsPayload.reviews)
     setRuns(runsPayload.runs)
+    setSourceStatuses(sourceStatusPayload.sources)
   }
 
   useEffect(() => {
@@ -204,6 +223,22 @@ export default function Page() {
       setError(importError instanceof Error ? importError.message : "Seed import failed")
     } finally {
       setIsImporting(false)
+    }
+  }
+
+  async function triggerConnectorImport(connectorKey: string) {
+    setImportingConnector(connectorKey)
+    setError(null)
+    try {
+      const response = await fetch(`${apiBaseUrl}/ingestion/connectors/${connectorKey}`, { method: "POST" })
+      if (!response.ok) {
+        throw new Error(`${connectorKey} import failed`)
+      }
+      await loadIngestionData()
+    } catch (importError) {
+      setError(importError instanceof Error ? importError.message : `${connectorKey} import failed`)
+    } finally {
+      setImportingConnector(null)
     }
   }
 
@@ -317,7 +352,7 @@ export default function Page() {
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <CardTitle>Ingestion run</CardTitle>
+                  <CardTitle>Verified source imports</CardTitle>
                   <Button onClick={triggerSeedImport} disabled={isImporting}>
                     {isImporting ? "Importing" : "Run seed import"}
                   </Button>
@@ -327,29 +362,54 @@ export default function Page() {
                 {error ? <p className="text-destructive">{error}</p> : null}
                 {isLoading ? (
                   <p className="text-muted-foreground">Loading ingestion status.</p>
-                ) : latestRun ? (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div>
-                      <p className="text-muted-foreground">Status</p>
-                      <Badge variant={latestRun.status === "completed" ? "secondary" : "outline"}>
-                        {latestRun.status}
-                      </Badge>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Connector</p>
-                      <p className="font-medium">{latestRun.connector_key}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Completed</p>
-                      <p className="font-medium">{formatDate(latestRun.completed_at)}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Counts</p>
-                      <p className="font-medium">
-                        {latestRun.records_seen} seen, {latestRun.records_created} created,{" "}
-                        {latestRun.records_updated} updated, {latestRun.records_skipped} skipped
-                      </p>
-                    </div>
+                ) : verifiedSourceStatuses.length > 0 ? (
+                  <div className="space-y-3">
+                    {verifiedSourceStatuses.map((source) => {
+                      const run = source.latest_run
+                      const connectorKey = source.connector_key ?? ""
+                      const hasErrors = source.errors.length > 0
+                      return (
+                        <div key={source.source_code} className="rounded-md border p-3">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div>
+                              <p className="font-medium">{source.source_name}</p>
+                              <p className="text-xs text-muted-foreground">{connectorKey}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Badge variant={run?.status === "completed" ? "secondary" : hasErrors ? "destructive" : "outline"}>
+                                {run?.status ?? "not run"}
+                              </Badge>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => triggerConnectorImport(connectorKey)}
+                                disabled={importingConnector === connectorKey}
+                              >
+                                {importingConnector === connectorKey ? "Importing" : "Run"}
+                              </Button>
+                            </div>
+                          </div>
+                          {run ? (
+                            <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                              <p>Completed: {formatDate(run.completed_at)}</p>
+                              <p>
+                                {run.records_seen} seen, {run.records_created} created, {run.records_updated} updated,{" "}
+                                {run.records_skipped} skipped
+                              </p>
+                            </div>
+                          ) : (
+                            <p className="mt-3 text-xs text-muted-foreground">No import run recorded for this source.</p>
+                          )}
+                          {hasErrors ? (
+                            <div className="mt-3 space-y-1 text-xs text-destructive">
+                              {source.errors.map((sourceError) => (
+                                <p key={sourceError}>{sourceError}</p>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                      )
+                    })}
                   </div>
                 ) : (
                   <p className="text-muted-foreground">No ingestion runs yet.</p>
