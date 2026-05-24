@@ -27,7 +27,7 @@ def parse_review_date(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value)
 
 
-def normalized_values(raw_review_id: int, payload: dict[str, Any], now: datetime) -> dict[str, Any]:
+def normalized_values(raw_review_id: int, payload: dict[str, Any], now: datetime, connector_key: str) -> dict[str, Any]:
     return {
         "raw_review_id": raw_review_id,
         "source_code": payload["source_code"],
@@ -46,7 +46,9 @@ def normalized_values(raw_review_id: int, payload: dict[str, Any], now: datetime
         "action_status": "new",
         "normalized_payload": {
             "source_name": payload.get("source_name"),
-            "connector_key": SEED_CONNECTOR_KEY,
+            "connector_key": connector_key,
+            "source_type": payload.get("source_type"),
+            "source_url": payload.get("source_url"),
         },
         "updated_at": now,
     }
@@ -185,18 +187,24 @@ def run_mock_connector_by_key(session: Session, connector_key: str) -> Ingestion
     return run_mock_connector(session, get_connector(connector_key))
 
 
-def run_seed_ingestion(session: Session) -> IngestionRun:
+def run_payload_ingestion(
+    session: Session,
+    *,
+    source_code: str,
+    connector_key: str,
+    payloads: list[dict[str, Any]],
+) -> IngestionRun:
     now = datetime.now(UTC)
-    source = session.get(ReviewSource, SEED_SOURCE_CODE)
+    source = session.get(ReviewSource, source_code)
     if source is None:
-        raise ValueError("Seed source configuration is missing. Run migrations and seed config first.")
+        raise ValueError(f"{source_code} source configuration is missing. Run migrations and seed config first.")
 
     run = IngestionRun(
-        connector_key=SEED_CONNECTOR_KEY,
-        source_code=SEED_SOURCE_CODE,
+        connector_key=connector_key,
+        source_code=source_code,
         status="running",
         started_at=now,
-        records_seen=len(SEED_REVIEWS),
+        records_seen=len(payloads),
         records_created=0,
         records_updated=0,
         records_skipped=0,
@@ -207,49 +215,21 @@ def run_seed_ingestion(session: Session) -> IngestionRun:
     session.flush()
 
     try:
-        for payload in SEED_REVIEWS:
-            payload_hash = stable_payload_hash(payload)
-            raw_review = session.scalar(
-                select(RawReview).where(
-                    RawReview.source_code == payload["source_code"],
-                    RawReview.external_review_id == payload["external_review_id"],
+        for payload in payloads:
+            if payload["source_code"] != source_code:
+                raise ValueError(
+                    f"Payload {payload['external_review_id']} belongs to {payload['source_code']}, not {source_code}."
                 )
-            )
-            payload_changed = True
-            if raw_review is None:
-                raw_review = RawReview(
-                    source_code=payload["source_code"],
-                    external_review_id=payload["external_review_id"],
-                    ingestion_run_id=run.id,
-                    raw_payload=payload,
-                    payload_hash=payload_hash,
-                    ingested_at=now,
-                )
-                session.add(raw_review)
-                session.flush()
-            else:
-                payload_changed = raw_review.payload_hash != payload_hash
-                raw_review.ingestion_run_id = run.id
-                raw_review.raw_payload = payload
-                raw_review.payload_hash = payload_hash
-                raw_review.ingested_at = now
-
-            values = normalized_values(raw_review.id, payload, now)
-            normalized_review = session.scalar(
-                select(NormalizedReview).where(
-                    NormalizedReview.source_code == payload["source_code"],
-                    NormalizedReview.external_review_id == payload["external_review_id"],
-                )
-            )
-            if normalized_review is None:
-                session.add(NormalizedReview(**values))
-                run.records_created += 1
-            elif payload_changed:
-                for field, value in values.items():
-                    setattr(normalized_review, field, value)
-                run.records_updated += 1
-            else:
-                run.records_skipped += 1
+            payload_with_metadata = {
+                **payload,
+                "normalized_payload": {
+                    **payload.get("normalized_payload", {}),
+                    "source_type": payload.get("source_type"),
+                    "source_url": payload.get("source_url"),
+                    "connector_key": connector_key,
+                },
+            }
+            upsert_ingested_review(session, run, payload, payload_with_metadata, now)
 
         run.status = "completed"
         run.completed_at = datetime.now(UTC)
@@ -257,12 +237,12 @@ def run_seed_ingestion(session: Session) -> IngestionRun:
     except Exception as exc:
         session.rollback()
         run = IngestionRun(
-            connector_key=SEED_CONNECTOR_KEY,
-            source_code=SEED_SOURCE_CODE,
+            connector_key=connector_key,
+            source_code=source_code,
             status="failed",
             started_at=now,
             completed_at=datetime.now(UTC),
-            records_seen=len(SEED_REVIEWS),
+            records_seen=len(payloads),
             error_count=1,
             errors=[str(exc)],
         )
@@ -271,3 +251,12 @@ def run_seed_ingestion(session: Session) -> IngestionRun:
 
     session.refresh(run)
     return run
+
+
+def run_seed_ingestion(session: Session) -> IngestionRun:
+    return run_payload_ingestion(
+        session,
+        source_code=SEED_SOURCE_CODE,
+        connector_key=SEED_CONNECTOR_KEY,
+        payloads=SEED_REVIEWS,
+    )

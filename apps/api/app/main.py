@@ -1,6 +1,6 @@
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
 from app.connectors.registry import CONNECTORS
@@ -16,6 +16,7 @@ from app.models import (
     ReviewSource,
     SeverityThreshold,
 )
+from app.reddit_import import run_reddit_social_listening_ingestion
 from app.schemas import (
     ApifyDatasetImportRequest,
     HealthResponse,
@@ -88,6 +89,11 @@ async def import_apify_dataset(
     return run_apify_dataset_import(session, ApifyImportInput(**request.model_dump()))
 
 
+@app.post("/ingestion/reddit", tags=["ingestion"], response_model=IngestionRunResponse)
+async def import_reddit_social_listening(session: Session = Depends(get_session)) -> IngestionRun:
+    return run_reddit_social_listening_ingestion(session)
+
+
 @app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)
 async def ingestion_runs(session: Session = Depends(get_session)) -> IngestionRunsResponse:
     runs = list(session.scalars(select(IngestionRun).order_by(IngestionRun.started_at.desc()).limit(10)))
@@ -122,6 +128,19 @@ async def ingestion_source_status(session: Session = Depends(get_session)) -> In
 
 
 @app.get("/reviews", tags=["reviews"], response_model=ReviewsResponse)
-async def reviews(session: Session = Depends(get_session)) -> ReviewsResponse:
-    imported_reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.review_date.desc())))
+async def reviews(
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> ReviewsResponse:
+    query = select(NormalizedReview).join(NormalizedReview.source).options(selectinload(NormalizedReview.source))
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+
+    imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
     return ReviewsResponse(reviews=imported_reviews)
