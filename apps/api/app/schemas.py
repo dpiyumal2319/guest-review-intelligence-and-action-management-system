@@ -132,6 +132,25 @@ class ApifyDatasetImportRequest(BaseModel):
     source_url: str | None = None
 
 
+class ReviewAnalysisResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    sentiment_label: str
+    sentiment_score: float
+    sentiment_confidence: float
+    issue_category_code: str
+    severity_score: int
+    severity_label: str
+    department_code: str
+    model_name: str
+    model_version: str
+    analysis_version: str
+    explanation_factors: dict
+    analyzed_at: datetime
+    is_active: bool
+
+
 class ReviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -157,6 +176,7 @@ class ReviewResponse(BaseModel):
     department_code: str
     action_status: str
     updated_at: datetime
+    analysis: ReviewAnalysisResponse | None
 
 
 class ReviewsResponse(BaseModel):

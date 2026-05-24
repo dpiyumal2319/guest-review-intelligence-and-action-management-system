@@ -33,6 +33,12 @@ curl -X POST http://localhost:8000/ingestion/apify-dataset \
 
 The importer stores the original row payload, normalized review, ingestion run counts, row-level validation errors, and dataset metadata such as actor name, export date, platform, and source URL under the `apify_dataset_import` source.
 
+## Automatic review analysis
+
+Every ingestion path runs local analysis after a normalized review is created or updated. The current demo-safe analyzer is `local-deterministic-review-analysis` version `2026.07.demo-fallback`: a deterministic lexicon and rules fallback used because transformer sentiment dependencies are not installed in this prototype environment.
+
+The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Severity is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
+
 ## Run with Docker
 
 ```bash
