@@ -1,3 +1,7 @@
+## Project working instructions
+
+When approaching a solution, think critically and recommend industry-standard approaches appropriate to the project's scale. If there is already a maintained solution, library, tool, or platform pattern that solves the problem well (not outdated obviously), point to it rather than reinventing it.
+
 ## Agent skills
 
 ### Issue tracker

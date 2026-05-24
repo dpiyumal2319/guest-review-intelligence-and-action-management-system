@@ -4,11 +4,13 @@ How the engineering skills should consume this repo's domain documentation when 
 
 ## Before exploring, read these
 
-- `CONTEXT.md` at the repo root, if it exists.
+- `CONTEXT.md` at the repo root.
 - `CONTEXT-MAP.md` at the repo root, if it exists.
 - `docs/adr/`, if ADRs exist.
+- `docs/prd-guest-review-intelligence.md` or GitHub issue `#1` when implementing product slices.
+- The relevant implementation issue body before making changes.
 
-If any of these files do not exist, proceed silently. The project currently uses a single-context layout.
+If optional files do not exist, proceed silently. The project currently uses a single-context layout.
 
 ## Use the glossary's vocabulary
 
