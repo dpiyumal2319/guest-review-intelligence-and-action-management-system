@@ -98,6 +98,20 @@ class IngestionRunResponse(BaseModel):
     errors: list[str]
 
 
+class IngestionSourceStatusResponse(BaseModel):
+    source_code: str
+    source_name: str
+    connector_key: str | None
+    source_type: str
+    is_verified_channel: bool
+    latest_run: IngestionRunResponse | None
+    errors: list[str]
+
+
+class IngestionSourceStatusesResponse(BaseModel):
+    sources: list[IngestionSourceStatusResponse]
+
+
 class ReviewResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

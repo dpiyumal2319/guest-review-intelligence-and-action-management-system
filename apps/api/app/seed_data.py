@@ -8,7 +8,13 @@ REVIEW_SOURCES = [
         "is_verified_channel": True,
         "connector_key": "google_business_profile",
         "sample_import_path": None,
-        "source_metadata": {"kpi_scope": "verified_reviews", "live_credentials_required": False},
+        "source_metadata": {
+            "kpi_scope": "verified_reviews",
+            "live_credentials_required": False,
+            "verified_review_source": True,
+            "connector_mode": "mock_official_shaped",
+            "provider_payload_shape": "businessprofile.googleapis.com account location review",
+        },
     },
     {
         "code": "booking_com",
@@ -19,7 +25,13 @@ REVIEW_SOURCES = [
         "is_verified_channel": True,
         "connector_key": "booking_com",
         "sample_import_path": None,
-        "source_metadata": {"kpi_scope": "verified_reviews", "live_credentials_required": False},
+        "source_metadata": {
+            "kpi_scope": "verified_reviews",
+            "live_credentials_required": False,
+            "verified_review_source": True,
+            "connector_mode": "mock_official_shaped",
+            "provider_payload_shape": "connectivity guest review with reservation and score breakdown",
+        },
     },
     {
         "code": "tripadvisor",
@@ -30,7 +42,13 @@ REVIEW_SOURCES = [
         "is_verified_channel": True,
         "connector_key": "tripadvisor",
         "sample_import_path": None,
-        "source_metadata": {"kpi_scope": "verified_reviews", "live_credentials_required": False},
+        "source_metadata": {
+            "kpi_scope": "verified_reviews",
+            "live_credentials_required": False,
+            "verified_review_source": True,
+            "connector_mode": "mock_official_shaped",
+            "provider_payload_shape": "content API location review with subratings",
+        },
     },
     {
         "code": "reddit_social_listening",

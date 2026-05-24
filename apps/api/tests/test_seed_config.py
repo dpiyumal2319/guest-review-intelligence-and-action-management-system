@@ -7,7 +7,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.database import get_session
-from app.ingestion import run_seed_ingestion
+from app.connectors.registry import CONNECTORS
+from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
 from app.main import app
 from app.models import (
     CategoryDepartmentMapping,
@@ -52,6 +53,10 @@ def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None
         reddit = session.get(ReviewSource, "reddit_social_listening")
         assert reddit is not None
         assert reddit.is_verified_channel is False
+        google = session.get(ReviewSource, "google_business_profile")
+        assert google is not None
+        assert google.source_metadata["connector_mode"] == "mock_official_shaped"
+        assert google.source_metadata["verified_review_source"] is True
 
 
 def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
@@ -80,6 +85,43 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert session.query(NormalizedReview).count() == 6
 
 
+def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'verified-connectors.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    alembic_config = Config("alembic.ini")
+    command.upgrade(alembic_config, "head")
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        for connector_key in CONNECTORS:
+            first_run = run_mock_connector_by_key(session, connector_key)
+            second_run = run_mock_connector_by_key(session, connector_key)
+
+            assert first_run.status == "completed"
+            assert first_run.records_seen == 2
+            assert first_run.records_created == 2
+            assert second_run.status == "completed"
+            assert second_run.records_seen == 2
+            assert second_run.records_created == 0
+            assert second_run.records_skipped == 2
+
+        assert session.query(IngestionRun).count() == 6
+        assert session.query(RawReview).count() == 6
+        assert session.query(NormalizedReview).count() == 6
+        raw_google = session.scalar(select(RawReview).where(RawReview.source_code == "google_business_profile"))
+        assert raw_google is not None
+        assert "reviewId" in raw_google.raw_payload
+        normalized_google = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.source_code == "google_business_profile")
+        )
+        assert normalized_google is not None
+        assert normalized_google.normalized_payload["verified_review_source"] is True
+        assert normalized_google.normalized_payload["mock_official_shaped_connector"] is True
+
+
 def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'api-config.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
@@ -104,6 +146,9 @@ def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypat
         reviews_response = client.get("/reviews")
         runs_response = client.get("/ingestion/runs")
         ingestion_response = client.post("/ingestion/seed")
+        connector_response = client.post("/ingestion/connectors/google_business_profile")
+        repeat_connector_response = client.post("/ingestion/connectors/google_business_profile")
+        source_status_response = client.get("/ingestion/source-status")
     finally:
         app.dependency_overrides.clear()
 
@@ -128,3 +173,13 @@ def test_config_endpoint_returns_seeded_reference_data(tmp_path: Path, monkeypat
     assert len(runs_response.json()["runs"]) == 1
     assert ingestion_response.status_code == 200
     assert ingestion_response.json()["records_skipped"] == 6
+    assert connector_response.status_code == 200
+    assert connector_response.json()["records_created"] == 2
+    assert repeat_connector_response.status_code == 200
+    assert repeat_connector_response.json()["records_skipped"] == 2
+    assert source_status_response.status_code == 200
+    source_statuses = source_status_response.json()["sources"]
+    google_status = next(source for source in source_statuses if source["source_code"] == "google_business_profile")
+    assert google_status["is_verified_channel"] is True
+    assert google_status["latest_run"]["status"] == "completed"
+    assert google_status["errors"] == []
