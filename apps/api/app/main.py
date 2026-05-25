@@ -3,6 +3,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
+from app.analysis import reanalyze_reviews
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
@@ -13,6 +14,8 @@ from app.models import (
     IngestionRun,
     IssueCategory,
     NormalizedReview,
+    ReviewAnalysis,
+    ReviewIssueCategoryPrediction,
     ReviewSource,
     SeverityThreshold,
 )
@@ -24,6 +27,7 @@ from app.schemas import (
     IngestionRunsResponse,
     IngestionSourceStatusesResponse,
     ReferenceConfigResponse,
+    ReanalysisResponse,
     ReviewsResponse,
 )
 
@@ -131,13 +135,18 @@ async def ingestion_source_status(session: Session = Depends(get_session)) -> In
 async def reviews(
     source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
     include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
     query = (
         select(NormalizedReview)
         .join(NormalizedReview.source)
-        .options(selectinload(NormalizedReview.source), selectinload(NormalizedReview.analysis))
+        .options(
+            selectinload(NormalizedReview.source),
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+        )
     )
     if source_type is not None:
         query = query.where(ReviewSource.source_type == source_type)
@@ -145,6 +154,31 @@ async def reviews(
         query = query.where(ReviewSource.source_type != "social_listening")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
     return ReviewsResponse(reviews=imported_reviews)
+
+
+@app.post("/analysis/reanalyze", tags=["analysis"], response_model=ReanalysisResponse)
+async def reanalyze_imported_reviews(
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+) -> ReanalysisResponse:
+    return ReanalysisResponse(analyzed_count=reanalyze_reviews(session, source_code=source_code, source_type=source_type))

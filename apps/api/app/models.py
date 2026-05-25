@@ -253,3 +253,39 @@ class ReviewAnalysis(Base):
     review: Mapped[NormalizedReview] = relationship(back_populates="analysis")
     issue_category: Mapped[IssueCategory] = relationship()
     department: Mapped[Department] = relationship()
+    issue_category_predictions: Mapped[list["ReviewIssueCategoryPrediction"]] = relationship(
+        back_populates="analysis",
+        cascade="all, delete-orphan",
+        order_by="ReviewIssueCategoryPrediction.rank",
+    )
+
+
+class ReviewIssueCategoryPrediction(Base):
+    __tablename__ = "review_issue_category_predictions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    analysis_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("review_analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    category_code: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    department_code: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("departments.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    analysis: Mapped[ReviewAnalysis] = relationship(back_populates="issue_category_predictions")
+    category: Mapped[IssueCategory] = relationship()
+    department: Mapped[Department] = relationship()

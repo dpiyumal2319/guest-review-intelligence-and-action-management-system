@@ -20,6 +20,7 @@ from app.models import (
     NormalizedReview,
     RawReview,
     ReviewAnalysis,
+    ReviewIssueCategoryPrediction,
     ReviewSource,
     SeverityThreshold,
 )
@@ -90,6 +91,7 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert session.query(NormalizedReview).count() == 6
         assert all(review.content_hash for review in session.scalars(select(NormalizedReview)))
         assert session.query(ReviewAnalysis).count() == 6
+        assert session.query(ReviewIssueCategoryPrediction).count() >= 6
 
         analyzed_review = session.scalar(
             select(NormalizedReview).where(NormalizedReview.external_review_id == "seed-kg-005")
@@ -105,6 +107,13 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert analyzed_review.analysis.severity_label in {"high", "critical"}
         assert analyzed_review.analysis.explanation_factors["severity"]["weights"]["rating"] > 0
         assert "fallback_note" in analyzed_review.analysis.explanation_factors["model"]
+        primary_prediction = analyzed_review.analysis.issue_category_predictions[0]
+        assert primary_prediction.category_code == "cleanliness"
+        assert primary_prediction.confidence > 0
+        assert primary_prediction.model_name == "keyword-baseline-issue-classifier"
+        assert primary_prediction.model_version == "2026.07.demo-fallback"
+        assert primary_prediction.department_code == "housekeeping"
+        assert primary_prediction.analyzed_at == analyzed_review.analysis.analyzed_at
 
 
 def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monkeypatch) -> None:
@@ -278,7 +287,10 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
         reviews_response = client.get("/reviews")
         reddit_reviews_response = client.get("/reviews", params={"source_type": "social_listening"})
         all_reviews_response = client.get("/reviews", params={"include_social_listening": "true"})
+        cleanliness_reviews_response = client.get("/reviews", params={"issue_category_code": "cleanliness"})
+        housekeeping_reviews_response = client.get("/reviews", params={"department_code": "housekeeping"})
         runs_response = client.get("/ingestion/runs")
+        reanalysis_response = client.post("/analysis/reanalyze")
         ingestion_response = client.post("/ingestion/seed")
         connector_response = client.post("/ingestion/connectors/google_business_profile")
         repeat_connector_response = client.post("/ingestion/connectors/google_business_profile")
@@ -310,6 +322,12 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
     assert all(review["analysis"]["severity_score"] >= 0 for review in default_reviews)
     assert all(review["analysis"]["model_version"] == "2026.07.demo-fallback" for review in default_reviews)
     assert all("severity" in review["analysis"]["explanation_factors"] for review in default_reviews)
+    assert all(review["analysis"]["issue_category_predictions"] for review in default_reviews)
+    assert all(
+        {"category_code", "confidence", "model_name", "model_version", "analyzed_at"}
+        <= set(review["analysis"]["issue_category_predictions"][0])
+        for review in default_reviews
+    )
 
     assert reddit_reviews_response.status_code == 200
     reddit_reviews = reddit_reviews_response.json()["reviews"]
@@ -319,8 +337,14 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
 
     assert all_reviews_response.status_code == 200
     assert len(all_reviews_response.json()["reviews"]) == 8
+    assert cleanliness_reviews_response.status_code == 200
+    assert len(cleanliness_reviews_response.json()["reviews"]) >= 1
+    assert housekeeping_reviews_response.status_code == 200
+    assert len(housekeeping_reviews_response.json()["reviews"]) >= 1
     assert runs_response.status_code == 200
     assert len(runs_response.json()["runs"]) == 2
+    assert reanalysis_response.status_code == 200
+    assert reanalysis_response.json()["analyzed_count"] == 8
     assert ingestion_response.status_code == 200
     assert ingestion_response.json()["records_skipped"] == 6
     assert connector_response.status_code == 200

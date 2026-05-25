@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+from functools import lru_cache
 import json
+import os
 import pickle
 from dataclasses import dataclass
 from pathlib import Path
@@ -33,6 +35,15 @@ class ValidationResult:
         return not self.errors
 
 
+@dataclass(frozen=True)
+class IssueCategoryPredictionResult:
+    category_code: str
+    confidence: float
+    rank: int
+    model_name: str
+    model_version: str
+
+
 class KeywordBaselineClassifier:
     """Deterministic baseline used for comparison with the trained model."""
 
@@ -55,16 +66,113 @@ class KeywordBaselineClassifier:
     def predict(self, texts: list[str]) -> list[str]:
         predictions: list[str] = []
         for text in texts:
-            normalized = text.lower()
-            label = self.fallback_label
-            best_score = 0
-            for category_code, keywords in self.KEYWORDS.items():
-                score = sum(1 for keyword in keywords if keyword in normalized)
-                if score > best_score:
-                    label = category_code
-                    best_score = score
+            ranked = self.predict_ranked(text, top_k=1)
+            label = ranked[0].category_code if ranked else self.fallback_label
             predictions.append(label)
         return predictions
+
+    def predict_ranked(self, text: str, *, top_k: int = 3) -> list[IssueCategoryPredictionResult]:
+        normalized = text.lower()
+        raw_scores = {
+            category_code: sum(1 for keyword in keywords if keyword in normalized)
+            for category_code, keywords in self.KEYWORDS.items()
+        }
+        max_score = max(raw_scores.values(), default=0)
+        if max_score == 0:
+            return [
+                IssueCategoryPredictionResult(
+                    category_code=self.fallback_label,
+                    confidence=0.55,
+                    rank=1,
+                    model_name="keyword-baseline-issue-classifier",
+                    model_version="2026.07.demo-fallback",
+                )
+            ]
+
+        ranked_scores = sorted(raw_scores.items(), key=lambda item: (-item[1], item[0]))
+        predictions: list[IssueCategoryPredictionResult] = []
+        for category_code, score in ranked_scores:
+            if score == 0 or len(predictions) >= top_k:
+                break
+            predictions.append(
+                IssueCategoryPredictionResult(
+                    category_code=category_code,
+                    confidence=round(min(0.95, 0.50 + (score / max_score) * 0.35), 3),
+                    rank=len(predictions) + 1,
+                    model_name="keyword-baseline-issue-classifier",
+                    model_version="2026.07.demo-fallback",
+                )
+            )
+        return predictions
+
+
+class IssueCategoryClassifierRuntime:
+    def __init__(self, model_path: Path | None = None) -> None:
+        self.model_path = model_path or default_model_path()
+        self.model = None
+        self.model_name = "keyword-baseline-issue-classifier"
+        self.model_version = "2026.07.demo-fallback"
+        self.fallback = KeywordBaselineClassifier()
+        if self.model_path.exists():
+            with self.model_path.open("rb") as model_file:
+                self.model = pickle.load(model_file)
+            self.model_name = "tfidf-logistic-regression-issue-classifier"
+            self.model_version = os.getenv(
+                "ISSUE_CLASSIFIER_MODEL_VERSION",
+                f"artifact-mtime-{int(self.model_path.stat().st_mtime)}",
+            )
+
+    def predict_ranked(self, text: str, *, top_k: int = 3, min_confidence: float = 0.12) -> list[IssueCategoryPredictionResult]:
+        if self.model is None:
+            return self.fallback.predict_ranked(text, top_k=top_k)
+
+        if hasattr(self.model, "predict_proba") and hasattr(self.model, "classes_"):
+            probabilities = self.model.predict_proba([text])[0]
+            ranked = sorted(
+                zip(self.model.classes_, probabilities, strict=False),
+                key=lambda item: float(item[1]),
+                reverse=True,
+            )
+            filtered_ranked = [
+                (category_code, confidence)
+                for category_code, confidence in ranked
+                if float(confidence) >= min_confidence
+            ][:top_k]
+            predictions = [
+                IssueCategoryPredictionResult(
+                    category_code=str(category_code),
+                    confidence=round(float(confidence), 3),
+                    rank=rank,
+                    model_name=self.model_name,
+                    model_version=self.model_version,
+                )
+                for rank, (category_code, confidence) in enumerate(filtered_ranked, start=1)
+            ]
+            if predictions:
+                return predictions
+
+        primary = str(self.model.predict([text])[0])
+        return [
+            IssueCategoryPredictionResult(
+                category_code=primary,
+                confidence=0.75,
+                rank=1,
+                model_name=self.model_name,
+                model_version=self.model_version,
+            )
+        ]
+
+
+def default_model_path() -> Path:
+    configured_path = os.getenv("ISSUE_CLASSIFIER_MODEL_PATH")
+    if configured_path:
+        return Path(configured_path)
+    return Path(__file__).resolve().parents[2] / "artifacts" / "ml" / "issue_classifier.pkl"
+
+
+@lru_cache(maxsize=1)
+def get_issue_category_classifier() -> IssueCategoryClassifierRuntime:
+    return IssueCategoryClassifierRuntime()
 
 
 def taxonomy_codes() -> set[str]:
