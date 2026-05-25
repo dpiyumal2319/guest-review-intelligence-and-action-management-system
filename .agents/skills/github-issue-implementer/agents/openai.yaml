@@ -1,0 +1,7 @@
+interface:
+  display_name: "GitHub Issue Implementer"
+  short_description: "Implement GitHub issues end to end"
+  default_prompt: "Use $github-issue-implementer to implement a GitHub issue end to end from this checkout."
+
+policy:
+  allow_implicit_invocation: true
