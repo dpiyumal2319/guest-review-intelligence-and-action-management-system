@@ -5,9 +5,10 @@ from datetime import UTC, datetime, timedelta
 import re
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import CategoryDepartmentMapping, NormalizedReview, ReviewAnalysis
+from app.ml.issue_classifier import IssueCategoryPredictionResult, get_issue_category_classifier
+from app.models import CategoryDepartmentMapping, NormalizedReview, ReviewAnalysis, ReviewIssueCategoryPrediction
 
 
 ANALYSIS_VERSION = "analysis-v1"
@@ -105,6 +106,7 @@ class AnalysisResult:
     sentiment_score: float
     sentiment_confidence: float
     issue_category_code: str
+    issue_category_predictions: list[IssueCategoryPredictionResult]
     severity_score: int
     severity_label: str
     department_code: str
@@ -134,9 +136,26 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
     if analysis is None:
         analysis = ReviewAnalysis(review_id=review.id, **values)
         session.add(analysis)
+        session.flush()
     else:
         for field, value in values.items():
             setattr(analysis, field, value)
+        analysis.issue_category_predictions.clear()
+        session.flush()
+
+    analysis.issue_category_predictions = [
+        ReviewIssueCategoryPrediction(
+            category_code=prediction.category_code,
+            confidence=prediction.confidence,
+            rank=prediction.rank,
+            is_primary=prediction.rank == 1,
+            department_code=primary_department_for_category(session, prediction.category_code),
+            model_name=prediction.model_name,
+            model_version=prediction.model_version,
+            analyzed_at=analyzed_at,
+        )
+        for prediction in result.issue_category_predictions
+    ]
 
     review.sentiment_label = result.sentiment_label
     review.sentiment_score = result.sentiment_score
@@ -151,7 +170,8 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
     text = " ".join(part for part in [review.title, review.body] if part)
     tokens = tokenize(text)
     sentiment_label, sentiment_score, sentiment_confidence, sentiment_factors = score_sentiment(tokens, review.rating)
-    issue_category_code, category_factors = classify_issue_category(tokens, sentiment_label)
+    issue_category_predictions, category_factors = classify_issue_categories(text, tokens, sentiment_label)
+    issue_category_code = issue_category_predictions[0].category_code
     department_code = primary_department_for_category(session, issue_category_code)
     urgency_score, urgency_matches = urgency_factor(text)
     recurrence_count = recurrence_count_7d(session, review, issue_category_code, analyzed_at)
@@ -180,6 +200,8 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
                 "Deterministic local lexicon/rule fallback used for demo-safe analysis because transformer "
                 "sentiment dependencies are not installed in this prototype environment."
             ),
+            "issue_classifier_model": issue_category_predictions[0].model_name,
+            "issue_classifier_version": issue_category_predictions[0].model_version,
         },
         "signals": {
             "urgency_terms": urgency_matches,
@@ -192,6 +214,7 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
         sentiment_score=sentiment_score,
         sentiment_confidence=sentiment_confidence,
         issue_category_code=issue_category_code,
+        issue_category_predictions=issue_category_predictions,
         severity_score=severity_score,
         severity_label=severity_label,
         department_code=department_code,
@@ -224,6 +247,40 @@ def score_sentiment(tokens: set[str], rating: float | None) -> tuple[str, float,
     }
 
 
+def classify_issue_categories(
+    text: str,
+    tokens: set[str],
+    sentiment_label: str,
+) -> tuple[list[IssueCategoryPredictionResult], dict]:
+    classifier = get_issue_category_classifier()
+    predictions = classifier.predict_ranked(text, top_k=3)
+    if predictions:
+        return predictions, {
+            "predictions": [
+                {
+                    "category_code": prediction.category_code,
+                    "confidence": prediction.confidence,
+                    "rank": prediction.rank,
+                    "model_name": prediction.model_name,
+                    "model_version": prediction.model_version,
+                }
+                for prediction in predictions
+            ],
+            "mapping_source": "trained_classifier_artifact" if classifier.model is not None else "keyword_baseline_fallback",
+        }
+
+    category, factors = classify_issue_category(tokens, sentiment_label)
+    return [
+        IssueCategoryPredictionResult(
+            category_code=category,
+            confidence=0.55,
+            rank=1,
+            model_name="local-keyword-rule-issue-classifier",
+            model_version="2026.07.demo-fallback",
+        )
+    ], factors
+
+
 def classify_issue_category(tokens: set[str], sentiment_label: str) -> tuple[str, dict]:
     scores = {
         category: len({term for term in terms if term in tokens})
@@ -240,6 +297,34 @@ def classify_issue_category(tokens: set[str], sentiment_label: str) -> tuple[str
         "selected_category": category,
         "mapping_source": "local_keyword_rules",
     }
+
+
+def reanalyze_reviews(
+    session: Session,
+    *,
+    source_code: str | None = None,
+    source_type: str | None = None,
+    analyzed_at: datetime | None = None,
+) -> int:
+    analyzed_at = analyzed_at or datetime.now(UTC)
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.source),
+        )
+    )
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if source_type is not None:
+        query = query.where(NormalizedReview.source.has(source_type=source_type))
+
+    reviews = list(session.scalars(query.order_by(NormalizedReview.id)))
+    for review in reviews:
+        analyze_and_persist_review(session, review, analyzed_at)
+    session.commit()
+    return len(reviews)
 
 
 def score_severity(

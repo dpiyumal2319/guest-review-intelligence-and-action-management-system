@@ -149,6 +149,21 @@ class ReviewAnalysisResponse(BaseModel):
     explanation_factors: dict
     analyzed_at: datetime
     is_active: bool
+    issue_category_predictions: list["IssueCategoryPredictionResponse"] = []
+
+
+class IssueCategoryPredictionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    category_code: str
+    confidence: float
+    rank: int
+    is_primary: bool
+    department_code: str
+    model_name: str
+    model_version: str
+    analyzed_at: datetime
 
 
 class ReviewResponse(BaseModel):
@@ -185,3 +200,7 @@ class ReviewsResponse(BaseModel):
 
 class IngestionRunsResponse(BaseModel):
     runs: list[IngestionRunResponse]
+
+
+class ReanalysisResponse(BaseModel):
+    analyzed_count: int

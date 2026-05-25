@@ -23,6 +23,13 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
   ChartConfig,
   ChartContainer,
   ChartTooltip,
@@ -109,6 +116,7 @@ type ReviewAnalysis = {
   analysis_version: string
   analyzed_at: string
   is_active: boolean
+  issue_category_predictions: IssueCategoryPrediction[]
   explanation_factors: {
     model?: {
       fallback_note?: string
@@ -119,6 +127,29 @@ type ReviewAnalysis = {
       urgency_terms?: string[]
     }
   }
+}
+
+type IssueCategoryPrediction = {
+  id: number
+  category_code: string
+  confidence: number
+  rank: number
+  is_primary: boolean
+  department_code: string
+  model_name: string
+  model_version: string
+  analyzed_at: string
+}
+
+type IssueCategory = {
+  code: string
+  name: string
+  is_positive_signal: boolean
+}
+
+type Department = {
+  code: string
+  name: string
 }
 
 type IngestionRun = {
@@ -172,16 +203,29 @@ export default function Page() {
   const [reviews, setReviews] = useState<Review[]>([])
   const [runs, setRuns] = useState<IngestionRun[]>([])
   const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
+  const [issueCategories, setIssueCategories] = useState<IssueCategory[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [reviewScope, setReviewScope] = useState<ReviewScope>("default")
+  const [issueCategoryFilter, setIssueCategoryFilter] = useState("all")
+  const [departmentFilter, setDepartmentFilter] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
   const [importingSource, setImportingSource] = useState<"seed" | "reddit" | null>(null)
   const [importingConnector, setImportingConnector] = useState<string | null>(null)
+  const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const latestRun = runs[0]
   const verifiedSourceStatuses = useMemo(
     () => sourceStatuses.filter((source) => source.is_verified_channel && source.connector_key),
     [sourceStatuses]
+  )
+  const issueCategoryNameByCode = useMemo(
+    () => Object.fromEntries(issueCategories.map((category) => [category.code, category.name])),
+    [issueCategories]
+  )
+  const departmentNameByCode = useMemo(
+    () => Object.fromEntries(departments.map((department) => [department.code, department.name])),
+    [departments]
   )
   const activeAnalyses = useMemo(
     () => reviews.map((review) => review.analysis).filter((analysis): analysis is ReviewAnalysis => analysis !== null),
@@ -238,14 +282,45 @@ export default function Page() {
   )
   const issueData = useMemo(() => {
     const counts = activeAnalyses.reduce<Record<string, number>>((totals, analysis) => {
-      totals[analysis.issue_category_code] = (totals[analysis.issue_category_code] ?? 0) + 1
+      for (const prediction of analysis.issue_category_predictions.filter((prediction) => prediction.is_primary)) {
+        totals[prediction.category_code] = (totals[prediction.category_code] ?? 0) + 1
+      }
       return totals
     }, {})
     return Object.entries(counts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 6)
-      .map(([category, count]) => ({ category: category.replaceAll("_", " "), count }))
-  }, [activeAnalyses])
+      .map(([category, count]) => ({ category: issueCategoryNameByCode[category] ?? category.replaceAll("_", " "), count }))
+  }, [activeAnalyses, issueCategoryNameByCode])
+  const issueRows = useMemo(() => {
+    const counts = activeAnalyses.reduce<Record<string, { count: number; confidenceTotal: number; departments: Set<string> }>>(
+      (totals, analysis) => {
+        const primaryPrediction = analysis.issue_category_predictions.find((prediction) => prediction.is_primary)
+        if (!primaryPrediction) {
+          return totals
+        }
+        totals[primaryPrediction.category_code] ??= {
+          count: 0,
+          confidenceTotal: 0,
+          departments: new Set<string>(),
+        }
+        totals[primaryPrediction.category_code].count += 1
+        totals[primaryPrediction.category_code].confidenceTotal += primaryPrediction.confidence
+        totals[primaryPrediction.category_code].departments.add(primaryPrediction.department_code)
+        return totals
+      },
+      {}
+    )
+    return Object.entries(counts)
+      .sort((a, b) => b[1].count - a[1].count)
+      .map(([categoryCode, values]) => ({
+        categoryCode,
+        categoryName: issueCategoryNameByCode[categoryCode] ?? categoryCode.replaceAll("_", " "),
+        count: values.count,
+        averageConfidence: values.confidenceTotal / values.count,
+        departments: Array.from(values.departments),
+      }))
+  }, [activeAnalyses, issueCategoryNameByCode])
 
   const loadIngestionData = useCallback(async () => {
     setError(null)
@@ -256,21 +331,31 @@ export default function Page() {
     if (reviewScope === "all") {
       reviewsUrl.searchParams.set("include_social_listening", "true")
     }
-    const [reviewsResponse, runsResponse, sourceStatusResponse] = await Promise.all([
+    if (issueCategoryFilter !== "all") {
+      reviewsUrl.searchParams.set("issue_category_code", issueCategoryFilter)
+    }
+    if (departmentFilter !== "all") {
+      reviewsUrl.searchParams.set("department_code", departmentFilter)
+    }
+    const [reviewsResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
       fetch(reviewsUrl),
       fetch(`${apiBaseUrl}/ingestion/runs`),
       fetch(`${apiBaseUrl}/ingestion/source-status`),
+      fetch(`${apiBaseUrl}/config`),
     ])
-    if (!reviewsResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok) {
+    if (!reviewsResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
       throw new Error("Unable to load review ingestion data")
     }
     const reviewsPayload = await reviewsResponse.json()
     const runsPayload = await runsResponse.json()
     const sourceStatusPayload = await sourceStatusResponse.json()
+    const configPayload = await configResponse.json()
     setReviews(reviewsPayload.reviews)
     setRuns(runsPayload.runs)
     setSourceStatuses(sourceStatusPayload.sources)
-  }, [reviewScope])
+    setIssueCategories(configPayload.issue_categories)
+    setDepartments(configPayload.departments)
+  }, [departmentFilter, issueCategoryFilter, reviewScope])
 
   useEffect(() => {
     setIsLoading(true)
@@ -308,6 +393,22 @@ export default function Page() {
       setError(importError instanceof Error ? importError.message : `${connectorKey} import failed`)
     } finally {
       setImportingConnector(null)
+    }
+  }
+
+  async function triggerReanalysis() {
+    setIsReanalyzing(true)
+    setError(null)
+    try {
+      const response = await fetch(`${apiBaseUrl}/analysis/reanalyze`, { method: "POST" })
+      if (!response.ok) {
+        throw new Error("Reanalysis failed")
+      }
+      await loadIngestionData()
+    } catch (analysisError) {
+      setError(analysisError instanceof Error ? analysisError.message : "Reanalysis failed")
+    } finally {
+      setIsReanalyzing(false)
     }
   }
 
@@ -400,6 +501,46 @@ export default function Page() {
             </Card>
           </section>
 
+          <Card id="issues">
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Issue category predictions</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Primary multi-label predictions grouped by operational category and routed department.
+                  </p>
+                </div>
+                <Badge variant="outline">{issueRows.length} active categories</Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {issueRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Run an import or refresh analysis to populate issue predictions.</p>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {issueRows.map((issue) => (
+                    <div key={issue.categoryCode} className="rounded-lg border p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">{issue.categoryName}</p>
+                          <p className="text-xs text-muted-foreground">{issue.count} reviews matched</p>
+                        </div>
+                        <Badge variant="secondary">{Math.round(issue.averageConfidence * 100)}%</Badge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {issue.departments.map((departmentCode) => (
+                          <Badge key={departmentCode} variant="outline">
+                            {departmentNameByCode[departmentCode] ?? departmentCode.replaceAll("_", " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <section className="grid gap-4 xl:grid-cols-4">
             {queues.map((queue) => (
               <Card key={queue.title}>
@@ -422,6 +563,9 @@ export default function Page() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <CardTitle>Verified source imports</CardTitle>
                   <div className="flex flex-wrap gap-2">
+                    <Button onClick={triggerReanalysis} disabled={isReanalyzing} variant="outline">
+                      {isReanalyzing ? "Reanalyzing" : "Refresh analysis"}
+                    </Button>
                     <Button onClick={() => triggerImport("seed")} disabled={importingSource !== null} variant="outline">
                       {importingSource === "seed" ? "Importing" : "Run seed import"}
                     </Button>
@@ -510,6 +654,32 @@ export default function Page() {
                         {reviewScopeLabels[scope]}
                       </Button>
                     ))}
+                    <Select value={issueCategoryFilter} onValueChange={(value) => setIssueCategoryFilter(value ?? "all")}>
+                      <SelectTrigger size="sm" className="min-w-44">
+                        <SelectValue placeholder="Issue category" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All issue categories</SelectItem>
+                        {issueCategories.map((category) => (
+                          <SelectItem key={category.code} value={category.code}>
+                            {category.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select value={departmentFilter} onValueChange={(value) => setDepartmentFilter(value ?? "all")}>
+                      <SelectTrigger size="sm" className="min-w-40">
+                        <SelectValue placeholder="Department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All departments</SelectItem>
+                        {departments.map((department) => (
+                          <SelectItem key={department.code} value={department.code}>
+                            {department.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                 </div>
               </CardHeader>
@@ -557,8 +727,21 @@ export default function Page() {
                               score {review.analysis?.sentiment_score.toFixed(2) ?? review.sentiment_score.toFixed(2)}
                             </div>
                           </TableCell>
-                          <TableCell>{review.issue_category_code}</TableCell>
-                          <TableCell>{review.department_code}</TableCell>
+                          <TableCell className="min-w-48">
+                            <div className="flex flex-wrap gap-1">
+                              {(review.analysis?.issue_category_predictions ?? []).slice(0, 3).map((prediction) => (
+                                <Badge key={prediction.id} variant={prediction.is_primary ? "secondary" : "outline"}>
+                                  {issueCategoryNameByCode[prediction.category_code] ?? prediction.category_code.replaceAll("_", " ")}{" "}
+                                  {Math.round(prediction.confidence * 100)}%
+                                </Badge>
+                              ))}
+                              {review.analysis?.issue_category_predictions.length ? null : review.issue_category_code}
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            {departmentNameByCode[review.analysis?.department_code ?? review.department_code] ??
+                              (review.analysis?.department_code ?? review.department_code).replaceAll("_", " ")}
+                          </TableCell>
                           <TableCell>
                             <Badge variant={["high", "critical"].includes(review.analysis?.severity_label ?? review.severity) ? "destructive" : "outline"}>
                               {review.analysis?.severity_label ?? review.severity}
@@ -571,6 +754,9 @@ export default function Page() {
                             <div className="font-medium">{review.analysis?.analysis_version ?? "not analyzed"}</div>
                             <div className="text-xs text-muted-foreground">
                               {review.analysis?.model_version ?? "No model metadata"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              issue model {review.analysis?.issue_category_predictions[0]?.model_version ?? "N/A"}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               recurrence {review.analysis?.explanation_factors.signals?.recurrence_count_7d ?? 0}
