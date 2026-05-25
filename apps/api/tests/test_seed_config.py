@@ -26,6 +26,7 @@ from app.models import (
 )
 from app.reddit_import import run_reddit_social_listening_ingestion
 from app.seed import seed_reference_config
+from app.semantic_similarity import analyze_semantic_similarity
 
 
 def migrate(database_url: str) -> None:
@@ -191,6 +192,70 @@ def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monk
         assert all(review.analysis is not None for review in reviews)
 
 
+def test_semantic_similarity_flags_near_duplicates_without_merging(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'semantic-dedupe.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        payloads = [
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": "semantic-001",
+                "reviewer_name": "Guest One",
+                "review_date": "2026-05-20T10:00:00+00:00",
+                "rating": 2.0,
+                "language": "en",
+                "title": "Slow check-in queue",
+                "body": "The front desk check-in queue was very slow and took too long.",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.65,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": "semantic-002",
+                "reviewer_name": "Guest Two",
+                "review_date": "2026-05-21T12:00:00+00:00",
+                "rating": 2.0,
+                "language": "en",
+                "title": "Front desk delay",
+                "body": "Check-in at the front desk took a very long time because the queue was slow.",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.62,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+        ]
+
+        run = run_payload_ingestion(
+            session,
+            source_code="kingsbury_seed_dataset",
+            connector_key="test_semantic_dedupe",
+            payloads=payloads,
+        )
+        reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
+        semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+
+        assert run.status == "completed"
+        assert run.records_created == 2
+        assert run.records_duplicate_flagged == 0
+        assert {review.is_content_duplicate for review in reviews} == {False}
+        assert {review.duplicate_of_review_id for review in reviews} == {None}
+        assert semantic_result.near_duplicate_pairs
+        assert semantic_result.clusters
+        assert semantic_result.clusters[0].size == 2
+        assert semantic_result.clusters[0].category_code in {"booking_checkin", "service_delay"}
+        assert semantic_result.clusters[0].department_code
+        assert semantic_result.clusters[0].source_mix == {"kingsbury_seed_dataset": 2}
+
+
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'verified-connectors.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
@@ -289,6 +354,7 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
         all_reviews_response = client.get("/reviews", params={"include_social_listening": "true"})
         cleanliness_reviews_response = client.get("/reviews", params={"issue_category_code": "cleanliness"})
         housekeeping_reviews_response = client.get("/reviews", params={"department_code": "housekeeping"})
+        semantic_response = client.get("/analysis/semantic-clusters", params={"similarity_threshold": 0.30})
         runs_response = client.get("/ingestion/runs")
         reanalysis_response = client.post("/analysis/reanalyze")
         ingestion_response = client.post("/ingestion/seed")
@@ -341,6 +407,13 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
     assert len(cleanliness_reviews_response.json()["reviews"]) >= 1
     assert housekeeping_reviews_response.status_code == 200
     assert len(housekeeping_reviews_response.json()["reviews"]) >= 1
+    assert semantic_response.status_code == 200
+    semantic_payload = semantic_response.json()
+    assert semantic_payload["embedding_model_name"] == "local-tfidf-cosine-review-embeddings"
+    assert semantic_payload["similarity_threshold"] == 0.30
+    assert "sentence-transformers" in semantic_payload["embedding_fallback_note"]
+    assert "near_duplicate_pairs" in semantic_payload
+    assert "clusters" in semantic_payload
     assert runs_response.status_code == 200
     assert len(runs_response.json()["runs"]) == 2
     assert reanalysis_response.status_code == 200

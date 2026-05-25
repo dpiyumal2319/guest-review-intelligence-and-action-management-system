@@ -178,6 +178,36 @@ type IngestionSourceStatus = {
   errors: string[]
 }
 
+type SemanticDuplicatePair = {
+  review_id: number
+  matched_review_id: number
+  similarity: number
+  category_code: string
+  department_code: string
+}
+
+type SemanticIssueCluster = {
+  cluster_id: string
+  size: number
+  representative_review_id: number
+  representative_text: string
+  category_code: string
+  department_code: string
+  source_mix: Record<string, number>
+  review_ids: number[]
+  average_similarity: number
+}
+
+type SemanticAnalysis = {
+  embedding_model_name: string
+  embedding_model_version: string
+  embedding_fallback_note: string
+  similarity_threshold: number
+  min_cluster_size: number
+  near_duplicate_pairs: SemanticDuplicatePair[]
+  clusters: SemanticIssueCluster[]
+}
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 const reviewScopeLabels = {
   default: "Verified and dataset imports",
@@ -205,6 +235,7 @@ export default function Page() {
   const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
   const [issueCategories, setIssueCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
+  const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [reviewScope, setReviewScope] = useState<ReviewScope>("default")
   const [issueCategoryFilter, setIssueCategoryFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
@@ -321,36 +352,46 @@ export default function Page() {
         departments: Array.from(values.departments),
       }))
   }, [activeAnalyses, issueCategoryNameByCode])
+  const semanticClusters = semanticAnalysis?.clusters ?? []
+  const nearDuplicatePairCount = semanticAnalysis?.near_duplicate_pairs.length ?? 0
 
   const loadIngestionData = useCallback(async () => {
     setError(null)
     const reviewsUrl = new URL(`${apiBaseUrl}/reviews`)
+    const semanticUrl = new URL(`${apiBaseUrl}/analysis/semantic-clusters`)
     if (reviewScope === "social") {
       reviewsUrl.searchParams.set("source_type", "social_listening")
+      semanticUrl.searchParams.set("source_type", "social_listening")
     }
     if (reviewScope === "all") {
       reviewsUrl.searchParams.set("include_social_listening", "true")
+      semanticUrl.searchParams.set("include_social_listening", "true")
     }
     if (issueCategoryFilter !== "all") {
       reviewsUrl.searchParams.set("issue_category_code", issueCategoryFilter)
+      semanticUrl.searchParams.set("issue_category_code", issueCategoryFilter)
     }
     if (departmentFilter !== "all") {
       reviewsUrl.searchParams.set("department_code", departmentFilter)
+      semanticUrl.searchParams.set("department_code", departmentFilter)
     }
-    const [reviewsResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
+    const [reviewsResponse, semanticResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
       fetch(reviewsUrl),
+      fetch(semanticUrl),
       fetch(`${apiBaseUrl}/ingestion/runs`),
       fetch(`${apiBaseUrl}/ingestion/source-status`),
       fetch(`${apiBaseUrl}/config`),
     ])
-    if (!reviewsResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
+    if (!reviewsResponse.ok || !semanticResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
       throw new Error("Unable to load review ingestion data")
     }
     const reviewsPayload = await reviewsResponse.json()
+    const semanticPayload = await semanticResponse.json()
     const runsPayload = await runsResponse.json()
     const sourceStatusPayload = await sourceStatusResponse.json()
     const configPayload = await configResponse.json()
     setReviews(reviewsPayload.reviews)
+    setSemanticAnalysis(semanticPayload)
     setRuns(runsPayload.runs)
     setSourceStatuses(sourceStatusPayload.sources)
     setIssueCategories(configPayload.issue_categories)
@@ -531,6 +572,59 @@ export default function Page() {
                         {issue.departments.map((departmentCode) => (
                           <Badge key={departmentCode} variant="outline">
                             {departmentNameByCode[departmentCode] ?? departmentCode.replaceAll("_", " ")}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <CardTitle>Semantic issue clusters</CardTitle>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Local embedding similarity groups near-duplicate reviews for visibility without merging records.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">{semanticClusters.length} clusters</Badge>
+                  <Badge variant="secondary">{nearDuplicatePairCount} near-duplicate pairs</Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {semanticClusters.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No semantic clusters above the current similarity threshold.
+                </p>
+              ) : (
+                <div className="grid gap-3 lg:grid-cols-2">
+                  {semanticClusters.map((cluster) => (
+                    <div key={cluster.cluster_id} className="rounded-lg border p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <p className="font-medium">
+                            {issueCategoryNameByCode[cluster.category_code] ?? cluster.category_code.replaceAll("_", " ")}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {cluster.size} reviews · representative #{cluster.representative_review_id}
+                          </p>
+                        </div>
+                        <Badge variant="secondary">{Math.round(cluster.average_similarity * 100)}% similar</Badge>
+                      </div>
+                      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{cluster.representative_text}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Badge variant="outline">
+                          {departmentNameByCode[cluster.department_code] ?? cluster.department_code.replaceAll("_", " ")}
+                        </Badge>
+                        {Object.entries(cluster.source_mix).map(([sourceCode, count]) => (
+                          <Badge key={sourceCode} variant="outline">
+                            {sourceCode.replaceAll("_", " ")}: {count}
                           </Badge>
                         ))}
                       </div>

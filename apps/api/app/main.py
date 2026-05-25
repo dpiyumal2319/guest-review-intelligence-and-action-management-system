@@ -29,6 +29,12 @@ from app.schemas import (
     ReferenceConfigResponse,
     ReanalysisResponse,
     ReviewsResponse,
+    SemanticAnalysisResponse,
+)
+from app.semantic_similarity import (
+    DEFAULT_MIN_CLUSTER_SIZE,
+    DEFAULT_SIMILARITY_THRESHOLD,
+    analyze_semantic_similarity,
 )
 
 
@@ -173,6 +179,58 @@ async def reviews(
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
     return ReviewsResponse(reviews=imported_reviews)
+
+
+@app.get("/analysis/semantic-clusters", tags=["analysis"], response_model=SemanticAnalysisResponse)
+async def semantic_clusters(
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
+    min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
+    session: Session = Depends(get_session),
+) -> SemanticAnalysisResponse:
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(
+            selectinload(NormalizedReview.source),
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+        )
+    )
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+
+    imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
+    return SemanticAnalysisResponse.model_validate(
+        analyze_semantic_similarity(
+            imported_reviews,
+            similarity_threshold=similarity_threshold,
+            min_cluster_size=min_cluster_size,
+        ).__dict__
+    )
 
 
 @app.post("/analysis/reanalyze", tags=["analysis"], response_model=ReanalysisResponse)

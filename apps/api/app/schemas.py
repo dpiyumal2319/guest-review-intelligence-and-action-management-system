@@ -198,6 +198,36 @@ class ReviewsResponse(BaseModel):
     reviews: list[ReviewResponse]
 
 
+class SemanticDuplicatePairResponse(BaseModel):
+    review_id: int
+    matched_review_id: int
+    similarity: float
+    category_code: str
+    department_code: str
+
+
+class SemanticIssueClusterResponse(BaseModel):
+    cluster_id: str
+    size: int
+    representative_review_id: int
+    representative_text: str
+    category_code: str
+    department_code: str
+    source_mix: dict[str, int]
+    review_ids: list[int]
+    average_similarity: float
+
+
+class SemanticAnalysisResponse(BaseModel):
+    embedding_model_name: str
+    embedding_model_version: str
+    embedding_fallback_note: str
+    similarity_threshold: float
+    min_cluster_size: int
+    near_duplicate_pairs: list[SemanticDuplicatePairResponse]
+    clusters: list[SemanticIssueClusterResponse]
+
+
 class IngestionRunsResponse(BaseModel):
     runs: list[IngestionRunResponse]
 
