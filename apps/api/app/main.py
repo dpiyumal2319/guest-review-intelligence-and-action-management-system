@@ -31,6 +31,7 @@ from app.schemas import (
     IngestionRunsResponse,
     IngestionSourceStatusesResponse,
     ReferenceConfigResponse,
+    OverviewKpiResponse,
     ReanalysisResponse,
     ReviewsResponse,
     SemanticAnalysisResponse,
@@ -253,6 +254,134 @@ async def reanalyze_imported_reviews(
 _VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verified"}
 _VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
 _VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
+_VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
+_VALID_SEVERITY_LABELS = {"low", "medium", "high", "critical"}
+
+
+@app.get("/overview/kpis", tags=["overview"], response_model=OverviewKpiResponse)
+async def overview_kpis(
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    action_status: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> OverviewKpiResponse:
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
+        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
+        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(selectinload(NormalizedReview.analysis))
+    )
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if severity is not None:
+        query = query.where(NormalizedReview.severity == severity)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
+
+    matched_reviews = list(session.scalars(query))
+    total = len(matched_reviews)
+
+    sentiment_mix = {label: 0 for label in _VALID_SENTIMENT_LABELS}
+    severity_mix = {label: 0 for label in _VALID_SEVERITY_LABELS}
+    action_status_mix = {label: 0 for label in _VALID_REVIEW_ACTION_STATUSES}
+    department_counts: dict[str, int] = {}
+    category_counts: dict[str, int] = {}
+    rating_total = 0.0
+    rating_count = 0
+    severity_score_total = 0
+    severity_score_count = 0
+
+    for review in matched_reviews:
+        if review.sentiment_label in sentiment_mix:
+            sentiment_mix[review.sentiment_label] += 1
+        if review.severity in severity_mix:
+            severity_mix[review.severity] += 1
+        if review.action_status in action_status_mix:
+            action_status_mix[review.action_status] += 1
+        if review.rating is not None:
+            rating_total += float(review.rating)
+            rating_count += 1
+        if review.department_code:
+            department_counts[review.department_code] = department_counts.get(review.department_code, 0) + 1
+        if review.issue_category_code:
+            category_counts[review.issue_category_code] = category_counts.get(review.issue_category_code, 0) + 1
+        if review.analysis is not None:
+            severity_score_total += review.analysis.severity_score
+            severity_score_count += 1
+
+    average_rating = round(rating_total / rating_count, 2) if rating_count else None
+    average_severity_score = round(severity_score_total / severity_score_count) if severity_score_count else 0
+
+    top_departments = [
+        {"code": code, "count": count}
+        for code, count in sorted(department_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    ]
+    top_categories = [
+        {"code": code, "count": count}
+        for code, count in sorted(category_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    ]
+
+    return OverviewKpiResponse(
+        total_reviews=total,
+        average_rating=average_rating,
+        average_severity_score=average_severity_score,
+        sentiment_mix=sentiment_mix,
+        severity_mix=severity_mix,
+        action_status_mix=action_status_mix,
+        top_departments=top_departments,
+        top_categories=top_categories,
+        include_social_listening=include_social_listening,
+        filters_applied={
+            "source_type": source_type,
+            "source_code": source_code,
+            "issue_category_code": issue_category_code,
+            "department_code": department_code,
+            "sentiment_label": sentiment_label,
+            "severity": severity,
+            "action_status": action_status,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+        },
+    )
 
 
 @app.post("/reviews/{review_id}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
