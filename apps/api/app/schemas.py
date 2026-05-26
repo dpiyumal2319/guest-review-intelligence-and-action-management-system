@@ -234,3 +234,54 @@ class IngestionRunsResponse(BaseModel):
 
 class ReanalysisResponse(BaseModel):
     analyzed_count: int
+
+
+class TicketCreateRequest(BaseModel):
+    department_code: str
+    priority: str = Field(description="low, medium, high, or urgent")
+    assignee_name: str | None = None
+    assignee_email: str | None = None
+    due_date: datetime | None = None
+    notes: str | None = None
+
+
+class TicketUpdateRequest(BaseModel):
+    status: str | None = Field(default=None, description="open, in_progress, blocked, resolved, or verified")
+    priority: str | None = None
+    assignee_name: str | None = None
+    assignee_email: str | None = None
+    due_date: datetime | None = None
+    notes: str | None = None
+
+
+class TicketEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ticket_id: int
+    event_type: str
+    old_value: str | None
+    new_value: str | None
+    note: str | None
+    occurred_at: datetime
+
+
+class TicketResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    review_id: int
+    department_code: str
+    priority: str
+    status: str
+    assignee_name: str | None
+    assignee_email: str | None
+    due_date: datetime | None
+    notes: str | None
+    created_at: datetime
+    updated_at: datetime
+    events: list[TicketEventResponse] = []
+
+
+class TicketsResponse(BaseModel):
+    tickets: list[TicketResponse]

@@ -22,8 +22,7 @@ Implement one GitHub issue from a local checkout end to end.
 3. Create a fresh branch from the base branch.
    - Fetch the remote base first: `git fetch origin <base>`.
    - Switch to the base and fast-forward when safe, or create from `origin/<base>` if the local base is dirty.
-   - Use the repo branch prefix when configured; otherwise use `codex/issue-<number>-<short-title>`.
-   - In Codex desktop repos, prefer the configured `dasun-codex/` prefix when present in instructions.
+   - Use the repo branch prefix when configured; otherwise use `<implementer>/issue-<number>-<short-title>` where `<implementer>` is derived from the git user name (e.g. `git config user.name` shortened to a slug) or a prefix the user has stated.
 
 4. Implement the issue.
    - Let the issue acceptance criteria drive the scope.

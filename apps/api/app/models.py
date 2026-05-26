@@ -260,6 +260,56 @@ class ReviewAnalysis(Base):
     )
 
 
+class ActionTicket(Base):
+    __tablename__ = "action_tickets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    review_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("normalized_reviews.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    department_code: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("departments.code", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    priority: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    assignee_name: Mapped[str | None] = mapped_column(String(120))
+    assignee_email: Mapped[str | None] = mapped_column(String(255))
+    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    notes: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    review: Mapped["NormalizedReview"] = relationship()
+    department: Mapped[Department] = relationship()
+    events: Mapped[list["TicketEvent"]] = relationship(
+        back_populates="ticket",
+        cascade="all, delete-orphan",
+        order_by="TicketEvent.occurred_at",
+    )
+
+
+class TicketEvent(Base):
+    __tablename__ = "ticket_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ticket_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("action_tickets.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    old_value: Mapped[str | None] = mapped_column(String(255))
+    new_value: Mapped[str | None] = mapped_column(String(255))
+    note: Mapped[str | None] = mapped_column(Text)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    ticket: Mapped[ActionTicket] = relationship(back_populates="events")
+
+
 class ReviewIssueCategoryPrediction(Base):
     __tablename__ = "review_issue_category_predictions"
 

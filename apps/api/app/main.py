@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -8,6 +10,7 @@ from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
 from app.models import (
+    ActionTicket,
     CategoryDepartmentMapping,
     DemoRole,
     Department,
@@ -18,6 +21,7 @@ from app.models import (
     ReviewIssueCategoryPrediction,
     ReviewSource,
     SeverityThreshold,
+    TicketEvent,
 )
 from app.reddit_import import run_reddit_social_listening_ingestion
 from app.schemas import (
@@ -30,6 +34,10 @@ from app.schemas import (
     ReanalysisResponse,
     ReviewsResponse,
     SemanticAnalysisResponse,
+    TicketCreateRequest,
+    TicketResponse,
+    TicketsResponse,
+    TicketUpdateRequest,
 )
 from app.semantic_similarity import (
     DEFAULT_MIN_CLUSTER_SIZE,
@@ -240,3 +248,160 @@ async def reanalyze_imported_reviews(
     session: Session = Depends(get_session),
 ) -> ReanalysisResponse:
     return ReanalysisResponse(analyzed_count=reanalyze_reviews(session, source_code=source_code, source_type=source_type))
+
+
+_VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verified"}
+_VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
+_VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
+
+
+@app.post("/reviews/{review_id}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
+async def create_ticket(
+    review_id: int,
+    body: TicketCreateRequest,
+    session: Session = Depends(get_session),
+) -> ActionTicket:
+    review = session.get(NormalizedReview, review_id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if body.priority not in _VALID_TICKET_PRIORITIES:
+        raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
+    if session.scalar(select(Department).where(Department.code == body.department_code)) is None:
+        raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
+
+    now = datetime.now(timezone.utc)
+    ticket = ActionTicket(
+        review_id=review_id,
+        department_code=body.department_code,
+        priority=body.priority,
+        status="open",
+        assignee_name=body.assignee_name,
+        assignee_email=body.assignee_email,
+        due_date=body.due_date,
+        notes=body.notes,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(ticket)
+
+    review.action_status = "ticket_created"
+    review.updated_at = now
+
+    session.flush()
+
+    session.add(TicketEvent(
+        ticket_id=ticket.id,
+        event_type="created",
+        old_value=None,
+        new_value="open",
+        note=body.notes,
+        occurred_at=now,
+    ))
+    session.commit()
+    session.refresh(ticket)
+    return ticket
+
+
+@app.get("/reviews/{review_id}/tickets", tags=["tickets"], response_model=TicketsResponse)
+async def review_tickets(
+    review_id: int,
+    session: Session = Depends(get_session),
+) -> TicketsResponse:
+    if session.get(NormalizedReview, review_id) is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+    tickets = list(
+        session.scalars(
+            select(ActionTicket)
+            .where(ActionTicket.review_id == review_id)
+            .options(selectinload(ActionTicket.events))
+            .order_by(ActionTicket.created_at.desc())
+        )
+    )
+    return TicketsResponse(tickets=tickets)
+
+
+@app.get("/tickets", tags=["tickets"], response_model=TicketsResponse)
+async def list_tickets(
+    department_code: str | None = Query(default=None),
+    status: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    session: Session = Depends(get_session),
+) -> TicketsResponse:
+    query = select(ActionTicket).options(selectinload(ActionTicket.events))
+    if department_code is not None:
+        query = query.where(ActionTicket.department_code == department_code)
+    if status is not None:
+        query = query.where(ActionTicket.status == status)
+    if priority is not None:
+        query = query.where(ActionTicket.priority == priority)
+    tickets = list(session.scalars(query.order_by(ActionTicket.created_at.desc())))
+    return TicketsResponse(tickets=tickets)
+
+
+@app.get("/tickets/{ticket_id}", tags=["tickets"], response_model=TicketResponse)
+async def get_ticket(
+    ticket_id: int,
+    session: Session = Depends(get_session),
+) -> ActionTicket:
+    ticket = session.scalar(
+        select(ActionTicket)
+        .where(ActionTicket.id == ticket_id)
+        .options(selectinload(ActionTicket.events))
+    )
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    return ticket
+
+
+@app.patch("/tickets/{ticket_id}", tags=["tickets"], response_model=TicketResponse)
+async def update_ticket(
+    ticket_id: int,
+    body: TicketUpdateRequest,
+    session: Session = Depends(get_session),
+) -> ActionTicket:
+    ticket = session.scalar(
+        select(ActionTicket)
+        .where(ActionTicket.id == ticket_id)
+        .options(selectinload(ActionTicket.events))
+    )
+    if ticket is None:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+
+    now = datetime.now(timezone.utc)
+    events: list[TicketEvent] = []
+
+    if body.status is not None and body.status != ticket.status:
+        if body.status not in _VALID_TICKET_STATUSES:
+            raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_TICKET_STATUSES)}")
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="status_change", old_value=ticket.status, new_value=body.status, occurred_at=now))
+        ticket.status = body.status
+
+    if body.priority is not None and body.priority != ticket.priority:
+        if body.priority not in _VALID_TICKET_PRIORITIES:
+            raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="priority_change", old_value=ticket.priority, new_value=body.priority, occurred_at=now))
+        ticket.priority = body.priority
+
+    if body.assignee_name is not None or body.assignee_email is not None:
+        old_assignee = ticket.assignee_name or ticket.assignee_email
+        new_assignee = body.assignee_name or body.assignee_email
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="assignment_change", old_value=old_assignee, new_value=new_assignee, occurred_at=now))
+        if body.assignee_name is not None:
+            ticket.assignee_name = body.assignee_name
+        if body.assignee_email is not None:
+            ticket.assignee_email = body.assignee_email
+
+    if body.notes is not None:
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="note_added", old_value=None, new_value=None, note=body.notes, occurred_at=now))
+        ticket.notes = body.notes
+
+    if body.due_date is not None:
+        ticket.due_date = body.due_date
+
+    if events:
+        ticket.updated_at = now
+        session.add_all(events)
+
+    session.commit()
+    session.refresh(ticket)
+    return ticket
