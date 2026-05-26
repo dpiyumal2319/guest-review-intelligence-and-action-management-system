@@ -30,6 +30,8 @@ from app.schemas import (
     IngestionRunResponse,
     IngestionRunsResponse,
     IngestionSourceStatusesResponse,
+    IssueSummaryResponse,
+    IssueSummaryItemResponse,
     ReferenceConfigResponse,
     OverviewKpiResponse,
     ReanalysisResponse,
@@ -391,6 +393,137 @@ async def overview_kpis(
         action_status_mix=action_status_mix,
         top_departments=top_departments,
         top_categories=top_categories,
+        include_social_listening=include_social_listening,
+        filters_applied={
+            "source_type": source_type,
+            "source_code": source_code,
+            "issue_category_code": issue_category_code,
+            "department_code": department_code,
+            "sentiment_label": sentiment_label,
+            "severity": severity,
+            "action_status": action_status,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+        },
+    )
+
+
+@app.get("/issues/summary", tags=["issues"], response_model=IssueSummaryResponse)
+async def issues_summary(
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    action_status: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> IssueSummaryResponse:
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
+        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
+        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(
+            selectinload(NormalizedReview.source),
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.issue_category),
+        )
+    )
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if severity is not None:
+        query = query.where(NormalizedReview.severity == severity)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
+
+    matched_reviews = list(session.scalars(query))
+    total = len(matched_reviews)
+
+    # Aggregate per category
+    category_aggregates: dict[str, dict] = {}
+    for review in matched_reviews:
+        cat_code = review.issue_category_code
+        if cat_code not in category_aggregates:
+            category_aggregates[cat_code] = {
+                "category_code": cat_code,
+                "category_name": review.issue_category.name if review.issue_category else cat_code.replace("_", " ").title(),
+                "review_count": 0,
+                "severity_score_total": 0,
+                "severity_score_count": 0,
+                "primary_department_code": review.department_code,
+                "department_counts": {},
+                "source_mix": {},
+                "min_review_id": review.id,
+            }
+        agg = category_aggregates[cat_code]
+        agg["review_count"] += 1
+        if review.analysis is not None:
+            agg["severity_score_total"] += review.analysis.severity_score
+            agg["severity_score_count"] += 1
+        dept = review.department_code
+        agg["department_counts"][dept] = agg["department_counts"].get(dept, 0) + 1
+        src = review.source_code
+        agg["source_mix"][src] = agg["source_mix"].get(src, 0) + 1
+        if review.id < agg["min_review_id"]:
+            agg["min_review_id"] = review.id
+
+    items: list[IssueSummaryItemResponse] = []
+    for agg in sorted(category_aggregates.values(), key=lambda x: x["review_count"], reverse=True):
+        avg_severity = (
+            round(agg["severity_score_total"] / agg["severity_score_count"], 1)
+            if agg["severity_score_count"] > 0
+            else 0.0
+        )
+        # Determine primary department from the most frequent department
+        primary_dept = max(agg["department_counts"], key=lambda d: agg["department_counts"][d])
+        items.append(IssueSummaryItemResponse(
+            category_code=agg["category_code"],
+            category_name=agg["category_name"],
+            review_count=agg["review_count"],
+            average_severity_score=avg_severity,
+            primary_department_code=primary_dept,
+            source_mix=agg["source_mix"],
+            representative_review_id=agg["min_review_id"],
+        ))
+
+    return IssueSummaryResponse(
+        items=items,
+        total_reviews=total,
         include_social_listening=include_social_listening,
         filters_applied={
             "source_type": source_type,

@@ -141,6 +141,53 @@ export type Ticket = {
   events: TicketEvent[]
 }
 
+export type IssueSummaryItem = {
+  category_code: string
+  category_name: string
+  review_count: number
+  average_severity_score: number
+  primary_department_code: string
+  source_mix: Record<string, number>
+  representative_review_id: number
+}
+
+export type IssueSummary = {
+  items: IssueSummaryItem[]
+  total_reviews: number
+  include_social_listening: boolean
+  filters_applied: Record<string, string | null>
+}
+
+export type SemanticDuplicatePair = {
+  review_id: number
+  matched_review_id: number
+  similarity: number
+  category_code: string
+  department_code: string
+}
+
+export type SemanticIssueCluster = {
+  cluster_id: string
+  size: number
+  representative_review_id: number
+  representative_text: string
+  category_code: string
+  department_code: string
+  source_mix: Record<string, number>
+  review_ids: number[]
+  average_similarity: number
+}
+
+export type SemanticAnalysis = {
+  embedding_model_name: string
+  embedding_model_version: string
+  embedding_fallback_note: string
+  similarity_threshold: number
+  min_cluster_size: number
+  near_duplicate_pairs: SemanticDuplicatePair[]
+  clusters: SemanticIssueCluster[]
+}
+
 export const SENTIMENT_LABELS = ["positive", "mixed", "negative"] as const
 export const SEVERITY_LABELS = ["low", "medium", "high", "critical"] as const
 export const ACTION_STATUSES = ["new", "reviewed", "ticket_created", "ignored"] as const
