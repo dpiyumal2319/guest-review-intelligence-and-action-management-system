@@ -609,15 +609,51 @@ async def list_tickets(
     department_code: str | None = Query(default=None),
     status: str | None = Query(default=None),
     priority: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    action_status: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> TicketsResponse:
-    query = select(ActionTicket).options(selectinload(ActionTicket.events))
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
+        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
+        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+
+    needs_review_join = any(v is not None for v in [sentiment_label, severity, issue_category_code, action_status])
+
+    if needs_review_join:
+        query = (
+            select(ActionTicket)
+            .join(NormalizedReview, ActionTicket.review_id == NormalizedReview.id)
+            .options(selectinload(ActionTicket.events))
+        )
+    else:
+        query = select(ActionTicket).options(selectinload(ActionTicket.events))
+
     if department_code is not None:
         query = query.where(ActionTicket.department_code == department_code)
     if status is not None:
         query = query.where(ActionTicket.status == status)
     if priority is not None:
         query = query.where(ActionTicket.priority == priority)
+    if date_from is not None:
+        query = query.where(ActionTicket.created_at >= date_from)
+    if date_to is not None:
+        query = query.where(ActionTicket.created_at <= date_to)
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if severity is not None:
+        query = query.where(NormalizedReview.severity == severity)
+    if issue_category_code is not None:
+        query = query.where(NormalizedReview.issue_category_code == issue_category_code)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+
     tickets = list(session.scalars(query.order_by(ActionTicket.created_at.desc())))
     return TicketsResponse(tickets=tickets)
 

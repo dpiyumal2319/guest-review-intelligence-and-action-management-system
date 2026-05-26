@@ -50,7 +50,7 @@ const data = {
     },
     {
       title: "Tickets",
-      url: "/dashboard#tickets",
+      url: "/tickets",
       icon: <ClipboardListIcon />,
     },
     {
