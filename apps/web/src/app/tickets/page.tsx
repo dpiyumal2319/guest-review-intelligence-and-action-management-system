@@ -1,0 +1,337 @@
+"use client"
+
+import { Suspense, useCallback, useEffect, useState } from "react"
+import { AppSidebar } from "@/components/app-sidebar"
+import { SiteHeader } from "@/components/site-header"
+import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from "@/components/ui/sheet"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import type { Department, IssueCategory, ReviewSource, Ticket, TicketEvent } from "@/lib/api-types"
+import type React from "react"
+
+const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+
+function formatDate(value: string | null) {
+  if (!value) return "—"
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(value))
+}
+
+function formatDateTime(value: string | null) {
+  if (!value) return "—"
+  return new Intl.DateTimeFormat("en", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(value))
+}
+
+function priorityVariant(priority: string): "default" | "secondary" | "destructive" | "outline" {
+  if (priority === "urgent") return "destructive"
+  if (priority === "high") return "destructive"
+  if (priority === "medium") return "secondary"
+  return "outline"
+}
+
+function statusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+  if (status === "resolved" || status === "verified") return "default"
+  if (status === "blocked") return "destructive"
+  if (status === "in_progress") return "secondary"
+  return "outline"
+}
+
+function eventTypeLabel(eventType: string): string {
+  return eventType.replaceAll("_", " ")
+}
+
+function TicketDetailSheet({
+  ticket,
+  open,
+  onOpenChange,
+  departmentNameByCode,
+}: {
+  ticket: Ticket | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  departmentNameByCode: Record<string, string>
+}) {
+  if (!ticket) return null
+
+  const sortedEvents = [...ticket.events].sort(
+    (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
+  )
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full sm:max-w-lg overflow-y-auto">
+        <SheetHeader className="pb-4">
+          <SheetTitle>Ticket #{ticket.id}</SheetTitle>
+          <SheetDescription>
+            Linked to review #{ticket.review_id}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Department</p>
+              <p className="font-medium">
+                {departmentNameByCode[ticket.department_code] ?? ticket.department_code.replaceAll("_", " ")}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Priority</p>
+              <Badge variant={priorityVariant(ticket.priority)} className="text-xs mt-0.5">
+                {ticket.priority}
+              </Badge>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Status</p>
+              <Badge variant={statusVariant(ticket.status)} className="text-xs mt-0.5">
+                {ticket.status.replaceAll("_", " ")}
+              </Badge>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Assignee</p>
+              <p className="font-medium">{ticket.assignee_name ?? ticket.assignee_email ?? "—"}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Created</p>
+              <p className="font-medium">{formatDate(ticket.created_at)}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">Due date</p>
+              <p className="font-medium">{formatDate(ticket.due_date)}</p>
+            </div>
+          </div>
+
+          {ticket.notes && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Notes</p>
+              <p className="text-sm rounded-md border bg-muted/40 p-3">{ticket.notes}</p>
+            </div>
+          )}
+
+          <div>
+            <p className="text-xs font-medium text-muted-foreground mb-2 uppercase tracking-wide">
+              Event history
+            </p>
+            {sortedEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No events recorded.</p>
+            ) : (
+              <ol className="relative border-l border-border ml-2 flex flex-col gap-4">
+                {sortedEvents.map((event: TicketEvent) => (
+                  <li key={event.id} className="ml-4">
+                    <div className="absolute -left-1.5 mt-1.5 size-3 rounded-full border bg-background" />
+                    <p className="text-xs text-muted-foreground">{formatDateTime(event.occurred_at)}</p>
+                    <p className="text-sm font-medium capitalize">{eventTypeLabel(event.event_type)}</p>
+                    {(event.old_value || event.new_value) && (
+                      <p className="text-xs text-muted-foreground">
+                        {event.old_value && <span className="line-through mr-1">{event.old_value}</span>}
+                        {event.new_value && <span>{event.new_value}</span>}
+                      </p>
+                    )}
+                    {event.note && (
+                      <p className="text-xs text-muted-foreground italic mt-0.5">{event.note}</p>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
+function TicketsContent() {
+  const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
+  const [tickets, setTickets] = useState<Ticket[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [categories, setCategories] = useState<IssueCategory[]>([])
+  const [sources, setSources] = useState<ReviewSource[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
+
+  const loadConfig = useCallback(async () => {
+    const res = await fetch(`${apiBaseUrl}/config`)
+    if (!res.ok) return
+    const data = await res.json()
+    setDepartments(data.departments)
+    setCategories(data.issue_categories)
+    setSources(data.review_sources)
+  }, [])
+
+  const loadTickets = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const params = buildApiParams()
+      const res = await fetch(`${apiBaseUrl}/tickets?${params}`)
+      if (!res.ok) throw new Error("Failed to load tickets")
+      const data = await res.json()
+      setTickets(data.tickets)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load tickets")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [buildApiParams])
+
+  useEffect(() => { loadConfig() }, [loadConfig])
+  useEffect(() => { loadTickets() }, [loadTickets])
+
+  const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
+
+  function handleRowClick(ticket: Ticket) {
+    setSelectedTicket(ticket)
+    setSheetOpen(true)
+  }
+
+  return (
+    <SidebarProvider
+      style={
+        {
+          "--sidebar-width": "calc(var(--spacing) * 72)",
+          "--header-height": "calc(var(--spacing) * 12)",
+        } as React.CSSProperties
+      }
+    >
+      <AppSidebar variant="inset" />
+      <SidebarInset>
+        <SiteHeader />
+        <main className="flex flex-1 flex-col gap-4 p-4 md:p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-semibold tracking-tight">Tickets</h1>
+              <p className="text-sm text-muted-foreground">
+                Action tickets linked to guest reviews. Filter by ticket fields or the underlying review.
+              </p>
+            </div>
+            {!isLoading && (
+              <Badge variant="outline">{tickets.length} {tickets.length === 1 ? "ticket" : "tickets"}</Badge>
+            )}
+          </div>
+
+          <DashboardFilterBar
+            filters={filters}
+            onFilterChange={setFilter}
+            onClear={clearFilters}
+            hasActiveFilters={hasActiveFilters}
+            sources={sources}
+            categories={categories}
+            departments={departments}
+          />
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">
+                {isLoading ? "Loading…" : error ? "Error" : `${tickets.length} tickets`}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {error ? (
+                <p className="text-sm text-destructive">{error}</p>
+              ) : isLoading ? (
+                <p className="text-sm text-muted-foreground">Loading tickets…</p>
+              ) : tickets.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No tickets match the current filters.</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Created</TableHead>
+                        <TableHead>Department</TableHead>
+                        <TableHead>Priority</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Assignee</TableHead>
+                        <TableHead>Review ID</TableHead>
+                        <TableHead>Due date</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tickets.map((ticket) => (
+                        <TableRow
+                          key={ticket.id}
+                          className="cursor-pointer"
+                          onClick={() => handleRowClick(ticket)}
+                        >
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            {formatDate(ticket.created_at)}
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {departmentNameByCode[ticket.department_code] ?? ticket.department_code.replaceAll("_", " ")}
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={priorityVariant(ticket.priority)} className="text-xs">
+                              {ticket.priority}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            <Badge variant={statusVariant(ticket.status)} className="text-xs">
+                              {ticket.status.replaceAll("_", " ")}
+                            </Badge>
+                          </TableCell>
+                          <TableCell className="text-xs">
+                            {ticket.assignee_name ?? ticket.assignee_email ?? "—"}
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            #{ticket.review_id}
+                          </TableCell>
+                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                            {formatDate(ticket.due_date)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </main>
+      </SidebarInset>
+
+      <TicketDetailSheet
+        ticket={selectedTicket}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        departmentNameByCode={departmentNameByCode}
+      />
+    </SidebarProvider>
+  )
+}
+
+export default function TicketsPage() {
+  return (
+    <Suspense>
+      <TicketsContent />
+    </Suspense>
+  )
+}
