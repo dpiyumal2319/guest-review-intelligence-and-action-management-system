@@ -236,6 +236,29 @@ class ReanalysisResponse(BaseModel):
     analyzed_count: int
 
 
+class OverviewCategoryCountResponse(BaseModel):
+    code: str
+    count: int
+
+
+class OverviewDepartmentCountResponse(BaseModel):
+    code: str
+    count: int
+
+
+class OverviewKpiResponse(BaseModel):
+    total_reviews: int
+    average_rating: float | None
+    average_severity_score: int
+    sentiment_mix: dict[str, int]
+    severity_mix: dict[str, int]
+    action_status_mix: dict[str, int]
+    top_departments: list[OverviewDepartmentCountResponse]
+    top_categories: list[OverviewCategoryCountResponse]
+    include_social_listening: bool
+    filters_applied: dict[str, str | None]
+
+
 class TicketCreateRequest(BaseModel):
     department_code: str
     priority: str = Field(description="low, medium, high, or urgent")

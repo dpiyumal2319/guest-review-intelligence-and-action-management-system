@@ -208,6 +208,24 @@ type SemanticAnalysis = {
   clusters: SemanticIssueCluster[]
 }
 
+type OverviewCount = {
+  code: string
+  count: number
+}
+
+type OverviewKpi = {
+  total_reviews: number
+  average_rating: number | null
+  average_severity_score: number
+  sentiment_mix: Record<string, number>
+  severity_mix: Record<string, number>
+  action_status_mix: Record<string, number>
+  top_departments: OverviewCount[]
+  top_categories: OverviewCount[]
+  include_social_listening: boolean
+  filters_applied: Record<string, string | null>
+}
+
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 const reviewScopeLabels = {
   default: "Verified and dataset imports",
@@ -236,6 +254,7 @@ export default function Page() {
   const [issueCategories, setIssueCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
+  const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null)
   const [reviewScope, setReviewScope] = useState<ReviewScope>("default")
   const [issueCategoryFilter, setIssueCategoryFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
@@ -262,47 +281,39 @@ export default function Page() {
     () => reviews.map((review) => review.analysis).filter((analysis): analysis is ReviewAnalysis => analysis !== null),
     [reviews]
   )
-  const negativeCount = activeAnalyses.filter((analysis) => analysis.sentiment_label === "negative").length
-  const highSeverityCount = activeAnalyses.filter((analysis) => ["high", "critical"].includes(analysis.severity_label)).length
-  const averageSeverity = activeAnalyses.length
-    ? Math.round(activeAnalyses.reduce((total, analysis) => total + analysis.severity_score, 0) / activeAnalyses.length)
-    : 0
-  const departmentCounts = activeAnalyses.reduce<Record<string, number>>((counts, analysis) => {
-    counts[analysis.department_code] = (counts[analysis.department_code] ?? 0) + 1
-    return counts
-  }, {})
-  const topDepartment = Object.entries(departmentCounts).sort((a, b) => b[1] - a[1])[0]
-  const latestAnalysis = [...activeAnalyses].sort((a, b) => Date.parse(b.analyzed_at) - Date.parse(a.analyzed_at))[0]
-  const importedMetrics = useMemo(
-    () => [
+  const importedMetrics = useMemo(() => {
+    const kpiSentimentNegative = overviewKpi?.sentiment_mix?.negative ?? 0
+    const kpiTotal = overviewKpi?.total_reviews ?? 0
+    const kpiSeverityHigh = (overviewKpi?.severity_mix?.high ?? 0) + (overviewKpi?.severity_mix?.critical ?? 0)
+    const kpiTopDepartment = overviewKpi?.top_departments?.[0]
+    return [
       {
         label: reviewScope === "social" ? "Reddit mentions" : "Imported records",
-        value: reviews.length.toString(),
+        value: kpiTotal.toString(),
         detail: latestRun ? `${reviewScopeLabels[reviewScope]} · last run ${latestRun.status}` : reviewScopeLabels[reviewScope],
       },
       {
         label: "Negative sentiment",
-        value: activeAnalyses.length ? `${Math.round((negativeCount / activeAnalyses.length) * 100)}%` : "0%",
-        detail: `${negativeCount} analyzed records`,
+        value: kpiTotal ? `${Math.round((kpiSentimentNegative / kpiTotal) * 100)}%` : "0%",
+        detail: `${kpiSentimentNegative} of ${kpiTotal} records`,
       },
       {
         label: "High severity",
-        value: highSeverityCount.toString(),
-        detail: `average severity score ${averageSeverity}`,
+        value: kpiSeverityHigh.toString(),
+        detail: `average severity score ${overviewKpi?.average_severity_score ?? 0}`,
       },
       {
         label: "Department focus",
-        value: topDepartment ? topDepartment[0].replaceAll("_", " ") : "N/A",
-        detail: topDepartment ? `${topDepartment[1]} assigned analyses` : "no analysis results yet",
+        value: kpiTopDepartment ? (departmentNameByCode[kpiTopDepartment.code] ?? kpiTopDepartment.code.replaceAll("_", " ")) : "N/A",
+        detail: kpiTopDepartment ? `${kpiTopDepartment.count} assigned reviews` : "no analysis results yet",
       },
       {
-        label: "Analysis model",
-        value: latestAnalysis?.analysis_version ?? "N/A",
-        detail: latestAnalysis?.model_version ?? "run an import to analyze reviews",
+        label: "Average rating",
+        value: overviewKpi?.average_rating != null ? overviewKpi.average_rating.toFixed(2) : "N/A",
+        detail: overviewKpi ? `${overviewKpi.include_social_listening ? "incl." : "excl."} social listening` : "run an import to compute KPIs",
       },
-    ],
-    [activeAnalyses.length, averageSeverity, highSeverityCount, latestAnalysis, latestRun, negativeCount, reviewScope, reviews.length, topDepartment]
-  )
+    ]
+  }, [departmentNameByCode, latestRun, overviewKpi, reviewScope])
   const sentimentData = useMemo(
     () =>
       ["positive", "mixed", "negative"].map((sentiment) => ({
@@ -359,39 +370,47 @@ export default function Page() {
     setError(null)
     const reviewsUrl = new URL(`${apiBaseUrl}/reviews`)
     const semanticUrl = new URL(`${apiBaseUrl}/analysis/semantic-clusters`)
+    const overviewUrl = new URL(`${apiBaseUrl}/overview/kpis`)
     if (reviewScope === "social") {
       reviewsUrl.searchParams.set("source_type", "social_listening")
       semanticUrl.searchParams.set("source_type", "social_listening")
+      overviewUrl.searchParams.set("source_type", "social_listening")
     }
     if (reviewScope === "all") {
       reviewsUrl.searchParams.set("include_social_listening", "true")
       semanticUrl.searchParams.set("include_social_listening", "true")
+      overviewUrl.searchParams.set("include_social_listening", "true")
     }
     if (issueCategoryFilter !== "all") {
       reviewsUrl.searchParams.set("issue_category_code", issueCategoryFilter)
       semanticUrl.searchParams.set("issue_category_code", issueCategoryFilter)
+      overviewUrl.searchParams.set("issue_category_code", issueCategoryFilter)
     }
     if (departmentFilter !== "all") {
       reviewsUrl.searchParams.set("department_code", departmentFilter)
       semanticUrl.searchParams.set("department_code", departmentFilter)
+      overviewUrl.searchParams.set("department_code", departmentFilter)
     }
-    const [reviewsResponse, semanticResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
+    const [reviewsResponse, semanticResponse, overviewResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
       fetch(reviewsUrl),
       fetch(semanticUrl),
+      fetch(overviewUrl),
       fetch(`${apiBaseUrl}/ingestion/runs`),
       fetch(`${apiBaseUrl}/ingestion/source-status`),
       fetch(`${apiBaseUrl}/config`),
     ])
-    if (!reviewsResponse.ok || !semanticResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
+    if (!reviewsResponse.ok || !semanticResponse.ok || !overviewResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
       throw new Error("Unable to load review ingestion data")
     }
     const reviewsPayload = await reviewsResponse.json()
     const semanticPayload = await semanticResponse.json()
+    const overviewPayload = await overviewResponse.json()
     const runsPayload = await runsResponse.json()
     const sourceStatusPayload = await sourceStatusResponse.json()
     const configPayload = await configResponse.json()
     setReviews(reviewsPayload.reviews)
     setSemanticAnalysis(semanticPayload)
+    setOverviewKpi(overviewPayload)
     setRuns(runsPayload.runs)
     setSourceStatuses(sourceStatusPayload.sources)
     setIssueCategories(configPayload.issue_categories)
