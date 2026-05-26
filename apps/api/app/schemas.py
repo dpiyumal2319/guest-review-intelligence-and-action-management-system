@@ -308,3 +308,20 @@ class TicketResponse(BaseModel):
 
 class TicketsResponse(BaseModel):
     tickets: list[TicketResponse]
+
+
+class IssueSummaryItemResponse(BaseModel):
+    category_code: str
+    category_name: str
+    review_count: int
+    average_severity_score: float
+    primary_department_code: str
+    source_mix: dict[str, int]
+    representative_review_id: int
+
+
+class IssueSummaryResponse(BaseModel):
+    items: list[IssueSummaryItemResponse]
+    total_reviews: int
+    include_social_listening: bool
+    filters_applied: dict[str, str | None]

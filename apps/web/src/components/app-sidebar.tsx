@@ -45,7 +45,7 @@ const data = {
     },
     {
       title: "Issues",
-      url: "/dashboard#issues",
+      url: "/issues",
       icon: <SirenIcon />,
     },
     {
