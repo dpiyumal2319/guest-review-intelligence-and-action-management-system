@@ -55,7 +55,7 @@ const data = {
     },
     {
       title: "Ingestion",
-      url: "/dashboard#ingestion",
+      url: "/ingestion",
       icon: <RefreshCwIcon />,
     },
   ],
