@@ -40,7 +40,7 @@ const data = {
     },
     {
       title: "Reviews",
-      url: "/dashboard#reviews",
+      url: "/reviews",
       icon: <MessageSquareTextIcon />,
     },
     {

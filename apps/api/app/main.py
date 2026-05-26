@@ -152,9 +152,21 @@ async def reviews(
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    action_status: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
     include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
+        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
+        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+
     query = (
         select(NormalizedReview)
         .join(NormalizedReview.source)
@@ -185,6 +197,16 @@ async def reviews(
                 )
             )
         )
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if severity is not None:
+        query = query.where(NormalizedReview.severity == severity)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
     return ReviewsResponse(reviews=imported_reviews)
