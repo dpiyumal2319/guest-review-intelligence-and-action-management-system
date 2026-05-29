@@ -3,6 +3,8 @@ from datetime import datetime
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from app.redaction import redact_display_text, redacted_fields_for_values
+
 
 class Base(DeclarativeBase):
     pass
@@ -216,6 +218,37 @@ class NormalizedReview(Base):
     @property
     def is_verified_channel(self) -> bool:
         return self.source.is_verified_channel
+
+    @property
+    def display_reviewer_name(self) -> str | None:
+        return redact_display_text(self.reviewer_name).value
+
+    @property
+    def display_external_review_id(self) -> str:
+        return redact_display_text(self.external_review_id).value or ""
+
+    @property
+    def display_title(self) -> str | None:
+        return redact_display_text(self.title).value
+
+    @property
+    def display_body(self) -> str:
+        return redact_display_text(self.body).value or ""
+
+    @property
+    def has_display_redactions(self) -> bool:
+        return bool(self.redacted_display_fields)
+
+    @property
+    def redacted_display_fields(self) -> list[str]:
+        return redacted_fields_for_values(
+            {
+                "reviewer_name": self.reviewer_name,
+                "external_review_id": self.external_review_id,
+                "title": self.title,
+                "body": self.body,
+            }
+        )
 
 
 class ReviewAnalysis(Base):

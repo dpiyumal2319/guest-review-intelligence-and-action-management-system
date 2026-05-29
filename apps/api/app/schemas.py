@@ -176,11 +176,17 @@ class ReviewResponse(BaseModel):
     is_verified_channel: bool
     external_review_id: str
     reviewer_name: str | None
+    display_external_review_id: str
+    display_reviewer_name: str | None
     review_date: datetime | None
     rating: float | None
     language: str
     title: str | None
+    display_title: str | None
     body: str
+    display_body: str
+    has_display_redactions: bool
+    redacted_display_fields: list[str]
     content_hash: str
     is_content_duplicate: bool
     duplicate_of_review_id: int | None
@@ -284,6 +290,7 @@ class RecurringIssueTicketCreateRequest(BaseModel):
 class TicketUpdateRequest(BaseModel):
     status: str | None = Field(default=None, description="open, in_progress, blocked, resolved, or verified")
     priority: str | None = None
+    department_code: str | None = None
     assignee_name: str | None = None
     assignee_email: str | None = None
     due_date: datetime | None = None

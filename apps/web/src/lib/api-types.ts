@@ -43,11 +43,17 @@ export type Review = {
   is_verified_channel: boolean
   external_review_id: string
   reviewer_name: string | null
+  display_external_review_id: string
+  display_reviewer_name: string | null
   review_date: string | null
   rating: number | null
   language: string
   title: string | null
+  display_title: string | null
   body: string
+  display_body: string
+  has_display_redactions: boolean
+  redacted_display_fields: string[]
   content_hash: string
   is_content_duplicate: boolean
   duplicate_of_review_id: number | null

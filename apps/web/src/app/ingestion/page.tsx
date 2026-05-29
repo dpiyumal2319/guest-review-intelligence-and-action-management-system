@@ -6,6 +6,8 @@ import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import {
   Table,
   TableBody,
@@ -51,7 +53,6 @@ const TRIGGERS: TriggerDef[] = [
   { label: "Google Business Profile", url: "/ingestion/connectors/google_business_profile", method: "POST", sourceCode: "google_business_profile" },
   { label: "Booking.com", url: "/ingestion/connectors/booking_com", method: "POST", sourceCode: "booking_com" },
   { label: "Tripadvisor", url: "/ingestion/connectors/tripadvisor", method: "POST", sourceCode: "tripadvisor" },
-  { label: "Apify dataset", url: "/ingestion/apify-dataset", method: "POST", sourceCode: "apify_dataset_import", body: {} },
   { label: "Reddit", url: "/ingestion/reddit", method: "POST", sourceCode: "reddit_social_listening" },
 ]
 
@@ -61,6 +62,9 @@ function IngestionContent() {
   const [isLoading, setIsLoading] = useState(true)
   const [triggering, setTriggering] = useState<string | null>(null)
   const [triggerResult, setTriggerResult] = useState<{ source: string; ok: boolean; message: string } | null>(null)
+  const [apifyFilePath, setApifyFilePath] = useState("")
+  const [apifyFileName, setApifyFileName] = useState("apify-export.json")
+  const [apifyContent, setApifyContent] = useState("")
 
   const load = useCallback(async () => {
     setIsLoading(true)
@@ -97,7 +101,7 @@ function IngestionContent() {
         await load()
       } else {
         const err = await res.json().catch(() => ({ detail: "Unknown error" }))
-        setTriggerResult({ source: t.label, ok: false, message: err.detail ?? "Failed." })
+        setTriggerResult({ source: t.label, ok: false, message: typeof err.detail === "string" ? err.detail : "Failed." })
       }
     } catch {
       setTriggerResult({ source: t.label, ok: false, message: "Network error." })
@@ -105,6 +109,42 @@ function IngestionContent() {
       setTriggering(null)
     }
   }, [load])
+
+  const triggerApifyImport = useCallback(async () => {
+    setTriggering("apify_dataset_import")
+    setTriggerResult(null)
+    try {
+      const body = apifyContent.trim()
+        ? { content: apifyContent, file_name: apifyFileName || "apify-export.json" }
+        : { file_path: apifyFilePath }
+      const res = await fetch(`${apiBaseUrl}/ingestion/apify-dataset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+      const payload = await res.json().catch(() => ({}))
+      if (!res.ok || payload.status === "failed") {
+        const message = Array.isArray(payload.errors)
+          ? payload.errors.join(", ")
+          : typeof payload.detail === "string"
+            ? payload.detail
+            : "Failed to import Apify export."
+        setTriggerResult({ source: "Apify dataset", ok: false, message })
+      } else {
+        const errorNote = payload.error_count > 0 ? ` ${payload.error_count} row error(s) recorded.` : ""
+        setTriggerResult({
+          source: "Apify dataset",
+          ok: true,
+          message: `Imported ${payload.records_created} new and ${payload.records_updated} updated record(s).${errorNote}`,
+        })
+        await load()
+      }
+    } catch {
+      setTriggerResult({ source: "Apify dataset", ok: false, message: "Network error." })
+    } finally {
+      setTriggering(null)
+    }
+  }, [apifyContent, apifyFileName, apifyFilePath, load])
 
   return (
     <SidebarProvider
@@ -151,6 +191,53 @@ function IngestionContent() {
                     {triggering === t.sourceCode ? "Running…" : `Run ${t.label}`}
                   </Button>
                 ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Offline Apify import</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-3 lg:grid-cols-[1fr_1fr_auto]">
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs">Server file path</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    value={apifyFilePath}
+                    onChange={(e) => setApifyFilePath(e.target.value)}
+                    placeholder="data/imports/apify/export.json"
+                    disabled={Boolean(apifyContent.trim())}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <Label className="text-xs">Pasted content file name</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    value={apifyFileName}
+                    onChange={(e) => setApifyFileName(e.target.value)}
+                    placeholder="apify-export.json or apify-export.csv"
+                  />
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={triggering !== null || (!apifyFilePath && !apifyContent.trim())}
+                  onClick={triggerApifyImport}
+                  className="h-8 self-end text-xs"
+                >
+                  {triggering === "apify_dataset_import" ? "Importing..." : "Import Apify export"}
+                </Button>
+                <div className="flex flex-col gap-1.5 lg:col-span-3">
+                  <Label className="text-xs">Pasted JSON or CSV content</Label>
+                  <textarea
+                    className="min-h-28 rounded-md border bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    value={apifyContent}
+                    onChange={(e) => setApifyContent(e.target.value)}
+                    placeholder='[{"reviewId":"demo-001","stars":5,"reviewText":"Excellent stay."}]'
+                  />
+                </div>
               </div>
             </CardContent>
           </Card>

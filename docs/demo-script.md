@@ -143,11 +143,13 @@ curl "$API/reviews?sentiment_label=negative"
 curl "$API/reviews?severity=high"
 curl "$API/reviews?issue_category_code=cleanliness"
 curl "$API/reviews?department_code=housekeeping"
+curl "$API/reviews?search=check-in&department_code=front_office"
 ```
 
 What to show:
 
 - normalized source fields;
+- display-safe review fields, including email/phone redaction metadata when applicable;
 - active analysis;
 - sentiment label and score;
 - issue category predictions;
@@ -309,6 +311,18 @@ What to show:
 - notes and timestamps.
 
 In the web UI, open Tickets and click a ticket row to show the event history sheet.
+Use the ticket detail controls to change status, priority, department, assignee, due date, and notes; the event history refreshes after saving.
+
+## 8a. Offline Apify Import from the Web UI
+
+Open Ingestion and use the Offline Apify import form.
+
+Supported inputs:
+
+- paste JSON or CSV export content and provide a matching file name;
+- provide a server-accessible `.json` or `.csv` file path.
+
+Malformed rows are recorded as import errors, and missing or unsupported input shows a failed import result without implying live Apify API access.
 
 ## 9. Run Offline Classifier Evaluation
 
