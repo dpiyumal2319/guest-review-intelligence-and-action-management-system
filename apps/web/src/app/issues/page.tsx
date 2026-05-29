@@ -5,6 +5,7 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -40,11 +41,15 @@ function CategorySummaryTable({
   categoryNameByCode,
   departmentNameByCode,
   sourceNameByCode,
+  onCreateTicket,
+  creatingTicketFor,
 }: {
   items: IssueSummaryItem[]
   categoryNameByCode: Record<string, string>
   departmentNameByCode: Record<string, string>
   sourceNameByCode: Record<string, string>
+  onCreateTicket: (item: IssueSummaryItem) => void
+  creatingTicketFor: string | null
 }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">No issues match the current filters.</p>
@@ -59,7 +64,9 @@ function CategorySummaryTable({
             <TableHead className="text-right">Avg severity score</TableHead>
             <TableHead>Primary department</TableHead>
             <TableHead>Source mix</TableHead>
+            <TableHead>Tickets</TableHead>
             <TableHead className="text-right">Rep. review ID</TableHead>
+            <TableHead className="text-right">Action</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -83,8 +90,23 @@ function CategorySummaryTable({
                   .map(([src, count]) => `${sourceNameByCode[src] ?? src}: ${count}`)
                   .join(", ")}
               </TableCell>
+              <TableCell className="text-xs text-muted-foreground">
+                {item.linked_ticket_ids.length > 0
+                  ? item.linked_ticket_ids.map((id) => `#${id}`).join(", ")
+                  : "—"}
+              </TableCell>
               <TableCell className="text-right text-xs text-muted-foreground tabular-nums">
                 #{item.representative_review_id}
+              </TableCell>
+              <TableCell className="text-right">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={creatingTicketFor === item.category_code}
+                  onClick={() => onCreateTicket(item)}
+                >
+                  {creatingTicketFor === item.category_code ? "Creating…" : "Create ticket"}
+                </Button>
               </TableCell>
             </TableRow>
           ))}
@@ -94,10 +116,12 @@ function CategorySummaryTable({
   )
 }
 
-function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode }: {
+function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode, onCreateTicket, creatingTicketFor }: {
   cluster: SemanticIssueCluster
   categoryNameByCode: Record<string, string>
   departmentNameByCode: Record<string, string>
+  onCreateTicket: (cluster: SemanticIssueCluster) => void
+  creatingTicketFor: string | null
 }) {
   return (
     <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
@@ -114,7 +138,14 @@ function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode
             avg similarity {(cluster.average_similarity * 100).toFixed(0)}%
           </span>
         </div>
-        <span className="text-xs text-muted-foreground whitespace-nowrap">cluster {cluster.cluster_id}</span>
+        <div className="flex items-center gap-2">
+          {cluster.linked_ticket_ids.length > 0 && (
+            <span className="text-xs text-muted-foreground">
+              tickets {cluster.linked_ticket_ids.map((id) => `#${id}`).join(", ")}
+            </span>
+          )}
+          <span className="text-xs text-muted-foreground whitespace-nowrap">cluster {cluster.cluster_id}</span>
+        </div>
       </div>
       <p className="text-sm line-clamp-3 text-muted-foreground">{cluster.representative_text}</p>
       <div className="flex flex-wrap gap-1">
@@ -123,6 +154,16 @@ function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode
             #{id}
           </span>
         ))}
+      </div>
+      <div>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={creatingTicketFor === cluster.cluster_id}
+          onClick={() => onCreateTicket(cluster)}
+        >
+          {creatingTicketFor === cluster.cluster_id ? "Creating…" : "Create ticket from cluster"}
+        </Button>
       </div>
     </div>
   )
@@ -139,6 +180,8 @@ function IssuesContent() {
   const [isLoadingClusters, setIsLoadingClusters] = useState(true)
   const [summaryError, setSummaryError] = useState<string | null>(null)
   const [clustersError, setClustersError] = useState<string | null>(null)
+  const [creatingCategoryTicket, setCreatingCategoryTicket] = useState<string | null>(null)
+  const [creatingClusterTicket, setCreatingClusterTicket] = useState<string | null>(null)
 
   const loadConfig = useCallback(async () => {
     const res = await fetch(`${apiBaseUrl}/config`)
@@ -188,6 +231,53 @@ function IssuesContent() {
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const sourceNameByCode = Object.fromEntries(sources.map((s) => [s.code, s.name]))
+
+  async function createCategoryTicket(item: IssueSummaryItem) {
+    setCreatingCategoryTicket(item.category_code)
+    setSummaryError(null)
+    try {
+      const params = buildApiParams()
+      const res = await fetch(`${apiBaseUrl}/issues/categories/${item.category_code}/tickets?${params}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          department_code: item.primary_department_code,
+          priority: item.average_severity_score >= 75 ? "urgent" : "high",
+          notes: `Created from ${item.review_count} recurring ${item.category_name} reviews.`,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to create ticket from recurring issue")
+      await loadIssueSummary()
+    } catch (err) {
+      setSummaryError(err instanceof Error ? err.message : "Failed to create ticket from recurring issue")
+    } finally {
+      setCreatingCategoryTicket(null)
+    }
+  }
+
+  async function createClusterTicket(cluster: SemanticIssueCluster) {
+    setCreatingClusterTicket(cluster.cluster_id)
+    setClustersError(null)
+    try {
+      const params = buildApiParams()
+      const res = await fetch(`${apiBaseUrl}/analysis/semantic-clusters/${cluster.cluster_id}/tickets?${params}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          department_code: cluster.department_code,
+          priority: "high",
+          notes: `Created from ${cluster.size} semantically similar reviews.`,
+        }),
+      })
+      if (!res.ok) throw new Error("Failed to create ticket from semantic cluster")
+      await loadSemanticClusters()
+      await loadIssueSummary()
+    } catch (err) {
+      setClustersError(err instanceof Error ? err.message : "Failed to create ticket from semantic cluster")
+    } finally {
+      setCreatingClusterTicket(null)
+    }
+  }
 
   return (
     <SidebarProvider
@@ -248,6 +338,8 @@ function IssuesContent() {
                   categoryNameByCode={categoryNameByCode}
                   departmentNameByCode={departmentNameByCode}
                   sourceNameByCode={sourceNameByCode}
+                  onCreateTicket={createCategoryTicket}
+                  creatingTicketFor={creatingCategoryTicket}
                 />
               )}
             </CardContent>
@@ -281,6 +373,8 @@ function IssuesContent() {
                       cluster={cluster}
                       categoryNameByCode={categoryNameByCode}
                       departmentNameByCode={departmentNameByCode}
+                      onCreateTicket={createClusterTicket}
+                      creatingTicketFor={creatingClusterTicket}
                     />
                   ))}
                 </div>

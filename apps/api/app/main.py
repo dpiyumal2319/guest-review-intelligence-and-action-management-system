@@ -1,8 +1,9 @@
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
@@ -36,6 +37,7 @@ from app.schemas import (
     ReferenceConfigResponse,
     OverviewKpiResponse,
     ReanalysisResponse,
+    RecurringIssueTicketCreateRequest,
     ReviewsResponse,
     SemanticAnalysisResponse,
     TicketCreateRequest,
@@ -265,13 +267,16 @@ async def semantic_clusters(
         )
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
-    return SemanticAnalysisResponse.model_validate(
-        analyze_semantic_similarity(
-            imported_reviews,
-            similarity_threshold=similarity_threshold,
-            min_cluster_size=min_cluster_size,
-        ).__dict__
+    semantic_result = analyze_semantic_similarity(
+        imported_reviews,
+        similarity_threshold=similarity_threshold,
+        min_cluster_size=min_cluster_size,
     )
+    response = SemanticAnalysisResponse.model_validate(asdict(semantic_result))
+    cluster_ticket_ids = _ticket_ids_by_source_group(session, "semantic_cluster")
+    for cluster in response.clusters:
+        cluster.linked_ticket_ids = cluster_ticket_ids.get(cluster.cluster_id, [])
+    return response
 
 
 @app.post("/analysis/reanalyze", tags=["analysis"], response_model=ReanalysisResponse)
@@ -288,6 +293,95 @@ _VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
 _VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
 _VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
 _VALID_SEVERITY_LABELS = {"low", "medium", "high", "critical"}
+
+
+def _ticket_ids_by_source_group(session: Session, source_group_type: str) -> dict[str, list[int]]:
+    tickets = list(
+        session.scalars(
+            select(ActionTicket)
+            .where(ActionTicket.source_group_type == source_group_type)
+            .order_by(ActionTicket.created_at.desc())
+        )
+    )
+    linked: dict[str, list[int]] = {}
+    for ticket in tickets:
+        if ticket.source_group_key is None:
+            continue
+        linked.setdefault(ticket.source_group_key, []).append(ticket.id)
+    return linked
+
+
+def _validate_recurring_ticket_request(body: RecurringIssueTicketCreateRequest, session: Session) -> None:
+    if body.priority not in _VALID_TICKET_PRIORITIES:
+        raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
+    if body.department_code is not None and session.scalar(
+        select(Department).where(Department.code == body.department_code)
+    ) is None:
+        raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
+
+
+def _dominant_department(reviews: list[NormalizedReview]) -> str:
+    counts: dict[str, int] = {}
+    for review in reviews:
+        counts[review.department_code] = counts.get(review.department_code, 0) + 1
+    return max(counts, key=lambda department: counts[department])
+
+
+def _create_recurring_issue_ticket(
+    *,
+    session: Session,
+    body: RecurringIssueTicketCreateRequest,
+    department_code: str,
+    source_group_type: str,
+    source_group_key: str,
+    source_group_label: str,
+    source_category_code: str,
+    source_cluster_id: str | None,
+    source_review_ids: list[int],
+    note_prefix: str,
+) -> ActionTicket:
+    now = datetime.now(timezone.utc)
+    ticket = ActionTicket(
+        review_id=None,
+        department_code=department_code,
+        source_group_type=source_group_type,
+        source_group_key=source_group_key,
+        source_group_label=source_group_label,
+        source_category_code=source_category_code,
+        source_cluster_id=source_cluster_id,
+        source_review_ids=source_review_ids,
+        priority=body.priority,
+        status="open",
+        assignee_name=body.assignee_name,
+        assignee_email=body.assignee_email,
+        due_date=body.due_date,
+        notes=body.notes,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(ticket)
+
+    for review_id in source_review_ids:
+        review = session.get(NormalizedReview, review_id)
+        if review is not None:
+            review.action_status = "ticket_created"
+            review.updated_at = now
+
+    session.flush()
+    note = f"{note_prefix}; source reviews: {', '.join(f'#{review_id}' for review_id in source_review_ids)}"
+    if body.notes:
+        note = f"{note}. {body.notes}"
+    session.add(TicketEvent(
+        ticket_id=ticket.id,
+        event_type="created",
+        old_value=None,
+        new_value="open",
+        note=note,
+        occurred_at=now,
+    ))
+    session.commit()
+    session.refresh(ticket)
+    return ticket
 
 
 @app.get("/overview/kpis", tags=["overview"], response_model=OverviewKpiResponse)
@@ -510,6 +604,7 @@ async def issues_summary(
         if review.id < agg["min_review_id"]:
             agg["min_review_id"] = review.id
 
+    category_ticket_ids = _ticket_ids_by_source_group(session, "category_recurrence")
     items: list[IssueSummaryItemResponse] = []
     for agg in sorted(category_aggregates.values(), key=lambda x: x["review_count"], reverse=True):
         avg_severity = (
@@ -527,6 +622,7 @@ async def issues_summary(
             primary_department_code=primary_dept,
             source_mix=agg["source_mix"],
             representative_review_id=agg["min_review_id"],
+            linked_ticket_ids=category_ticket_ids.get(agg["category_code"], []),
         ))
 
     return IssueSummaryResponse(
@@ -544,6 +640,159 @@ async def issues_summary(
             "date_from": date_from.isoformat() if date_from else None,
             "date_to": date_to.isoformat() if date_to else None,
         },
+    )
+
+
+@app.post("/issues/categories/{category_code}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
+async def create_category_recurrence_ticket(
+    category_code: str,
+    body: RecurringIssueTicketCreateRequest,
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    severity: str | None = Query(default=None),
+    action_status: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> ActionTicket:
+    category = session.get(IssueCategory, category_code)
+    if category is None:
+        raise HTTPException(status_code=404, detail="Issue category not found")
+    _validate_recurring_ticket_request(body, session)
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
+        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
+        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions))
+        .where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == category_code
+                )
+            )
+        )
+    )
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if severity is not None:
+        query = query.where(NormalizedReview.severity == severity)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
+
+    reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
+    if not reviews:
+        raise HTTPException(status_code=404, detail="No reviews found for this issue category recurrence")
+
+    affected_department = body.department_code or _dominant_department(reviews)
+    return _create_recurring_issue_ticket(
+        session=session,
+        body=body,
+        department_code=affected_department,
+        source_group_type="category_recurrence",
+        source_group_key=category_code,
+        source_group_label=f"{category.name} recurrence",
+        source_category_code=category_code,
+        source_cluster_id=None,
+        source_review_ids=[review.id for review in reviews],
+        note_prefix=f"Created from recurring issue category {category.name}",
+    )
+
+
+@app.post("/analysis/semantic-clusters/{cluster_id}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
+async def create_semantic_cluster_ticket(
+    cluster_id: str,
+    body: RecurringIssueTicketCreateRequest,
+    source_type: str | None = Query(default=None),
+    source_code: str | None = Query(default=None),
+    issue_category_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    include_social_listening: bool = Query(default=False),
+    similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
+    min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
+    session: Session = Depends(get_session),
+) -> ActionTicket:
+    _validate_recurring_ticket_request(body, session)
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(
+            selectinload(NormalizedReview.source),
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+        )
+    )
+    if source_type is not None:
+        query = query.where(ReviewSource.source_type == source_type)
+    elif not include_social_listening:
+        query = query.where(ReviewSource.source_type != "social_listening")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+
+    reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
+    analysis = analyze_semantic_similarity(
+        reviews,
+        similarity_threshold=similarity_threshold,
+        min_cluster_size=min_cluster_size,
+    )
+    cluster = next((item for item in analysis.clusters if item.cluster_id == cluster_id), None)
+    if cluster is None:
+        raise HTTPException(status_code=404, detail="Semantic cluster not found with the current filters")
+
+    category = session.get(IssueCategory, cluster.category_code)
+    label = category.name if category is not None else cluster.category_code.replace("_", " ").title()
+    return _create_recurring_issue_ticket(
+        session=session,
+        body=body,
+        department_code=body.department_code or cluster.department_code,
+        source_group_type="semantic_cluster",
+        source_group_key=cluster.cluster_id,
+        source_group_label=f"{label} semantic cluster",
+        source_category_code=cluster.category_code,
+        source_cluster_id=cluster.cluster_id,
+        source_review_ids=cluster.review_ids,
+        note_prefix=f"Created from semantic cluster {cluster.cluster_id}",
     )
 
 
@@ -637,7 +886,7 @@ async def list_tickets(
     if needs_review_join:
         query = (
             select(ActionTicket)
-            .join(NormalizedReview, ActionTicket.review_id == NormalizedReview.id)
+            .outerjoin(NormalizedReview, ActionTicket.review_id == NormalizedReview.id)
             .options(selectinload(ActionTicket.events))
         )
     else:
@@ -658,7 +907,12 @@ async def list_tickets(
     if severity is not None:
         query = query.where(NormalizedReview.severity == severity)
     if issue_category_code is not None:
-        query = query.where(NormalizedReview.issue_category_code == issue_category_code)
+        query = query.where(
+            or_(
+                NormalizedReview.issue_category_code == issue_category_code,
+                ActionTicket.source_category_code == issue_category_code,
+            )
+        )
     if action_status is not None:
         query = query.where(NormalizedReview.action_status == action_status)
 

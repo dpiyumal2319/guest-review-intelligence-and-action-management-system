@@ -66,16 +66,31 @@ function eventTypeLabel(eventType: string): string {
   return eventType.replaceAll("_", " ")
 }
 
+function ticketSourceLabel(ticket: Ticket, categoryNameByCode: Record<string, string>): string {
+  if (ticket.source_group_type === "category_recurrence" && ticket.source_category_code) {
+    return `${categoryNameByCode[ticket.source_category_code] ?? ticket.source_category_code.replaceAll("_", " ")} recurrence`
+  }
+  if (ticket.source_group_type === "semantic_cluster" && ticket.source_cluster_id) {
+    const category = ticket.source_category_code
+      ? categoryNameByCode[ticket.source_category_code] ?? ticket.source_category_code.replaceAll("_", " ")
+      : "Semantic"
+    return `${category} cluster ${ticket.source_cluster_id}`
+  }
+  return ticket.review_id ? `Review #${ticket.review_id}` : "Unlinked ticket"
+}
+
 function TicketDetailSheet({
   ticket,
   open,
   onOpenChange,
   departmentNameByCode,
+  categoryNameByCode,
 }: {
   ticket: Ticket | null
   open: boolean
   onOpenChange: (open: boolean) => void
   departmentNameByCode: Record<string, string>
+  categoryNameByCode: Record<string, string>
 }) {
   if (!ticket) return null
 
@@ -89,12 +104,16 @@ function TicketDetailSheet({
         <SheetHeader className="pb-4">
           <SheetTitle>Ticket #{ticket.id}</SheetTitle>
           <SheetDescription>
-            Linked to review #{ticket.review_id}
+            {ticketSourceLabel(ticket, categoryNameByCode)}
           </SheetDescription>
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4">
           <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground">Source</p>
+              <p className="font-medium">{ticketSourceLabel(ticket, categoryNameByCode)}</p>
+            </div>
             <div>
               <p className="text-xs text-muted-foreground">Department</p>
               <p className="font-medium">
@@ -131,6 +150,15 @@ function TicketDetailSheet({
             <div>
               <p className="text-xs text-muted-foreground mb-1">Notes</p>
               <p className="text-sm rounded-md border bg-muted/40 p-3">{ticket.notes}</p>
+            </div>
+          )}
+
+          {ticket.source_review_ids && ticket.source_review_ids.length > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Source reviews</p>
+              <p className="text-sm rounded-md border bg-muted/40 p-3">
+                {ticket.source_review_ids.map((id) => `#${id}`).join(", ")}
+              </p>
             </div>
           )}
 
@@ -207,6 +235,7 @@ function TicketsContent() {
   useEffect(() => { loadTickets() }, [loadTickets])
 
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
+  const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
 
   function handleRowClick(ticket: Ticket) {
     setSelectedTicket(ticket)
@@ -271,7 +300,7 @@ function TicketsContent() {
                         <TableHead>Priority</TableHead>
                         <TableHead>Status</TableHead>
                         <TableHead>Assignee</TableHead>
-                        <TableHead>Review ID</TableHead>
+                        <TableHead>Source</TableHead>
                         <TableHead>Due date</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -302,7 +331,7 @@ function TicketsContent() {
                             {ticket.assignee_name ?? ticket.assignee_email ?? "—"}
                           </TableCell>
                           <TableCell className="text-xs text-muted-foreground">
-                            #{ticket.review_id}
+                            {ticketSourceLabel(ticket, categoryNameByCode)}
                           </TableCell>
                           <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                             {formatDate(ticket.due_date)}
@@ -323,6 +352,7 @@ function TicketsContent() {
         open={sheetOpen}
         onOpenChange={setSheetOpen}
         departmentNameByCode={departmentNameByCode}
+        categoryNameByCode={categoryNameByCode}
       />
     </SidebarProvider>
   )

@@ -216,6 +216,7 @@ class SemanticIssueClusterResponse(BaseModel):
     source_mix: dict[str, int]
     review_ids: list[int]
     average_similarity: float
+    linked_ticket_ids: list[int] = []
 
 
 class SemanticAnalysisResponse(BaseModel):
@@ -268,6 +269,18 @@ class TicketCreateRequest(BaseModel):
     notes: str | None = None
 
 
+class RecurringIssueTicketCreateRequest(BaseModel):
+    department_code: str | None = Field(
+        default=None,
+        description="Defaults to the issue group's primary affected department.",
+    )
+    priority: str = Field(default="high", description="low, medium, high, or urgent")
+    assignee_name: str | None = None
+    assignee_email: str | None = None
+    due_date: datetime | None = None
+    notes: str | None = None
+
+
 class TicketUpdateRequest(BaseModel):
     status: str | None = Field(default=None, description="open, in_progress, blocked, resolved, or verified")
     priority: str | None = None
@@ -293,8 +306,14 @@ class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    review_id: int
+    review_id: int | None
     department_code: str
+    source_group_type: str | None
+    source_group_key: str | None
+    source_group_label: str | None
+    source_category_code: str | None
+    source_cluster_id: str | None
+    source_review_ids: list[int] | None
     priority: str
     status: str
     assignee_name: str | None
@@ -318,6 +337,7 @@ class IssueSummaryItemResponse(BaseModel):
     primary_department_code: str
     source_mix: dict[str, int]
     representative_review_id: int
+    linked_ticket_ids: list[int] = []
 
 
 class IssueSummaryResponse(BaseModel):

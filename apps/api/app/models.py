@@ -264,16 +264,25 @@ class ActionTicket(Base):
     __tablename__ = "action_tickets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    review_id: Mapped[int] = mapped_column(
+    review_id: Mapped[int | None] = mapped_column(
         Integer,
         ForeignKey("normalized_reviews.id", ondelete="RESTRICT"),
-        nullable=False,
+        nullable=True,
     )
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
         nullable=False,
     )
+    source_group_type: Mapped[str | None] = mapped_column(String(64))
+    source_group_key: Mapped[str | None] = mapped_column(String(120))
+    source_group_label: Mapped[str | None] = mapped_column(String(255))
+    source_category_code: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
+    )
+    source_cluster_id: Mapped[str | None] = mapped_column(String(120))
+    source_review_ids: Mapped[list[int] | None] = mapped_column(JSON)
     priority: Mapped[str] = mapped_column(String(32), nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
     assignee_name: Mapped[str | None] = mapped_column(String(120))
@@ -283,8 +292,9 @@ class ActionTicket(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    review: Mapped["NormalizedReview"] = relationship()
+    review: Mapped["NormalizedReview | None"] = relationship()
     department: Mapped[Department] = relationship()
+    source_category: Mapped[IssueCategory | None] = relationship()
     events: Mapped[list["TicketEvent"]] = relationship(
         back_populates="ticket",
         cascade="all, delete-orphan",
