@@ -12,6 +12,7 @@ from app.database import get_session
 from app.ingestion import normalized_content_hash, run_mock_connector_by_key, run_payload_ingestion, run_seed_ingestion
 from app.main import app
 from app.models import (
+    ActionTicket,
     CategoryDepartmentMapping,
     DemoRole,
     Department,
@@ -23,6 +24,7 @@ from app.models import (
     ReviewIssueCategoryPrediction,
     ReviewSource,
     SeverityThreshold,
+    TicketEvent,
 )
 from app.reddit_import import run_reddit_social_listening_ingestion
 from app.seed import seed_reference_config
@@ -254,6 +256,116 @@ def test_semantic_similarity_flags_near_duplicates_without_merging(tmp_path: Pat
         assert semantic_result.clusters[0].category_code in {"booking_checkin", "service_delay"}
         assert semantic_result.clusters[0].department_code
         assert semantic_result.clusters[0].source_mix == {"kingsbury_seed_dataset": 2}
+
+
+def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'recurring-ticket.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_payload_ingestion(
+            session,
+            source_code="kingsbury_seed_dataset",
+            connector_key="test_recurring_issue_ticket",
+            payloads=[
+                {
+                    "source_code": "kingsbury_seed_dataset",
+                    "external_review_id": "recurring-001",
+                    "reviewer_name": "Guest One",
+                    "review_date": "2026-05-20T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Slow check-in queue",
+                    "body": "The front desk check-in queue was very slow and took too long.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.65,
+                    "issue_category_code": "booking_checkin",
+                    "severity": "high",
+                    "department_code": "front_office",
+                },
+                {
+                    "source_code": "kingsbury_seed_dataset",
+                    "external_review_id": "recurring-002",
+                    "reviewer_name": "Guest Two",
+                    "review_date": "2026-05-21T12:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Front desk delay",
+                    "body": "Check-in at the front desk took a very long time because the queue was slow.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.62,
+                    "issue_category_code": "booking_checkin",
+                    "severity": "high",
+                    "department_code": "front_office",
+                },
+            ],
+        )
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        initial_summary_response = client.get("/issues/summary")
+        category_code = initial_summary_response.json()["items"][0]["category_code"]
+        category_response = client.post(
+            f"/issues/categories/{category_code}/tickets",
+            json={"priority": "high", "notes": "Repeated arrival friction."},
+        )
+        summary_response = client.get("/issues/summary")
+        semantic_response = client.get("/analysis/semantic-clusters", params={"similarity_threshold": 0.30})
+        cluster_id = semantic_response.json()["clusters"][0]["cluster_id"]
+        cluster_response = client.post(
+            f"/analysis/semantic-clusters/{cluster_id}/tickets",
+            params={"similarity_threshold": 0.30},
+            json={"priority": "urgent", "notes": "Clustered check-in delays."},
+        )
+        tickets_response = client.get("/tickets", params={"issue_category_code": category_code})
+        all_tickets_response = client.get("/tickets")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert category_response.status_code == 201
+    category_ticket = category_response.json()
+    assert category_ticket["review_id"] is None
+    assert category_ticket["department_code"] in {"front_office", "guest_relations"}
+    assert category_ticket["source_group_type"] == "category_recurrence"
+    assert category_ticket["source_group_key"] == category_code
+    assert category_ticket["source_category_code"] == category_code
+    assert len(category_ticket["source_review_ids"]) == 2
+    assert category_ticket["events"][0]["event_type"] == "created"
+
+    assert initial_summary_response.status_code == 200
+    assert summary_response.status_code == 200
+    booking_summary = next(item for item in summary_response.json()["items"] if item["category_code"] == category_code)
+    assert category_ticket["id"] in booking_summary["linked_ticket_ids"]
+
+    assert semantic_response.status_code == 200
+    assert semantic_response.json()["clusters"]
+    assert cluster_response.status_code == 201
+    cluster_ticket = cluster_response.json()
+    assert cluster_ticket["source_group_type"] == "semantic_cluster"
+    assert cluster_ticket["source_cluster_id"] == cluster_id
+    assert cluster_ticket["source_category_code"] in {"booking_checkin", "service_delay"}
+    assert len(cluster_ticket["source_review_ids"]) == 2
+
+    assert tickets_response.status_code == 200
+    ticket_ids = {ticket["id"] for ticket in tickets_response.json()["tickets"]}
+    assert category_ticket["id"] in ticket_ids
+    assert all_tickets_response.status_code == 200
+    all_ticket_ids = {ticket["id"] for ticket in all_tickets_response.json()["tickets"]}
+    assert {category_ticket["id"], cluster_ticket["id"]} <= all_ticket_ids
+
+    with TestingSessionLocal() as session:
+        assert session.query(ActionTicket).count() == 2
+        assert session.query(TicketEvent).count() == 2
+        assert {review.action_status for review in session.scalars(select(NormalizedReview))} == {"ticket_created"}
 
 
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:

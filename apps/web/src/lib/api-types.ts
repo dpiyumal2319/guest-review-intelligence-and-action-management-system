@@ -128,8 +128,14 @@ export type TicketEvent = {
 
 export type Ticket = {
   id: number
-  review_id: number
+  review_id: number | null
   department_code: string
+  source_group_type: string | null
+  source_group_key: string | null
+  source_group_label: string | null
+  source_category_code: string | null
+  source_cluster_id: string | null
+  source_review_ids: number[] | null
   priority: string
   status: string
   assignee_name: string | null
@@ -149,6 +155,7 @@ export type IssueSummaryItem = {
   primary_department_code: string
   source_mix: Record<string, number>
   representative_review_id: number
+  linked_ticket_ids: number[]
 }
 
 export type IssueSummary = {
@@ -176,6 +183,7 @@ export type SemanticIssueCluster = {
   source_mix: Record<string, number>
   review_ids: number[]
   average_similarity: number
+  linked_ticket_ids: number[]
 }
 
 export type SemanticAnalysis = {
