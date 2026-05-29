@@ -1,5 +1,9 @@
 # Guest Review Intelligence
 
+## Project documentation
+
+Durable assessor and agent documentation lives in [`docs/README.md`](docs/README.md). Start there for architecture, data model, NLP pipeline, evaluation/source policy, and the demo script.
+
 ## Run the full local stack
 
 ```bash
