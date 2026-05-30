@@ -5,13 +5,26 @@
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+python3 -m pip install -r requirements.txt
+python3 -m uvicorn app.main:app --reload
 ```
 
 Health: http://localhost:8000/health
 
 Docs: http://localhost:8000/docs
+
+## Run tests
+
+Install dependencies once, then run the API tests from the repository root:
+
+```bash
+cd apps/api
+python3 -m venv .venv
+source .venv/bin/activate
+python3 -m pip install -r requirements.txt
+cd ../..
+npm run api:test
+```
 
 ## Offline Apify dataset import
 
@@ -39,18 +52,18 @@ Each configured import source can be run outside the web UI with the same ingest
 
 ```bash
 cd apps/api
-python -m app.jobs seed
-python -m app.jobs connector google_business_profile
-python -m app.jobs connector booking_com
-python -m app.jobs connector tripadvisor
-python -m app.jobs reddit
-python -m app.jobs apify --file-path data/imports/apify/export.json
+python3 -m app.jobs seed
+python3 -m app.jobs connector google_business_profile
+python3 -m app.jobs connector booking_com
+python3 -m app.jobs connector tripadvisor
+python3 -m app.jobs reddit
+python3 -m app.jobs apify --file-path data/imports/apify/export.json
 ```
 
 For pasted or scripted offline Apify content:
 
 ```bash
-python -m app.jobs apify \
+python3 -m app.jobs apify \
   --content '[{"reviewId":"demo-001","stars":5,"reviewText":"Excellent stay."}]' \
   --file-name apify-export.json
 ```
