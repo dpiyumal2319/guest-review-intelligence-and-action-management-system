@@ -11,6 +11,7 @@ export type DashboardFilters = {
   sentiment_label: string
   severity: string
   action_status: string
+  search: string
   date_from: string
   date_to: string
   include_social_listening: boolean
@@ -24,6 +25,7 @@ const DEFAULTS: DashboardFilters = {
   sentiment_label: "",
   severity: "",
   action_status: "",
+  search: "",
   date_from: "",
   date_to: "",
   include_social_listening: false,
@@ -41,6 +43,7 @@ export function useDashboardFilters() {
     sentiment_label: searchParams.get("sentiment_label") ?? "",
     severity: searchParams.get("severity") ?? "",
     action_status: searchParams.get("action_status") ?? "",
+    search: searchParams.get("search") ?? "",
     date_from: searchParams.get("date_from") ?? "",
     date_to: searchParams.get("date_to") ?? "",
     include_social_listening: searchParams.get("include_social_listening") === "true",
@@ -71,6 +74,7 @@ export function useDashboardFilters() {
     if (filters.sentiment_label) params.set("sentiment_label", filters.sentiment_label)
     if (filters.severity) params.set("severity", filters.severity)
     if (filters.action_status) params.set("action_status", filters.action_status)
+    if (filters.search) params.set("search", filters.search)
     if (filters.date_from) params.set("date_from", filters.date_from)
     if (filters.date_to) params.set("date_to", filters.date_to)
     if (filters.include_social_listening) params.set("include_social_listening", "true")

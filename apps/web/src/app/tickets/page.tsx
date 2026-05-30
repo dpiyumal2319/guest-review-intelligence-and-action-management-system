@@ -5,7 +5,17 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -23,7 +33,7 @@ import {
 } from "@/components/ui/sheet"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
-import type { Department, IssueCategory, ReviewSource, Ticket, TicketEvent } from "@/lib/api-types"
+import { TICKET_PRIORITIES, TICKET_STATUSES, type Department, type IssueCategory, type ReviewSource, type Ticket, type TicketEvent } from "@/lib/api-types"
 import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -83,20 +93,78 @@ function TicketDetailSheet({
   ticket,
   open,
   onOpenChange,
+  onTicketSaved,
+  departments,
   departmentNameByCode,
   categoryNameByCode,
 }: {
   ticket: Ticket | null
   open: boolean
   onOpenChange: (open: boolean) => void
+  onTicketSaved: (ticket: Ticket) => void
+  departments: Department[]
   departmentNameByCode: Record<string, string>
   categoryNameByCode: Record<string, string>
 }) {
+  const [status, setStatus] = useState("")
+  const [priority, setPriority] = useState("")
+  const [departmentCode, setDepartmentCode] = useState("")
+  const [assigneeName, setAssigneeName] = useState("")
+  const [assigneeEmail, setAssigneeEmail] = useState("")
+  const [dueDate, setDueDate] = useState("")
+  const [notes, setNotes] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!ticket) return
+    setStatus(ticket.status)
+    setPriority(ticket.priority)
+    setDepartmentCode(ticket.department_code)
+    setAssigneeName(ticket.assignee_name ?? "")
+    setAssigneeEmail(ticket.assignee_email ?? "")
+    setDueDate(ticket.due_date ? ticket.due_date.slice(0, 10) : "")
+    setNotes("")
+    setSaveError(null)
+  }, [ticket])
+
   if (!ticket) return null
 
   const sortedEvents = [...ticket.events].sort(
     (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
   )
+
+  async function saveTicketUpdates() {
+    if (!ticket) return
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      const res = await fetch(`${apiBaseUrl}/tickets/${ticket.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          status,
+          priority,
+          department_code: departmentCode,
+          assignee_name: assigneeName || null,
+          assignee_email: assigneeEmail || null,
+          due_date: dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : null,
+          notes: notes || null,
+        }),
+      })
+      if (!res.ok) {
+        const errorPayload = await res.json().catch(() => ({ detail: "Failed to update ticket" }))
+        throw new Error(errorPayload.detail ?? "Failed to update ticket")
+      }
+      const updated = await res.json()
+      onTicketSaved(updated)
+      setNotes("")
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to update ticket")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -109,6 +177,74 @@ function TicketDetailSheet({
         </SheetHeader>
 
         <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="rounded-md border p-3">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Status</Label>
+                <Select value={status} onValueChange={(value) => value && setStatus(value)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TICKET_STATUSES.map((item) => (
+                      <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Priority</Label>
+                <Select value={priority} onValueChange={(value) => value && setPriority(value)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TICKET_PRIORITIES.map((item) => (
+                      <SelectItem key={item} value={item}>{item}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Department</Label>
+                <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((department) => (
+                      <SelectItem key={department.code} value={department.code}>{department.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Due date</Label>
+                <Input type="date" className="h-8 text-xs" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Assignee</Label>
+                <Input className="h-8 text-xs" value={assigneeName} onChange={(e) => setAssigneeName(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label className="text-xs">Assignee email</Label>
+                <Input className="h-8 text-xs" value={assigneeEmail} onChange={(e) => setAssigneeEmail(e.target.value)} />
+              </div>
+              <div className="flex flex-col gap-1.5 sm:col-span-2">
+                <Label className="text-xs">Note</Label>
+                <textarea
+                  className="min-h-20 rounded-md border bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                />
+              </div>
+            </div>
+            {saveError && <p className="mt-2 text-xs text-destructive">{saveError}</p>}
+            <Button size="sm" className="mt-3 h-8 text-xs" disabled={isSaving} onClick={saveTicketUpdates}>
+              {isSaving ? "Saving..." : "Save updates"}
+            </Button>
+          </div>
+
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="text-xs text-muted-foreground">Source</p>
@@ -351,6 +487,12 @@ function TicketsContent() {
         ticket={selectedTicket}
         open={sheetOpen}
         onOpenChange={setSheetOpen}
+        onTicketSaved={(ticket) => {
+          setSelectedTicket(ticket)
+          setTickets((current) => current.map((item) => item.id === ticket.id ? ticket : item))
+          void loadTickets()
+        }}
+        departments={departments}
         departmentNameByCode={departmentNameByCode}
         categoryNameByCode={categoryNameByCode}
       />

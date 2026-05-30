@@ -549,6 +549,157 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
     assert reddit_status["source_type"] == "social_listening"
 
 
+def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'review-search-redaction.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_payload_ingestion(
+            session,
+            source_code="kingsbury_seed_dataset",
+            connector_key="test_search_redaction",
+            payloads=[
+                {
+                    "source_code": "kingsbury_seed_dataset",
+                    "external_review_id": "private-guest-001",
+                    "reviewer_name": "guest@example.com",
+                    "review_date": "2026-05-20T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Call me on +94 77 123 4567",
+                    "body": "Room was dirty. Email me at guest@example.com about the broken shower.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.65,
+                    "issue_category_code": "cleanliness",
+                    "severity": "high",
+                    "department_code": "housekeeping",
+                },
+                {
+                    "source_code": "kingsbury_seed_dataset",
+                    "external_review_id": "quiet-positive-001",
+                    "reviewer_name": "Public Guest",
+                    "review_date": "2026-05-21T10:00:00+00:00",
+                    "rating": 5.0,
+                    "language": "en",
+                    "title": "Helpful team",
+                    "body": "Excellent staff and smooth check-in.",
+                    "sentiment_label": "positive",
+                    "sentiment_score": 0.75,
+                    "issue_category_code": "positive_general",
+                    "severity": "low",
+                    "department_code": "guest_relations",
+                },
+            ],
+        )
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        search_response = client.get("/reviews", params={"search": "guest@example.com"})
+        filtered_search_response = client.get(
+            "/reviews",
+            params={"search": "broken shower", "department_code": "housekeeping"},
+        )
+        no_match_response = client.get(
+            "/reviews",
+            params={"search": "broken shower", "department_code": "front_office"},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert search_response.status_code == 200
+    search_reviews = search_response.json()["reviews"]
+    assert len(search_reviews) == 1
+    private_review = search_reviews[0]
+    assert private_review["reviewer_name"] == "guest@example.com"
+    assert private_review["body"] == "Room was dirty. Email me at guest@example.com about the broken shower."
+    assert private_review["display_reviewer_name"] == "[redacted email]"
+    assert private_review["display_title"] == "Call me on [redacted phone]"
+    assert private_review["display_body"] == "Room was dirty. Email me at [redacted email] about the broken shower."
+    assert private_review["has_display_redactions"] is True
+    assert set(private_review["redacted_display_fields"]) == {"reviewer_name", "title", "body"}
+
+    assert filtered_search_response.status_code == 200
+    assert [review["external_review_id"] for review in filtered_search_response.json()["reviews"]] == ["private-guest-001"]
+    assert no_match_response.status_code == 200
+    assert no_match_response.json()["reviews"] == []
+
+    with TestingSessionLocal() as session:
+        raw_review = session.scalar(select(RawReview).where(RawReview.external_review_id == "private-guest-001"))
+        assert raw_review is not None
+        assert raw_review.raw_payload["reviewer_name"] == "guest@example.com"
+        normalized_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "private-guest-001")
+        )
+        assert normalized_review is not None
+        assert normalized_review.reviewer_name == "guest@example.com"
+
+
+def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'ticket-update.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_seed_ingestion(session)
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        create_response = client.post(
+            "/reviews/1/tickets",
+            json={"department_code": "housekeeping", "priority": "medium", "notes": "Initial review."},
+        )
+        ticket_id = create_response.json()["id"]
+        update_response = client.patch(
+            f"/tickets/{ticket_id}",
+            json={
+                "status": "resolved",
+                "priority": "urgent",
+                "department_code": "guest_relations",
+                "assignee_name": "Ops Manager",
+                "due_date": "2026-05-30T00:00:00+00:00",
+                "notes": "Resolution completed.",
+            },
+        )
+        verify_response = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"status": "verified", "notes": "Management verified."},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert create_response.status_code == 201
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["status"] == "resolved"
+    assert updated["priority"] == "urgent"
+    assert updated["department_code"] == "guest_relations"
+    assert updated["assignee_name"] == "Ops Manager"
+    update_event_types = {event["event_type"] for event in updated["events"]}
+    assert {"status_change", "priority_change", "department_change", "assignment_change", "due_date_change", "note_added"} <= update_event_types
+
+    assert verify_response.status_code == 200
+    verified = verify_response.json()
+    assert verified["status"] == "verified"
+    assert any(event["event_type"] == "status_change" and event["new_value"] == "verified" for event in verified["events"])
+
+
 def test_apify_json_import_preserves_metadata_and_is_repeatable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'apify-json.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)

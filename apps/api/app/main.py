@@ -169,6 +169,7 @@ async def reviews(
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
+    search: str | None = Query(default=None, min_length=1),
     include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
@@ -219,6 +220,15 @@ async def reviews(
         query = query.where(NormalizedReview.review_date >= date_from)
     if date_to is not None:
         query = query.where(NormalizedReview.review_date <= date_to)
+    if search is not None:
+        query = query.where(
+            or_(
+                NormalizedReview.body.ilike(f"%{search}%"),
+                NormalizedReview.title.ilike(f"%{search}%"),
+                NormalizedReview.external_review_id.ilike(f"%{search}%"),
+                NormalizedReview.reviewer_name.ilike(f"%{search}%"),
+            )
+        )
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
     return ReviewsResponse(reviews=imported_reviews)
@@ -964,6 +974,12 @@ async def update_ticket(
         events.append(TicketEvent(ticket_id=ticket_id, event_type="priority_change", old_value=ticket.priority, new_value=body.priority, occurred_at=now))
         ticket.priority = body.priority
 
+    if body.department_code is not None and body.department_code != ticket.department_code:
+        if session.scalar(select(Department).where(Department.code == body.department_code)) is None:
+            raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="department_change", old_value=ticket.department_code, new_value=body.department_code, occurred_at=now))
+        ticket.department_code = body.department_code
+
     if body.assignee_name is not None or body.assignee_email is not None:
         old_assignee = ticket.assignee_name or ticket.assignee_email
         new_assignee = body.assignee_name or body.assignee_email
@@ -977,7 +993,8 @@ async def update_ticket(
         events.append(TicketEvent(ticket_id=ticket_id, event_type="note_added", old_value=None, new_value=None, note=body.notes, occurred_at=now))
         ticket.notes = body.notes
 
-    if body.due_date is not None:
+    if body.due_date is not None and body.due_date != ticket.due_date:
+        events.append(TicketEvent(ticket_id=ticket_id, event_type="due_date_change", old_value=ticket.due_date.isoformat() if ticket.due_date else None, new_value=body.due_date.isoformat(), occurred_at=now))
         ticket.due_date = body.due_date
 
     if events:

@@ -149,6 +149,7 @@ function ReviewsContent() {
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Action status</TableHead>
+                        <TableHead>Guest</TableHead>
                         <TableHead className="min-w-64">Review</TableHead>
                       </TableRow>
                     </TableHeader>
@@ -188,8 +189,17 @@ function ReviewsContent() {
                               {review.action_status.replaceAll("_", " ")}
                             </Badge>
                           </TableCell>
+                          <TableCell className="text-xs">
+                            <div>{review.display_reviewer_name ?? "—"}</div>
+                            {review.has_display_redactions && (
+                              <Badge variant="outline" className="mt-1 text-xs">redacted</Badge>
+                            )}
+                          </TableCell>
                           <TableCell className="max-w-xs text-xs text-muted-foreground">
-                            <p className="line-clamp-2">{review.body}</p>
+                            {review.display_title && (
+                              <p className="font-medium text-foreground">{review.display_title}</p>
+                            )}
+                            <p className="line-clamp-2">{review.display_body}</p>
                           </TableCell>
                         </TableRow>
                       ))}

@@ -16,6 +16,12 @@ Current examples:
 - Booking.com;
 - Tripadvisor.
 
+Current implementation mapping:
+
+- PRD `google_business_profile_mock` -> source and connector key `google_business_profile`;
+- PRD `booking_com_mock` -> source and connector key `booking_com`;
+- PRD `tripadvisor_mock` -> source and connector key `tripadvisor`.
+
 Important boundary:
 
 - These are official-shaped mock connectors.
@@ -31,9 +37,17 @@ The seed dataset is controlled demo data for repeatable local demonstrations. It
 
 It should be described as a fallback seed dataset, not live production feedback.
 
+Current implementation mapping:
+
+- PRD `fallback_seed` -> source `kingsbury_seed_dataset`, connector key `seed_dataset`, API route `/ingestion/seed`, and backend job `python -m app.jobs seed`.
+
 ### Social Listening
 
 Reddit is treated as social listening.
+
+Current implementation mapping:
+
+- PRD `reddit_social_mock` -> source `reddit_social_listening`, API route `/ingestion/reddit`, and backend job `python -m app.jobs reddit`.
 
 Important boundary:
 
@@ -45,6 +59,10 @@ Important boundary:
 ### Apify Dataset Import
 
 Apify is supported only as an offline dataset preparation path.
+
+Current implementation mapping:
+
+- PRD `apify_dataset_import` -> source and connector key `apify_dataset_import`, API route `/ingestion/apify-dataset`, and backend job `python -m app.jobs apify`.
 
 Important boundary:
 
@@ -165,6 +183,18 @@ GET /tickets/{ticket_id}
 PATCH /tickets/{ticket_id}
 ```
 
+Backend job commands use the same services as the API routes:
+
+```bash
+cd apps/api
+python -m app.jobs seed
+python -m app.jobs connector google_business_profile
+python -m app.jobs connector booking_com
+python -m app.jobs connector tripadvisor
+python -m app.jobs reddit
+python -m app.jobs apify --file-path data/imports/apify/export.json
+```
+
 ## Privacy and Data Handling
 
 The prototype minimizes sensitive data:
@@ -172,6 +202,7 @@ The prototype minimizes sensitive data:
 - stores public reviewer display names only when provided by the source payload;
 - does not require email, phone, loyalty, payment, or reservation identifiers for reviews;
 - keeps raw payloads for audit, so demo/import data should avoid private personal data;
+- redacts email-like and phone-like text in review API display fields while preserving raw payloads and normalized source fields for audit;
 - treats assignee email on tickets as optional prototype workflow metadata.
 
 If real public datasets are used for assessment, redact private details before import.
