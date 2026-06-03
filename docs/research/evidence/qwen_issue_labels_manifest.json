@@ -1,0 +1,26 @@
+{
+  "csv_path": "apps/api/data/examples/qwen_issue_labels_synthetic.csv",
+  "csv_sha256": "0266e43714d9c3fe2e7ee23ca5967938cdd3f4701fde51a597b91b1ac259cf1c",
+  "generated_at": "2026-06-03T21:10:49.302791+00:00",
+  "human_reviewed": false,
+  "label_counts": {
+    "amenities_facilities": 40,
+    "booking_checkin": 40,
+    "cleanliness": 40,
+    "food_beverage": 40,
+    "noise_events": 40,
+    "other_uncategorized": 40,
+    "positive_general": 40,
+    "pricing_value": 40,
+    "room_condition": 40,
+    "service_delay": 40,
+    "staff_behavior": 40
+  },
+  "model": "qwen2.5-coder:7b",
+  "prompt_version": "qwen-issue-label-drafts-v1",
+  "row_count": 440,
+  "validation": {
+    "errors": [],
+    "is_valid": true
+  }
+}
