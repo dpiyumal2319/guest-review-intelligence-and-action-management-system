@@ -56,3 +56,29 @@ The JSON report includes:
 - confusion matrix labels and matrix values.
 
 Use a larger manually labelled subset for meaningful results. The committed sample is intentionally tiny and exists only to document the format.
+
+## Published Prototype Evaluation Evidence
+
+- Labelled dataset artifact: `apps/api/data/examples/issue_labels_sample.csv` (8 labelled rows).
+- Evaluation output artifact: `docs/research/evidence/issue_labels_sample_evaluation.json`.
+- Regeneration command:
+
+  ```bash
+  cd apps/api
+  python3 -m app.ml.issue_classifier train-evaluate \
+    data/examples/issue_labels_sample.csv \
+    --model-output /tmp/issue_classifier.pkl \
+    --report-output /tmp/issue_labels_sample_evaluation.json
+  ```
+
+Current committed evidence (`random_state=42`, `test_size=0.3`) shows:
+
+- trained model macro F1: `0.0`
+- keyword baseline macro F1: `0.5`
+- label counts: 1 row each for `amenities_facilities`, `booking_checkin`, `cleanliness`, `food_beverage`, `noise_events`, `positive_general`, `room_condition`, and `service_delay`.
+
+### Dataset Scale Status vs PRD Target
+
+The PRD target of **300-600 manually labelled reviews** is **not met** in the current repository evidence set.  
+For this academic prototype milestone, the committed dataset is intentionally reduced to 8 labelled rows to prove the reproducible pipeline and reporting format.  
+Meeting the full target remains pending additional human-provided labels.
