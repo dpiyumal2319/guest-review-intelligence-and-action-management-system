@@ -132,7 +132,7 @@ def test_review_analysis_uses_deterministic_sentiment_fallback_with_metadata(tmp
             assert review.analysis.analysis_version == "analysis-v2"
             assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "deterministic_fallback"
             assert "transformer sentiment runtime was unavailable" in review.analysis.explanation_factors["model"]["fallback_note"]
-            assert review.analysis.explanation_factors["model"]["sentiment_confidence"] == review.analysis.sentiment_confidence
+            assert review.analysis.explanation_factors["model"]["sentiment_confidence"] == float(review.analysis.sentiment_confidence)
     finally:
         get_sentiment_analyzer.cache_clear()
 
@@ -168,8 +168,8 @@ def test_review_analysis_uses_local_transformer_sentiment_when_available(tmp_pat
             assert review.analysis.model_version == "commit-sha-123"
             assert review.analysis.analysis_version == "analysis-v2"
             assert review.analysis.sentiment_label == "positive"
-            assert review.analysis.sentiment_score == 0.82
-            assert review.analysis.sentiment_confidence == 0.91
+            assert float(review.analysis.sentiment_score) == 0.82
+            assert float(review.analysis.sentiment_confidence) == 0.91
             assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "local_transformer_pipeline"
             assert review.analysis.explanation_factors["model"]["fallback_note"] is None
     finally:

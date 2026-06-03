@@ -4,9 +4,11 @@
     "apps/web"
   ],
   "scripts": {
+    "api:install": "cd apps/api && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt",
+    "api:install:nlp": "cd apps/api && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-nlp.txt",
     "api:migrate": "cd apps/api && python3 -m alembic upgrade head",
     "api:seed": "cd apps/api && python3 -m app.seed",
-    "api:test": "cd apps/api && python3 -m pytest -s tests",
+    "api:test": "sh apps/api/scripts/run_tests.sh",
     "dev:web": "npm --workspace apps/web run dev",
     "build:web": "npm --workspace apps/web run build",
     "lint:web": "npm --workspace apps/web run lint"

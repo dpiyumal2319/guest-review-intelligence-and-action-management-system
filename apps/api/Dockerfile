@@ -5,8 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.txt requirements-nlp.txt ./
+RUN pip install --no-cache-dir -r requirements-nlp.txt
 
 COPY alembic.ini .
 COPY migrations ./migrations

@@ -1,0 +1,7 @@
+-r requirements.txt
+
+# Local transformer runtimes for PRD-complete NLP demos.
+# Install on Python 3.12, matching apps/api/Dockerfile. The app keeps deterministic
+# fallbacks so tests and constrained environments do not require these packages.
+transformers==4.57.3
+sentence-transformers==5.1.2
