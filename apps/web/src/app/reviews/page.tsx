@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/table"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import { useDemoRole } from "@/hooks/use-demo-role"
 import type { Department, IssueCategory, Review, ReviewSource } from "@/lib/api-types"
 import type React from "react"
 
@@ -50,6 +51,7 @@ function actionStatusVariant(status: string): "default" | "secondary" | "destruc
 
 function ReviewsContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
+  const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
   const [sources, setSources] = useState<ReviewSource[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
@@ -71,6 +73,9 @@ function ReviewsContent() {
     setError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/reviews?${params}`)
       if (!res.ok) throw new Error("Failed to load reviews")
       const data = await res.json()
@@ -80,13 +85,14 @@ function ReviewsContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [buildApiParams])
+  }, [buildApiParams, effectiveDepartmentCode])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadReviews() }, [loadReviews])
 
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
+  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
   return (
     <SidebarProvider
@@ -107,6 +113,21 @@ function ReviewsContent() {
               <p className="text-sm text-muted-foreground">
                 Normalized guest reviews with full filter support. Verified sources only by default.
               </p>
+              {activeRole && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="text-xs">
+                    {activeRole.name}
+                  </Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    {scopeLabel}
+                  </Badge>
+                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
+                    <Badge variant="outline" className="text-xs">
+                      Defaulting to {scopedDepartmentName}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
             {!isLoading && (
               <Badge variant="outline">{reviews.length} {reviews.length === 1 ? "review" : "reviews"}</Badge>

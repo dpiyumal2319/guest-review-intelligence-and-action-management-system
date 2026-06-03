@@ -17,6 +17,7 @@ import {
 } from "@/components/ui/table"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import { useDemoRole } from "@/hooks/use-demo-role"
 import type {
   Department,
   IssueCategory,
@@ -43,6 +44,7 @@ function CategorySummaryTable({
   sourceNameByCode,
   onCreateTicket,
   creatingTicketFor,
+  canManageTickets,
 }: {
   items: IssueSummaryItem[]
   categoryNameByCode: Record<string, string>
@@ -50,6 +52,7 @@ function CategorySummaryTable({
   sourceNameByCode: Record<string, string>
   onCreateTicket: (item: IssueSummaryItem) => void
   creatingTicketFor: string | null
+  canManageTickets: boolean
 }) {
   if (items.length === 0) {
     return <p className="text-sm text-muted-foreground">No issues match the current filters.</p>
@@ -102,10 +105,10 @@ function CategorySummaryTable({
                 <Button
                   size="sm"
                   variant="outline"
-                  disabled={creatingTicketFor === item.category_code}
+                  disabled={!canManageTickets || creatingTicketFor === item.category_code}
                   onClick={() => onCreateTicket(item)}
                 >
-                  {creatingTicketFor === item.category_code ? "Creating…" : "Create ticket"}
+                  {!canManageTickets ? "Read-only role" : creatingTicketFor === item.category_code ? "Creating…" : "Create ticket"}
                 </Button>
               </TableCell>
             </TableRow>
@@ -116,12 +119,13 @@ function CategorySummaryTable({
   )
 }
 
-function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode, onCreateTicket, creatingTicketFor }: {
+function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode, onCreateTicket, creatingTicketFor, canManageTickets }: {
   cluster: SemanticIssueCluster
   categoryNameByCode: Record<string, string>
   departmentNameByCode: Record<string, string>
   onCreateTicket: (cluster: SemanticIssueCluster) => void
   creatingTicketFor: string | null
+  canManageTickets: boolean
 }) {
   return (
     <div className="rounded-lg border bg-card p-4 flex flex-col gap-2">
@@ -159,10 +163,10 @@ function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode
         <Button
           size="sm"
           variant="outline"
-          disabled={creatingTicketFor === cluster.cluster_id}
+          disabled={!canManageTickets || creatingTicketFor === cluster.cluster_id}
           onClick={() => onCreateTicket(cluster)}
         >
-          {creatingTicketFor === cluster.cluster_id ? "Creating…" : "Create ticket from cluster"}
+          {!canManageTickets ? "Read-only role" : creatingTicketFor === cluster.cluster_id ? "Creating…" : "Create ticket from cluster"}
         </Button>
       </div>
     </div>
@@ -171,6 +175,7 @@ function SemanticClusterCard({ cluster, categoryNameByCode, departmentNameByCode
 
 function IssuesContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
+  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
   const [issueSummary, setIssueSummary] = useState<IssueSummary | null>(null)
   const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [sources, setSources] = useState<ReviewSource[]>([])
@@ -197,6 +202,9 @@ function IssuesContent() {
     setSummaryError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/issues/summary?${params}`)
       if (!res.ok) throw new Error("Failed to load issue summary")
       const data = await res.json()
@@ -206,13 +214,16 @@ function IssuesContent() {
     } finally {
       setIsLoadingSummary(false)
     }
-  }, [buildApiParams])
+  }, [buildApiParams, effectiveDepartmentCode])
 
   const loadSemanticClusters = useCallback(async () => {
     setIsLoadingClusters(true)
     setClustersError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/analysis/semantic-clusters?${params}`)
       if (!res.ok) throw new Error("Failed to load semantic clusters")
       const data = await res.json()
@@ -222,7 +233,7 @@ function IssuesContent() {
     } finally {
       setIsLoadingClusters(false)
     }
-  }, [buildApiParams])
+  }, [buildApiParams, effectiveDepartmentCode])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadIssueSummary() }, [loadIssueSummary])
@@ -231,12 +242,17 @@ function IssuesContent() {
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const sourceNameByCode = Object.fromEntries(sources.map((s) => [s.code, s.name]))
+  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
   async function createCategoryTicket(item: IssueSummaryItem) {
+    if (!canManageTickets) return
     setCreatingCategoryTicket(item.category_code)
     setSummaryError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/issues/categories/${item.category_code}/tickets?${params}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -256,10 +272,14 @@ function IssuesContent() {
   }
 
   async function createClusterTicket(cluster: SemanticIssueCluster) {
+    if (!canManageTickets) return
     setCreatingClusterTicket(cluster.cluster_id)
     setClustersError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/analysis/semantic-clusters/${cluster.cluster_id}/tickets?${params}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -298,6 +318,20 @@ function IssuesContent() {
               <p className="text-sm text-muted-foreground">
                 Category aggregates and semantic clusters. Verified sources only by default.
               </p>
+              {activeRole && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="text-xs">{activeRole.name}</Badge>
+                  <Badge variant="secondary" className="text-xs">{scopeLabel}</Badge>
+                  <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
+                    {canManageTickets ? "Can create tickets" : "Read-only ticket workflow"}
+                  </Badge>
+                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
+                    <Badge variant="outline" className="text-xs">
+                      Defaulting to {scopedDepartmentName}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
             {!isLoadingSummary && issueSummary && (
               <Badge variant="outline">
@@ -340,6 +374,7 @@ function IssuesContent() {
                   sourceNameByCode={sourceNameByCode}
                   onCreateTicket={createCategoryTicket}
                   creatingTicketFor={creatingCategoryTicket}
+                  canManageTickets={canManageTickets}
                 />
               )}
             </CardContent>
@@ -375,6 +410,7 @@ function IssuesContent() {
                       departmentNameByCode={departmentNameByCode}
                       onCreateTicket={createClusterTicket}
                       creatingTicketFor={creatingClusterTicket}
+                      canManageTickets={canManageTickets}
                     />
                   ))}
                 </div>
