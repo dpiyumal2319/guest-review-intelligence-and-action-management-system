@@ -33,6 +33,7 @@ import {
 } from "@/components/ui/sheet"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import { useDemoRole } from "@/hooks/use-demo-role"
 import { TICKET_PRIORITIES, TICKET_STATUSES, type Department, type IssueCategory, type ReviewSource, type Ticket, type TicketEvent } from "@/lib/api-types"
 import type React from "react"
 
@@ -97,6 +98,7 @@ function TicketDetailSheet({
   departments,
   departmentNameByCode,
   categoryNameByCode,
+  canManageTickets,
 }: {
   ticket: Ticket | null
   open: boolean
@@ -105,6 +107,7 @@ function TicketDetailSheet({
   departments: Department[]
   departmentNameByCode: Record<string, string>
   categoryNameByCode: Record<string, string>
+  canManageTickets: boolean
 }) {
   const [status, setStatus] = useState("")
   const [priority, setPriority] = useState("")
@@ -135,7 +138,7 @@ function TicketDetailSheet({
   )
 
   async function saveTicketUpdates() {
-    if (!ticket) return
+    if (!ticket || !canManageTickets) return
     setIsSaving(true)
     setSaveError(null)
     try {
@@ -181,7 +184,7 @@ function TicketDetailSheet({
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Status</Label>
-                <Select value={status} onValueChange={(value) => value && setStatus(value)}>
+                <Select value={status} onValueChange={(value) => value && setStatus(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
@@ -194,7 +197,7 @@ function TicketDetailSheet({
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Priority</Label>
-                <Select value={priority} onValueChange={(value) => value && setPriority(value)}>
+                <Select value={priority} onValueChange={(value) => value && setPriority(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
@@ -207,7 +210,7 @@ function TicketDetailSheet({
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Department</Label>
-                <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)}>
+                <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
                     <SelectValue />
                   </SelectTrigger>
@@ -220,15 +223,15 @@ function TicketDetailSheet({
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Due date</Label>
-                <Input type="date" className="h-8 text-xs" value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
+                <Input type="date" className="h-8 text-xs" value={dueDate} onChange={(e) => setDueDate(e.target.value)} disabled={!canManageTickets} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Assignee</Label>
-                <Input className="h-8 text-xs" value={assigneeName} onChange={(e) => setAssigneeName(e.target.value)} />
+                <Input className="h-8 text-xs" value={assigneeName} onChange={(e) => setAssigneeName(e.target.value)} disabled={!canManageTickets} />
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label className="text-xs">Assignee email</Label>
-                <Input className="h-8 text-xs" value={assigneeEmail} onChange={(e) => setAssigneeEmail(e.target.value)} />
+                <Input className="h-8 text-xs" value={assigneeEmail} onChange={(e) => setAssigneeEmail(e.target.value)} disabled={!canManageTickets} />
               </div>
               <div className="flex flex-col gap-1.5 sm:col-span-2">
                 <Label className="text-xs">Note</Label>
@@ -236,13 +239,20 @@ function TicketDetailSheet({
                   className="min-h-20 rounded-md border bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
+                  disabled={!canManageTickets}
                 />
               </div>
             </div>
             {saveError && <p className="mt-2 text-xs text-destructive">{saveError}</p>}
-            <Button size="sm" className="mt-3 h-8 text-xs" disabled={isSaving} onClick={saveTicketUpdates}>
-              {isSaving ? "Saving..." : "Save updates"}
-            </Button>
+            {canManageTickets ? (
+              <Button size="sm" className="mt-3 h-8 text-xs" disabled={isSaving} onClick={saveTicketUpdates}>
+                {isSaving ? "Saving..." : "Save updates"}
+              </Button>
+            ) : (
+              <p className="mt-3 text-xs text-muted-foreground">
+                This demo role can inspect ticket history but cannot edit ticket workflow fields.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
@@ -333,6 +343,7 @@ function TicketDetailSheet({
 
 function TicketsContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
+  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
@@ -356,6 +367,9 @@ function TicketsContent() {
     setError(null)
     try {
       const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
       const res = await fetch(`${apiBaseUrl}/tickets?${params}`)
       if (!res.ok) throw new Error("Failed to load tickets")
       const data = await res.json()
@@ -365,13 +379,14 @@ function TicketsContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [buildApiParams])
+  }, [buildApiParams, effectiveDepartmentCode])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadTickets() }, [loadTickets])
 
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
+  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
   function handleRowClick(ticket: Ticket) {
     setSelectedTicket(ticket)
@@ -397,6 +412,20 @@ function TicketsContent() {
               <p className="text-sm text-muted-foreground">
                 Action tickets linked to guest reviews. Filter by ticket fields or the underlying review.
               </p>
+              {activeRole && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="text-xs">{activeRole.name}</Badge>
+                  <Badge variant="secondary" className="text-xs">{scopeLabel}</Badge>
+                  <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
+                    {canManageTickets ? "Ticket edits enabled" : "Read-only ticket access"}
+                  </Badge>
+                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
+                    <Badge variant="outline" className="text-xs">
+                      Defaulting to {scopedDepartmentName}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
             {!isLoading && (
               <Badge variant="outline">{tickets.length} {tickets.length === 1 ? "ticket" : "tickets"}</Badge>
@@ -495,6 +524,7 @@ function TicketsContent() {
         departments={departments}
         departmentNameByCode={departmentNameByCode}
         categoryNameByCode={categoryNameByCode}
+        canManageTickets={canManageTickets}
       />
     </SidebarProvider>
   )

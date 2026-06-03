@@ -2,6 +2,7 @@
 
 import * as React from "react"
 
+import { useDemoRole } from "@/hooks/use-demo-role"
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
 import { NavUser } from "@/components/nav-user"
@@ -79,6 +80,17 @@ const data = {
 }
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { activeRole, departments, assignedDepartmentCode, scopeLabel } = useDemoRole()
+  const assignedDepartment = departments.find((department) => department.code === assignedDepartmentCode)
+  const userName = activeRole?.code === "department_head" && assignedDepartment
+    ? `${assignedDepartment.name} Lead`
+    : activeRole?.name ?? data.user.name
+  const userEmail = activeRole?.code === "department_head" && assignedDepartment
+    ? `${assignedDepartment.code}@hotel.test`
+    : activeRole?.code
+      ? `${activeRole.code}@hotel.test`
+      : data.user.email
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader>
@@ -99,7 +111,14 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <NavSecondary items={data.navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser
+          user={{
+            name: userName,
+            email: userEmail,
+            avatar: data.user.avatar,
+            subtitle: scopeLabel,
+          }}
+        />
       </SidebarFooter>
     </Sidebar>
   )

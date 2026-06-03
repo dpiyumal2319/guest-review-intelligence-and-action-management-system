@@ -35,6 +35,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
+import { useDemoRole } from "@/hooks/use-demo-role"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 
 const sentimentConfig = {
@@ -249,6 +250,7 @@ function formatDate(value: string | null) {
 }
 
 export default function Page() {
+  const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel, workflowLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
   const [runs, setRuns] = useState<IngestionRun[]>([])
   const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
@@ -366,6 +368,7 @@ export default function Page() {
   }, [activeAnalyses, issueCategoryNameByCode])
   const semanticClusters = semanticAnalysis?.clusters ?? []
   const nearDuplicatePairCount = semanticAnalysis?.near_duplicate_pairs.length ?? 0
+  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
   const loadIngestionData = useCallback(async () => {
     setError(null)
@@ -391,6 +394,10 @@ export default function Page() {
       reviewsUrl.searchParams.set("department_code", departmentFilter)
       semanticUrl.searchParams.set("department_code", departmentFilter)
       overviewUrl.searchParams.set("department_code", departmentFilter)
+    } else if (effectiveDepartmentCode) {
+      reviewsUrl.searchParams.set("department_code", effectiveDepartmentCode)
+      semanticUrl.searchParams.set("department_code", effectiveDepartmentCode)
+      overviewUrl.searchParams.set("department_code", effectiveDepartmentCode)
     }
     const [reviewsResponse, semanticResponse, overviewResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
       fetch(reviewsUrl),
@@ -416,7 +423,7 @@ export default function Page() {
     setSourceStatuses(sourceStatusPayload.sources)
     setIssueCategories(configPayload.issue_categories)
     setDepartments(configPayload.departments)
-  }, [departmentFilter, issueCategoryFilter, reviewScope])
+  }, [departmentFilter, effectiveDepartmentCode, issueCategoryFilter, reviewScope])
 
   useEffect(() => {
     setIsLoading(true)
@@ -500,6 +507,18 @@ export default function Page() {
                 issues, and turning priority findings into department-owned
                 action tickets.
               </p>
+              {activeRole && (
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <Badge variant="outline" className="text-xs">{activeRole.name}</Badge>
+                  <Badge variant="secondary" className="text-xs">{scopeLabel}</Badge>
+                  <Badge variant="outline" className="text-xs">{workflowLabel}</Badge>
+                  {effectiveDepartmentCode && departmentFilter === "all" && scopedDepartmentName && (
+                    <Badge variant="outline" className="text-xs">
+                      Defaulting to {scopedDepartmentName}
+                    </Badge>
+                  )}
+                </div>
+              )}
             </div>
             <Card>
               <CardHeader>

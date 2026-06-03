@@ -90,10 +90,19 @@ export type ReviewSource = {
   is_verified_channel: boolean
 }
 
+export type DemoRole = {
+  code: string
+  name: string
+  description: string
+  permissions: string[]
+  department_scope: string[]
+}
+
 export type ReferenceConfig = {
   review_sources: ReviewSource[]
   departments: Department[]
   issue_categories: IssueCategory[]
+  demo_roles: DemoRole[]
 }
 
 export type IngestionRun = {
