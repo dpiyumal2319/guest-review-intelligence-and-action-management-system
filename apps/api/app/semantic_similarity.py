@@ -2,15 +2,20 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
+from functools import lru_cache
 import math
+import os
 import re
 from typing import Iterable
 
 from app.models import NormalizedReview
 
 
-EMBEDDING_MODEL_NAME = "local-tfidf-cosine-review-embeddings"
-EMBEDDING_MODEL_VERSION = "2026.07.demo-fallback"
+DEFAULT_SENTENCE_TRANSFORMER_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
+SENTENCE_TRANSFORMER_MODEL_NAME = "local-sentence-transformer-review-embeddings"
+TFIDF_EMBEDDING_MODEL_NAME = "local-tfidf-cosine-review-embeddings"
+TOKEN_OVERLAP_MODEL_NAME = "local-token-overlap-review-embeddings"
+FALLBACK_MODEL_VERSION = "2026.07.demo-fallback"
 DEFAULT_SIMILARITY_THRESHOLD = 0.78
 DEFAULT_MIN_CLUSTER_SIZE = 2
 
@@ -56,6 +61,7 @@ class SemanticIssueCluster:
 
 @dataclass(frozen=True)
 class SemanticAnalysisResult:
+    embedding_strategy: str
     embedding_model_name: str
     embedding_model_version: str
     embedding_fallback_note: str
@@ -65,6 +71,76 @@ class SemanticAnalysisResult:
     clusters: list[SemanticIssueCluster]
 
 
+@dataclass(frozen=True)
+class SimilarityRuntimeMetadata:
+    embedding_strategy: str
+    embedding_model_name: str
+    embedding_model_version: str
+    embedding_fallback_note: str
+
+
+@dataclass(frozen=True)
+class SimilarityComputation:
+    metadata: SimilarityRuntimeMetadata
+    similarities: dict[tuple[int, int], float]
+
+
+class LocalSemanticSimilarityAnalyzer:
+    def __init__(self) -> None:
+        self.model_id = os.getenv("SEMANTIC_SIMILARITY_MODEL_ID", DEFAULT_SENTENCE_TRANSFORMER_MODEL_ID)
+        self.model_revision = os.getenv("SEMANTIC_SIMILARITY_MODEL_REVISION")
+        self._model = None
+        self._unavailable_reason: str | None = None
+        try:
+            self._model = _load_sentence_transformer(
+                model_id=self.model_id,
+                revision=self.model_revision,
+            )
+        except Exception as exc:  # pragma: no cover - exercised through monkeypatched tests
+            self._unavailable_reason = f"{type(exc).__name__}: {exc}"
+
+    def analyze(self, texts: list[str]) -> SimilarityComputation:
+        if self._model is not None:
+            try:
+                return SimilarityComputation(
+                    metadata=SimilarityRuntimeMetadata(
+                        embedding_strategy="local_sentence_transformer",
+                        embedding_model_name=SENTENCE_TRANSFORMER_MODEL_NAME,
+                        embedding_model_version=(
+                            self.model_revision
+                            or _sentence_transformer_version(self._model)
+                            or self.model_id
+                        ),
+                        embedding_fallback_note=(
+                            "Local sentence-transformer embeddings are active. TF-IDF cosine similarity and "
+                            "token-overlap fallback remain available when local dependencies or model artifacts "
+                            "are unavailable."
+                        ),
+                    ),
+                    similarities=_sentence_embedding_similarities(texts, self._model),
+                )
+            except Exception as exc:  # pragma: no cover - hard to trigger without monkeypatching
+                self._unavailable_reason = f"{type(exc).__name__}: {exc}"
+
+        return _fallback_similarity_computation(texts, sentence_transformer_reason=self._unavailable_reason)
+
+    def metadata(self) -> SimilarityRuntimeMetadata:
+        if self._model is not None:
+            return SimilarityRuntimeMetadata(
+                embedding_strategy="local_sentence_transformer",
+                embedding_model_name=SENTENCE_TRANSFORMER_MODEL_NAME,
+                embedding_model_version=self.model_revision or _sentence_transformer_version(self._model) or self.model_id,
+                embedding_fallback_note=(
+                    "Local sentence-transformer embeddings are active. TF-IDF cosine similarity and token-overlap "
+                    "fallback remain available when local dependencies or model artifacts are unavailable."
+                ),
+            )
+        return _fallback_similarity_computation(
+            ["semantic placeholder one", "semantic placeholder two"],
+            sentence_transformer_reason=self._unavailable_reason,
+        ).metadata
+
+
 def analyze_semantic_similarity(
     reviews: Iterable[NormalizedReview],
     *,
@@ -72,10 +148,12 @@ def analyze_semantic_similarity(
     min_cluster_size: int = DEFAULT_MIN_CLUSTER_SIZE,
 ) -> SemanticAnalysisResult:
     records = [_semantic_record(review) for review in reviews if review.body.strip()]
+    runtime = get_semantic_similarity_analyzer()
     if len(records) < 2:
-        return _empty_result(similarity_threshold, min_cluster_size)
+        return _empty_result(similarity_threshold, min_cluster_size, runtime.metadata())
 
-    similarities = _pairwise_similarities([record.text for record in records])
+    computation = runtime.analyze([record.text for record in records])
+    similarities = computation.similarities
     pairs = [
         SemanticDuplicatePair(
             review_id=records[left].id,
@@ -89,12 +167,10 @@ def analyze_semantic_similarity(
     ]
     clusters = _build_clusters(records, similarities, similarity_threshold, min_cluster_size)
     return SemanticAnalysisResult(
-        embedding_model_name=EMBEDDING_MODEL_NAME,
-        embedding_model_version=EMBEDDING_MODEL_VERSION,
-        embedding_fallback_note=(
-            "Local scikit-learn TF-IDF vectors with cosine similarity are used as the documented fallback "
-            "because this prototype does not ship a sentence-transformers model artifact."
-        ),
+        embedding_strategy=computation.metadata.embedding_strategy,
+        embedding_model_name=computation.metadata.embedding_model_name,
+        embedding_model_version=computation.metadata.embedding_model_version,
+        embedding_fallback_note=computation.metadata.embedding_fallback_note,
         similarity_threshold=similarity_threshold,
         min_cluster_size=min_cluster_size,
         near_duplicate_pairs=sorted(pairs, key=lambda pair: pair.similarity, reverse=True),
@@ -126,7 +202,11 @@ def _semantic_record(review: NormalizedReview) -> ReviewSemanticRecord:
     )
 
 
-def _pairwise_similarities(texts: list[str]) -> dict[tuple[int, int], float]:
+def _fallback_similarity_computation(
+    texts: list[str],
+    *,
+    sentence_transformer_reason: str | None,
+) -> SimilarityComputation:
     try:
         from sklearn.feature_extraction.text import TfidfVectorizer
         from sklearn.metrics.pairwise import cosine_similarity
@@ -140,18 +220,85 @@ def _pairwise_similarities(texts: list[str]) -> dict[tuple[int, int], float]:
         )
         matrix = vectorizer.fit_transform(texts)
         scores = cosine_similarity(matrix)
-        return {
-            (left, right): float(scores[left, right])
-            for left in range(len(texts))
-            for right in range(left + 1, len(texts))
-        }
-    except (ImportError, ValueError):
+        return SimilarityComputation(
+            metadata=SimilarityRuntimeMetadata(
+                embedding_strategy="tfidf_cosine_fallback",
+                embedding_model_name=TFIDF_EMBEDDING_MODEL_NAME,
+                embedding_model_version=FALLBACK_MODEL_VERSION,
+                embedding_fallback_note=(
+                    "Local scikit-learn TF-IDF cosine fallback is active because sentence-transformers "
+                    f"dependencies or local model artifacts are unavailable: {sentence_transformer_reason or 'not installed locally'}."
+                ),
+            ),
+            similarities={
+                (left, right): float(scores[left, right])
+                for left in range(len(texts))
+                for right in range(left + 1, len(texts))
+            },
+        )
+    except (ImportError, ValueError) as exc:
         token_sets = [_tokenize(text) for text in texts]
-        return {
-            (left, right): _jaccard_similarity(token_sets[left], token_sets[right])
-            for left in range(len(texts))
-            for right in range(left + 1, len(texts))
-        }
+        return SimilarityComputation(
+            metadata=SimilarityRuntimeMetadata(
+                embedding_strategy="token_overlap_fallback",
+                embedding_model_name=TOKEN_OVERLAP_MODEL_NAME,
+                embedding_model_version=FALLBACK_MODEL_VERSION,
+                embedding_fallback_note=(
+                    "Token-overlap fallback is active because scikit-learn TF-IDF and sentence-transformers "
+                    "runtime support are unavailable"
+                    f"{_format_sentence_transformer_reason(sentence_transformer_reason)}; "
+                    f"scikit-learn failure was {type(exc).__name__}: {exc}."
+                ),
+            ),
+            similarities={
+                (left, right): _jaccard_similarity(token_sets[left], token_sets[right])
+                for left in range(len(texts))
+                for right in range(left + 1, len(texts))
+            },
+        )
+
+
+def _load_sentence_transformer(*, model_id: str, revision: str | None):
+    from sentence_transformers import SentenceTransformer
+
+    return SentenceTransformer(
+        model_name_or_path=model_id,
+        revision=revision,
+        local_files_only=True,
+    )
+
+
+def _sentence_transformer_version(model) -> str | None:
+    for attribute in ("revision", "_revision"):
+        value = getattr(model, attribute, None)
+        if value:
+            return str(value)
+    model_card_data = getattr(model, "model_card_data", None)
+    base_model = getattr(model_card_data, "base_model", None) if model_card_data is not None else None
+    if base_model:
+        return str(base_model)
+    return None
+
+
+def _sentence_embedding_similarities(texts: list[str], model) -> dict[tuple[int, int], float]:
+    embeddings = model.encode(texts, normalize_embeddings=True)
+    rows = embeddings.tolist() if hasattr(embeddings, "tolist") else list(embeddings)
+    normalized_rows = [list(row) for row in rows]
+    return {
+        (left, right): round(_dot_product(normalized_rows[left], normalized_rows[right]), 6)
+        for left in range(len(normalized_rows))
+        for right in range(left + 1, len(normalized_rows))
+    }
+
+
+def _dot_product(left: list[float], right: list[float]) -> float:
+    return max(min(sum(a * b for a, b in zip(left, right)), 1.0), -1.0)
+
+
+def _format_sentence_transformer_reason(reason: str | None) -> str:
+    if reason is None:
+        return ""
+    return f" ({reason})"
 
 
 def _build_clusters(
@@ -244,16 +391,23 @@ def _jaccard_similarity(left: set[str], right: set[str]) -> float:
     return len(left & right) / math.sqrt(len(left) * len(right))
 
 
-def _empty_result(similarity_threshold: float, min_cluster_size: int) -> SemanticAnalysisResult:
+def _empty_result(
+    similarity_threshold: float,
+    min_cluster_size: int,
+    metadata: SimilarityRuntimeMetadata,
+) -> SemanticAnalysisResult:
     return SemanticAnalysisResult(
-        embedding_model_name=EMBEDDING_MODEL_NAME,
-        embedding_model_version=EMBEDDING_MODEL_VERSION,
-        embedding_fallback_note=(
-            "Local scikit-learn TF-IDF vectors with cosine similarity are used as the documented fallback "
-            "because this prototype does not ship a sentence-transformers model artifact."
-        ),
+        embedding_strategy=metadata.embedding_strategy,
+        embedding_model_name=metadata.embedding_model_name,
+        embedding_model_version=metadata.embedding_model_version,
+        embedding_fallback_note=metadata.embedding_fallback_note,
         similarity_threshold=similarity_threshold,
         min_cluster_size=min_cluster_size,
         near_duplicate_pairs=[],
         clusters=[],
     )
+
+
+@lru_cache(maxsize=1)
+def get_semantic_similarity_analyzer() -> LocalSemanticSimilarityAnalyzer:
+    return LocalSemanticSimilarityAnalyzer()

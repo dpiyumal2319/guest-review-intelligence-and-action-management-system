@@ -226,6 +226,7 @@ class SemanticIssueClusterResponse(BaseModel):
 
 
 class SemanticAnalysisResponse(BaseModel):
+    embedding_strategy: str
     embedding_model_name: str
     embedding_model_version: str
     embedding_fallback_note: str

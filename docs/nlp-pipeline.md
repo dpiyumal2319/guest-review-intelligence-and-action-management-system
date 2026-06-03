@@ -196,12 +196,14 @@ Default behavior:
 
 Implementation:
 
-- local TF-IDF vectors with cosine similarity through scikit-learn;
+- local sentence-transformer embeddings with cosine similarity when a local model artifact is available;
+- local TF-IDF vectors with cosine similarity through scikit-learn as the first fallback;
 - token/Jaccard-style fallback when scikit-learn is unavailable;
 - connected components over pairwise similarities form clusters.
 
 Response includes:
 
+- embedding strategy used for the current response;
 - embedding model name/version;
 - fallback note;
 - near-duplicate pairs;
@@ -226,7 +228,7 @@ This allows assessors to understand whether an output came from the local transf
 
 - English-first analysis.
 - Transformer sentiment is opportunistic and local-only: the runtime does not download model weights automatically and falls back deterministically when no local artifact is present.
-- Sentence embeddings remain a documented target; current semantic similarity runtime uses TF-IDF fallback behavior.
+- Sentence embeddings are opportunistic and local-only: the runtime uses a local sentence-transformer artifact when available and otherwise falls back to TF-IDF or token overlap.
 - V1 stores only the latest active analysis per review.
 - The classifier requires enough labelled examples across at least two categories to train.
 - Semantic similarity flags and clusters records; it does not delete or merge reviews.
