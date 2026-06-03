@@ -6,12 +6,14 @@ This script demonstrates the complete prototype path:
 
 1. start the stack;
 2. migrate and seed reference configuration;
-3. import review data;
-4. inspect analysis outputs;
-5. discover recurring issues;
-6. create action tickets;
-7. update, resolve, and verify tickets;
-8. run issue-classifier evaluation.
+3. explain source-policy boundaries and demo-role scope;
+4. import review data;
+5. inspect search, redaction, and analysis outputs;
+6. discover recurring issues;
+7. create action tickets;
+8. update, resolve, and verify tickets;
+9. show offline Apify import and connector job commands;
+10. run issue-classifier evaluation with published evidence.
 
 The script uses local/demo data only.
 
@@ -28,6 +30,25 @@ Optional shell helper:
 ```bash
 API=http://localhost:8000
 ```
+
+Recommended repo verification commands before the walkthrough:
+
+```bash
+npm run api:test
+npm run lint:web
+npm run build:web
+```
+
+These match the current repository scripts and give assessors a quick proof that the demo paths align with the checked-in backend and web app.
+
+## Source Policy Framing
+
+Set expectations before clicking through the product:
+
+- verified review connectors are official-shaped mocks, not live Kingsbury integrations;
+- Reddit is social listening, not a verified guest-review source;
+- Apify is an offline dataset import path for prepared JSON/CSV exports, not a live production connector;
+- the prototype keeps source identity visible so assessors can verify those boundaries in config, ingestion runs, KPIs, and tickets.
 
 ## 1. Start the Stack
 
@@ -70,6 +91,17 @@ What to show:
 - category-to-department mappings are visible;
 - severity thresholds and demo roles are visible.
 
+## 2a. Set the Demo Role in the Web UI
+
+Open the web app header role selector after `/config` is seeded.
+
+What to show:
+
+- `Operations Manager` starts with cross-department ticket management enabled;
+- `Department Head` reveals an assigned-department selector and scopes Reviews, Issues, and Tickets to that department by default;
+- read-only roles can inspect analytics but cannot edit ticket workflow fields;
+- the scope/workflow badges in the header change immediately, which is the simplest way to demonstrate role simulation without production auth.
+
 ## 3. Import Demo Reviews
 
 ### Seed Dataset
@@ -107,6 +139,19 @@ What to explain:
 
 - Reddit records are social listening, not verified guest reviews;
 - they are excluded from default KPIs unless explicitly included.
+
+### Equivalent Backend Job Commands
+
+These use the same services as the API routes and are useful when assessors want a terminal-only demonstration:
+
+```bash
+cd apps/api
+python3 -m app.jobs seed
+python3 -m app.jobs connector google_business_profile
+python3 -m app.jobs connector booking_com
+python3 -m app.jobs connector tripadvisor
+python3 -m app.jobs reddit
+```
 
 ### Inspect Run History
 
@@ -149,13 +194,21 @@ curl "$API/reviews?search=check-in&department_code=front_office"
 What to show:
 
 - normalized source fields;
+- search works through the shared filter bar in the web UI and through the `search` API query parameter;
 - display-safe review fields, including email/phone redaction metadata when applicable;
+- redacted rows display the `redacted` badge when `has_display_redactions` is true;
 - active analysis;
 - sentiment label and score;
 - issue category predictions;
 - severity label and score;
 - department ownership;
-- model metadata and explanation factors.
+- model metadata and explanation factors, including `analysis.model_name`, `analysis.model_version`, `analysis.analysis_version`, and any fallback note.
+
+In the web UI, open Reviews and:
+
+- search for `check-in`;
+- point out a redacted review row if present;
+- show that the same shared filters can be applied without rebuilding the analysis client-side.
 
 ## 5. Overview KPIs and Source Rules
 
@@ -312,6 +365,7 @@ What to show:
 
 In the web UI, open Tickets and click a ticket row to show the event history sheet.
 Use the ticket detail controls to change status, priority, department, assignee, due date, and notes; the event history refreshes after saving.
+If you switch to a read-only role, the sheet still shows history but hides ticket-edit capability behind a permission message.
 
 ## 8a. Offline Apify Import from the Web UI
 
@@ -323,6 +377,22 @@ Supported inputs:
 - provide a server-accessible `.json` or `.csv` file path.
 
 Malformed rows are recorded as import errors, and missing or unsupported input shows a failed import result without implying live Apify API access.
+
+For a terminal-only version of the same workflow:
+
+```bash
+cd apps/api
+python3 -m app.jobs apify --file-path data/imports/apify/export.json
+python3 -m app.jobs apify \
+  --content '[{"reviewId":"demo-001","stars":5,"reviewText":"Excellent stay."}]' \
+  --file-name apify-export.json
+```
+
+What to explain:
+
+- this is offline import of prepared exports, not live scraping;
+- dataset metadata remains auditable under the `apify_dataset_import` source;
+- failed imports should be described as validation or input problems, not connector outages.
 
 ## 9. Run Offline Classifier Evaluation
 
@@ -352,6 +422,8 @@ python -m app.ml.issue_classifier train-evaluate \
 
 What to show:
 
+- committed sample dataset path: `apps/api/data/examples/issue_labels_sample.csv`;
+- committed evaluation evidence path: `docs/research/evidence/issue_labels_sample_evaluation.json`;
 - dataset row count;
 - train/test count;
 - label counts;
@@ -386,9 +458,11 @@ What to show:
 ## Assessment Talking Points
 
 - The source policy is explicit: mock official connectors are separate from social listening and Apify dataset import.
+- The same demo can be shown through API routes, web UI triggers, or backend job commands without changing business logic.
 - Default KPIs protect verified-review analysis by excluding social listening.
+- Role simulation is visible in the header and affects ticket editing plus default department scope.
 - Raw payloads are preserved for audit, while normalized reviews power dashboards and tickets.
 - NLP outputs are explainable through model metadata and explanation factors.
 - Recurring issue detection works by category counts and semantic clusters.
 - Ticket workflow records event history through creation, updates, resolution, and verification.
-- The stack is reproducible with Docker Compose, migrations, seed data, and local evaluation scripts.
+- The stack is reproducible with Docker Compose, migrations, seed data, current repo verification commands, and local evaluation scripts.
