@@ -102,7 +102,7 @@ Reddit and Apify are intentionally separate paths because they have different so
 
 The NLP layer is local and reproducible:
 
-- sentiment uses a deterministic local lexicon/rating fallback in the current prototype environment;
+- sentiment prefers a local transformer pipeline when a local model artifact is available and otherwise uses a deterministic local lexicon/rating fallback;
 - issue-category classification uses a trained TF-IDF + Logistic Regression artifact when present, with keyword baseline fallback;
 - severity is transparent and weighted from rating, sentiment, category, urgency terms, recurrence, and duplicate signals;
 - semantic similarity uses local TF-IDF cosine similarity, with token similarity fallback if scikit-learn is unavailable;

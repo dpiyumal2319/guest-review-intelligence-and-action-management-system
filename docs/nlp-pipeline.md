@@ -33,7 +33,7 @@ Reanalysis updates the latest active `review_analyses` row and synchronizes summ
 
 ## Sentiment
 
-Current prototype sentiment uses deterministic local scoring in `apps/api/app/analysis.py`.
+Current prototype sentiment uses a small runtime in `apps/api/app/sentiment.py` that prefers a local transformer pipeline and falls back to deterministic local scoring when the optional transformer dependencies or local model artifact are unavailable.
 
 Inputs:
 
@@ -42,18 +42,19 @@ Inputs:
 
 Signals:
 
+- local transformer prediction when available;
 - positive lexical terms;
 - negative lexical terms;
-- normalized rating contribution.
+- normalized rating contribution in the deterministic fallback path.
 
 Outputs:
 
 - `sentiment_label`: `positive`, `mixed`, or `negative`;
 - `sentiment_score`: bounded from `-1.0` to `1.0`;
 - `sentiment_confidence`;
-- explanation factors containing lexical and rating contributions.
+- explanation factors containing the strategy used plus transformer or deterministic scoring details.
 
-The stored fallback note is explicit: deterministic local lexicon/rule fallback is used because transformer sentiment dependencies are not installed in the prototype environment.
+The stored fallback note is explicit whenever the deterministic path runs, including whether the local transformer runtime or model artifact was unavailable.
 
 ## Issue-Category Classification
 
@@ -219,12 +220,13 @@ Every persisted analysis must be explainable through stored metadata:
 - `analyzed_at`;
 - `explanation_factors`.
 
-This allows assessors to understand whether an output came from the trained classifier artifact, keyword fallback, deterministic sentiment fallback, or semantic similarity fallback.
+This allows assessors to understand whether an output came from the local transformer sentiment path, deterministic sentiment fallback, trained classifier artifact, keyword fallback, or semantic similarity fallback.
 
 ## Known Prototype Limits
 
 - English-first analysis.
-- Transformer sentiment and sentence embedding models are documented architectural targets, but current runtime uses local deterministic and TF-IDF fallbacks.
+- Transformer sentiment is opportunistic and local-only: the runtime does not download model weights automatically and falls back deterministically when no local artifact is present.
+- Sentence embeddings remain a documented target; current semantic similarity runtime uses TF-IDF fallback behavior.
 - V1 stores only the latest active analysis per review.
 - The classifier requires enough labelled examples across at least two categories to train.
 - Semantic similarity flags and clusters records; it does not delete or merge reviews.

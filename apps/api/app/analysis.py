@@ -9,47 +9,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.ml.issue_classifier import IssueCategoryPredictionResult, get_issue_category_classifier
 from app.models import CategoryDepartmentMapping, NormalizedReview, ReviewAnalysis, ReviewIssueCategoryPrediction
+from app.sentiment import ANALYSIS_VERSION, get_sentiment_analyzer
 
 
-ANALYSIS_VERSION = "analysis-v1"
-MODEL_NAME = "local-deterministic-review-analysis"
-MODEL_VERSION = "2026.07.demo-fallback"
-
-POSITIVE_TERMS = {
-    "amazing",
-    "attentive",
-    "comfortable",
-    "excellent",
-    "friendly",
-    "good",
-    "great",
-    "helpful",
-    "memorable",
-    "perfect",
-    "quickly",
-    "warm",
-}
-NEGATIVE_TERMS = {
-    "apologized",
-    "broken",
-    "dirty",
-    "difficult",
-    "delayed",
-    "drained",
-    "issue",
-    "late",
-    "long",
-    "loud",
-    "maintenance",
-    "noise",
-    "not",
-    "problem",
-    "queue",
-    "slow",
-    "stretched",
-    "took",
-    "worn",
-}
 URGENCY_TERMS = {
     "angry",
     "broken",
@@ -124,8 +86,8 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
         "severity_score": result.severity_score,
         "severity_label": result.severity_label,
         "department_code": result.department_code,
-        "model_name": MODEL_NAME,
-        "model_version": MODEL_VERSION,
+        "model_name": result.explanation_factors["model"]["sentiment_model_name"],
+        "model_version": result.explanation_factors["model"]["sentiment_model_version"],
         "analysis_version": ANALYSIS_VERSION,
         "explanation_factors": result.explanation_factors,
         "analyzed_at": analyzed_at,
@@ -169,8 +131,12 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
 def analyze_review(session: Session, review: NormalizedReview, analyzed_at: datetime) -> AnalysisResult:
     text = " ".join(part for part in [review.title, review.body] if part)
     tokens = tokenize(text)
-    sentiment_label, sentiment_score, sentiment_confidence, sentiment_factors = score_sentiment(tokens, review.rating)
-    issue_category_predictions, category_factors = classify_issue_categories(text, tokens, sentiment_label)
+    sentiment_result = get_sentiment_analyzer().analyze(text, tokens, review.rating)
+    issue_category_predictions, category_factors = classify_issue_categories(
+        text,
+        tokens,
+        sentiment_result.sentiment_label,
+    )
     issue_category_code = issue_category_predictions[0].category_code
     department_code = primary_department_for_category(session, issue_category_code)
     urgency_score, urgency_matches = urgency_factor(text)
@@ -178,14 +144,14 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
     duplicate_signal = bool(review.normalized_payload.get("duplicate_signal") or review.normalized_payload.get("duplicate_review_ids"))
     severity_score, severity_label, severity_factors = score_severity(
         rating=review.rating,
-        sentiment_score=sentiment_score,
+        sentiment_score=sentiment_result.sentiment_score,
         issue_category_code=issue_category_code,
         urgency_score=urgency_score,
         recurrence_count=recurrence_count,
         duplicate_signal=duplicate_signal,
     )
     explanation_factors = {
-        "sentiment": sentiment_factors,
+        "sentiment": sentiment_result.explanation_factors,
         "issue_category": category_factors,
         "severity": severity_factors,
         "department": {
@@ -193,13 +159,12 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
             "mapping_source": "category_department_mappings.primary",
         },
         "model": {
-            "model_name": MODEL_NAME,
-            "model_version": MODEL_VERSION,
+            "sentiment_model_name": sentiment_result.model_name,
+            "sentiment_model_version": sentiment_result.model_version,
             "analysis_version": ANALYSIS_VERSION,
-            "fallback_note": (
-                "Deterministic local lexicon/rule fallback used for demo-safe analysis because transformer "
-                "sentiment dependencies are not installed in this prototype environment."
-            ),
+            "sentiment_confidence": sentiment_result.sentiment_confidence,
+            "sentiment_strategy": sentiment_result.explanation_factors["strategy"],
+            "fallback_note": sentiment_result.fallback_note,
             "issue_classifier_model": issue_category_predictions[0].model_name,
             "issue_classifier_version": issue_category_predictions[0].model_version,
         },
@@ -210,9 +175,9 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
         },
     }
     return AnalysisResult(
-        sentiment_label=sentiment_label,
-        sentiment_score=sentiment_score,
-        sentiment_confidence=sentiment_confidence,
+        sentiment_label=sentiment_result.sentiment_label,
+        sentiment_score=sentiment_result.sentiment_score,
+        sentiment_confidence=sentiment_result.sentiment_confidence,
         issue_category_code=issue_category_code,
         issue_category_predictions=issue_category_predictions,
         severity_score=severity_score,
@@ -220,31 +185,6 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
         department_code=department_code,
         explanation_factors=explanation_factors,
     )
-
-
-def score_sentiment(tokens: set[str], rating: float | None) -> tuple[str, float, float, dict]:
-    positive_matches = sorted(tokens & POSITIVE_TERMS)
-    negative_matches = sorted(tokens & NEGATIVE_TERMS)
-    lexical_score = (len(positive_matches) - len(negative_matches)) / max(
-        len(positive_matches) + len(negative_matches),
-        3,
-    )
-    rating_score = 0.0 if rating is None else max(min((float(rating) - 3.0) / 2.0, 1.0), -1.0)
-    combined = (0.62 * lexical_score) + (0.38 * rating_score)
-    combined = round(max(min(combined, 1.0), -1.0), 3)
-    if combined >= 0.25:
-        label = "positive"
-    elif combined <= -0.20:
-        label = "negative"
-    else:
-        label = "mixed"
-    confidence = round(min(0.95, 0.55 + abs(combined) * 0.4 + min(len(positive_matches) + len(negative_matches), 4) * 0.04), 3)
-    return label, combined, confidence, {
-        "rating_score": round(rating_score, 3),
-        "lexical_score": round(lexical_score, 3),
-        "positive_terms": positive_matches,
-        "negative_terms": negative_matches,
-    }
 
 
 def classify_issue_categories(
