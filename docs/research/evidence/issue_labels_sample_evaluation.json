@@ -1,0 +1,210 @@
+{
+  "baseline": {
+    "confusion_matrix": {
+      "labels": [
+        "booking_checkin",
+        "cleanliness",
+        "positive_general",
+        "staff_behavior"
+      ],
+      "matrix": [
+        [
+          1,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "macro_f1": 0.5,
+    "per_class": {
+      "accuracy": 0.6666666666666666,
+      "booking_checkin": {
+        "f1-score": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 1.0
+      },
+      "cleanliness": {
+        "f1-score": 1.0,
+        "precision": 1.0,
+        "recall": 1.0,
+        "support": 1.0
+      },
+      "macro avg": {
+        "f1-score": 0.5,
+        "precision": 0.5,
+        "recall": 0.5,
+        "support": 3.0
+      },
+      "positive_general": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 1.0
+      },
+      "staff_behavior": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 0.0
+      },
+      "weighted avg": {
+        "f1-score": 0.6666666666666666,
+        "precision": 0.6666666666666666,
+        "recall": 0.6666666666666666,
+        "support": 3.0
+      }
+    },
+    "type": "keyword_rules"
+  },
+  "dataset": {
+    "csv_path": "data/examples/issue_labels_sample.csv",
+    "label_counts": {
+      "amenities_facilities": 1,
+      "booking_checkin": 1,
+      "cleanliness": 1,
+      "food_beverage": 1,
+      "noise_events": 1,
+      "positive_general": 1,
+      "room_condition": 1,
+      "service_delay": 1
+    },
+    "row_count": 8,
+    "test_count": 3,
+    "train_count": 5
+  },
+  "model": {
+    "confusion_matrix": {
+      "labels": [
+        "amenities_facilities",
+        "booking_checkin",
+        "cleanliness",
+        "food_beverage",
+        "positive_general",
+        "service_delay"
+      ],
+      "matrix": [
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          1
+        ],
+        [
+          0,
+          0,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      ]
+    },
+    "macro_f1": 0.0,
+    "per_class": {
+      "accuracy": 0.0,
+      "amenities_facilities": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 0.0
+      },
+      "booking_checkin": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 1.0
+      },
+      "cleanliness": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 1.0
+      },
+      "food_beverage": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 0.0
+      },
+      "macro avg": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 3.0
+      },
+      "positive_general": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 1.0
+      },
+      "service_delay": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 0.0
+      },
+      "weighted avg": {
+        "f1-score": 0.0,
+        "precision": 0.0,
+        "recall": 0.0,
+        "support": 3.0
+      }
+    },
+    "type": "tfidf_logistic_regression"
+  }
+}
