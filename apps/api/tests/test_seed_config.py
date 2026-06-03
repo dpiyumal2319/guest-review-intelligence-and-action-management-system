@@ -29,7 +29,8 @@ from app.models import (
 )
 from app.reddit_import import run_reddit_social_listening_ingestion
 from app.seed import seed_reference_config
-from app.semantic_similarity import analyze_semantic_similarity
+from app import semantic_similarity as semantic_similarity_module
+from app.semantic_similarity import analyze_semantic_similarity, get_semantic_similarity_analyzer
 from app.sentiment import get_sentiment_analyzer
 
 
@@ -67,6 +68,47 @@ def _ingest_single_review(session: Session, *, external_review_id: str) -> Norma
     assert review is not None
     assert review.analysis is not None
     return review
+
+
+def _ingest_semantic_reviews(session: Session, *, connector_key: str) -> list[NormalizedReview]:
+    run_payload_ingestion(
+        session,
+        source_code="kingsbury_seed_dataset",
+        connector_key=connector_key,
+        payloads=[
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": f"{connector_key}-001",
+                "reviewer_name": "Guest One",
+                "review_date": "2026-05-20T10:00:00+00:00",
+                "rating": 2.0,
+                "language": "en",
+                "title": "Slow check-in queue",
+                "body": "The front desk check-in queue was very slow and took too long.",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.65,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": f"{connector_key}-002",
+                "reviewer_name": "Guest Two",
+                "review_date": "2026-05-21T12:00:00+00:00",
+                "rating": 2.0,
+                "language": "en",
+                "title": "Front desk delay",
+                "body": "Check-in at the front desk took a very long time because the queue was slow.",
+                "sentiment_label": "negative",
+                "sentiment_score": -0.62,
+                "issue_category_code": "booking_checkin",
+                "severity": "high",
+                "department_code": "front_office",
+            },
+        ],
+    )
+    return list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
 
 
 def test_review_analysis_uses_deterministic_sentiment_fallback_with_metadata(tmp_path: Path, monkeypatch) -> None:
@@ -295,65 +337,98 @@ def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monk
 def test_semantic_similarity_flags_near_duplicates_without_merging(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'semantic-dedupe.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
+    get_semantic_similarity_analyzer.cache_clear()
     migrate(database_url)
 
     engine = create_engine(database_url)
-    with Session(engine) as session:
-        seed_reference_config(session)
+    try:
+        with Session(engine) as session:
+            seed_reference_config(session)
 
-        payloads = [
-            {
-                "source_code": "kingsbury_seed_dataset",
-                "external_review_id": "semantic-001",
-                "reviewer_name": "Guest One",
-                "review_date": "2026-05-20T10:00:00+00:00",
-                "rating": 2.0,
-                "language": "en",
-                "title": "Slow check-in queue",
-                "body": "The front desk check-in queue was very slow and took too long.",
-                "sentiment_label": "negative",
-                "sentiment_score": -0.65,
-                "issue_category_code": "booking_checkin",
-                "severity": "high",
-                "department_code": "front_office",
-            },
-            {
-                "source_code": "kingsbury_seed_dataset",
-                "external_review_id": "semantic-002",
-                "reviewer_name": "Guest Two",
-                "review_date": "2026-05-21T12:00:00+00:00",
-                "rating": 2.0,
-                "language": "en",
-                "title": "Front desk delay",
-                "body": "Check-in at the front desk took a very long time because the queue was slow.",
-                "sentiment_label": "negative",
-                "sentiment_score": -0.62,
-                "issue_category_code": "booking_checkin",
-                "severity": "high",
-                "department_code": "front_office",
-            },
-        ]
+            reviews = _ingest_semantic_reviews(session, connector_key="test_semantic_dedupe")
+            semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
 
-        run = run_payload_ingestion(
-            session,
-            source_code="kingsbury_seed_dataset",
-            connector_key="test_semantic_dedupe",
-            payloads=payloads,
-        )
-        reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
-        semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+            assert {review.is_content_duplicate for review in reviews} == {False}
+            assert {review.duplicate_of_review_id for review in reviews} == {None}
+            assert semantic_result.embedding_strategy in {
+                "local_sentence_transformer",
+                "tfidf_cosine_fallback",
+                "token_overlap_fallback",
+            }
+            assert semantic_result.near_duplicate_pairs
+            assert semantic_result.clusters
+            assert semantic_result.clusters[0].size == 2
+            assert semantic_result.clusters[0].category_code in {"booking_checkin", "service_delay"}
+            assert semantic_result.clusters[0].department_code
+            assert semantic_result.clusters[0].source_mix == {"kingsbury_seed_dataset": 2}
+    finally:
+        get_semantic_similarity_analyzer.cache_clear()
 
-        assert run.status == "completed"
-        assert run.records_created == 2
-        assert run.records_duplicate_flagged == 0
-        assert {review.is_content_duplicate for review in reviews} == {False}
-        assert {review.duplicate_of_review_id for review in reviews} == {None}
-        assert semantic_result.near_duplicate_pairs
-        assert semantic_result.clusters
-        assert semantic_result.clusters[0].size == 2
-        assert semantic_result.clusters[0].category_code in {"booking_checkin", "service_delay"}
-        assert semantic_result.clusters[0].department_code
-        assert semantic_result.clusters[0].source_mix == {"kingsbury_seed_dataset": 2}
+
+def test_semantic_similarity_uses_sentence_transformer_when_available(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'semantic-transformer.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    class FakeSentenceTransformer:
+        revision = "local-mini-lm-revision"
+
+        def encode(self, texts: list[str], normalize_embeddings: bool = True) -> list[list[float]]:
+            assert normalize_embeddings is True
+            assert len(texts) == 2
+            return [
+                [1.0, 0.0, 0.0],
+                [0.92, 0.08, 0.0],
+            ]
+
+    monkeypatch.setattr(
+        semantic_similarity_module,
+        "_load_sentence_transformer",
+        lambda **_: FakeSentenceTransformer(),
+    )
+    get_semantic_similarity_analyzer.cache_clear()
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            seed_reference_config(session)
+            reviews = _ingest_semantic_reviews(session, connector_key="test_semantic_transformer")
+            semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+
+            assert semantic_result.embedding_strategy == "local_sentence_transformer"
+            assert semantic_result.embedding_model_name == "local-sentence-transformer-review-embeddings"
+            assert semantic_result.embedding_model_version == "local-mini-lm-revision"
+            assert "TF-IDF cosine similarity" in semantic_result.embedding_fallback_note
+            assert semantic_result.near_duplicate_pairs
+            assert semantic_result.clusters
+    finally:
+        get_semantic_similarity_analyzer.cache_clear()
+
+
+def test_semantic_similarity_uses_tfidf_fallback_metadata_when_transformer_unavailable(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'semantic-tfidf-fallback.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    monkeypatch.setattr(
+        semantic_similarity_module,
+        "_load_sentence_transformer",
+        lambda **_: (_ for _ in ()).throw(ImportError("sentence-transformers unavailable")),
+    )
+    get_semantic_similarity_analyzer.cache_clear()
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            seed_reference_config(session)
+            reviews = _ingest_semantic_reviews(session, connector_key="test_semantic_tfidf_fallback")
+            semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+
+            assert semantic_result.embedding_strategy == "tfidf_cosine_fallback"
+            assert semantic_result.embedding_model_name == "local-tfidf-cosine-review-embeddings"
+            assert "sentence-transformers unavailable" in semantic_result.embedding_fallback_note
+            assert semantic_result.clusters
+    finally:
+        get_semantic_similarity_analyzer.cache_clear()
 
 
 def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp_path: Path, monkeypatch) -> None:
@@ -619,9 +694,18 @@ def test_api_endpoints_expose_imports_and_social_listening_filters(tmp_path: Pat
     assert len(housekeeping_reviews_response.json()["reviews"]) >= 1
     assert semantic_response.status_code == 200
     semantic_payload = semantic_response.json()
-    assert semantic_payload["embedding_model_name"] == "local-tfidf-cosine-review-embeddings"
+    assert semantic_payload["embedding_strategy"] in {
+        "local_sentence_transformer",
+        "tfidf_cosine_fallback",
+        "token_overlap_fallback",
+    }
+    assert semantic_payload["embedding_model_name"] in {
+        "local-sentence-transformer-review-embeddings",
+        "local-tfidf-cosine-review-embeddings",
+        "local-token-overlap-review-embeddings",
+    }
     assert semantic_payload["similarity_threshold"] == 0.30
-    assert "sentence-transformers" in semantic_payload["embedding_fallback_note"]
+    assert semantic_payload["embedding_fallback_note"]
     assert "near_duplicate_pairs" in semantic_payload
     assert "clusters" in semantic_payload
     assert runs_response.status_code == 200

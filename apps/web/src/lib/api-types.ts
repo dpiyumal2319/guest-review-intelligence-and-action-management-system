@@ -193,6 +193,7 @@ export type SemanticIssueCluster = {
 }
 
 export type SemanticAnalysis = {
+  embedding_strategy: string
   embedding_model_name: string
   embedding_model_version: string
   embedding_fallback_note: string
