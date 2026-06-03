@@ -70,9 +70,9 @@ python3 -m app.jobs apify \
 
 ## Automatic review analysis
 
-Every ingestion path runs local analysis after a normalized review is created or updated. The current demo-safe analyzer is `local-deterministic-review-analysis` version `2026.07.demo-fallback`: a deterministic lexicon and rules fallback used because transformer sentiment dependencies are not installed in this prototype environment.
+Every ingestion path runs local analysis after a normalized review is created or updated. Sentiment analysis first attempts a local transformer pipeline when the optional `transformers` runtime and a local model artifact are available; otherwise it falls back to `local-deterministic-review-analysis` version `2026.07.demo-fallback`.
 
-The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Severity is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
+The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Stored explanation metadata records which sentiment path ran, the active model name/version, confidence, analysis version, and any fallback note. Severity is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
 
 ## Run with Docker
 

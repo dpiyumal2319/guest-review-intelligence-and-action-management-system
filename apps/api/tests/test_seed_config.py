@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.apify_importer import ApifyImportInput, run_apify_dataset_import
+from app import sentiment as sentiment_module
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import normalized_content_hash, run_mock_connector_by_key, run_payload_ingestion, run_seed_ingestion
@@ -29,11 +30,108 @@ from app.models import (
 from app.reddit_import import run_reddit_social_listening_ingestion
 from app.seed import seed_reference_config
 from app.semantic_similarity import analyze_semantic_similarity
+from app.sentiment import get_sentiment_analyzer
 
 
 def migrate(database_url: str) -> None:
     config = Config("alembic.ini")
     command.upgrade(config, "head")
+
+
+def _ingest_single_review(session: Session, *, external_review_id: str) -> NormalizedReview:
+    run_payload_ingestion(
+        session,
+        source_code="kingsbury_seed_dataset",
+        connector_key="test_sentiment_runtime",
+        payloads=[
+            {
+                "source_code": "kingsbury_seed_dataset",
+                "external_review_id": external_review_id,
+                "reviewer_name": "Guest Runtime",
+                "review_date": "2026-05-20T10:00:00+00:00",
+                "rating": 4.0,
+                "language": "en",
+                "title": "Helpful team",
+                "body": "Helpful staff but the queue was slow.",
+                "sentiment_label": "mixed",
+                "sentiment_score": 0.0,
+                "issue_category_code": "service_delay",
+                "severity": "medium",
+                "department_code": "front_office",
+            }
+        ],
+    )
+    review = session.scalar(
+        select(NormalizedReview).where(NormalizedReview.external_review_id == external_review_id)
+    )
+    assert review is not None
+    assert review.analysis is not None
+    return review
+
+
+def test_review_analysis_uses_deterministic_sentiment_fallback_with_metadata(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'sentiment-fallback.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    def unavailable_pipeline(**_):
+        raise ImportError("transformers unavailable")
+
+    monkeypatch.setattr(sentiment_module, "_load_transformer_pipeline", unavailable_pipeline)
+    get_sentiment_analyzer.cache_clear()
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            seed_reference_config(session)
+            review = _ingest_single_review(session, external_review_id="sentiment-fallback-001")
+
+            assert review.analysis.model_name == "local-deterministic-review-analysis"
+            assert review.analysis.model_version == "2026.07.demo-fallback"
+            assert review.analysis.analysis_version == "analysis-v2"
+            assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "deterministic_fallback"
+            assert "transformer sentiment runtime was unavailable" in review.analysis.explanation_factors["model"]["fallback_note"]
+            assert review.analysis.explanation_factors["model"]["sentiment_confidence"] == review.analysis.sentiment_confidence
+    finally:
+        get_sentiment_analyzer.cache_clear()
+
+
+def test_review_analysis_uses_local_transformer_sentiment_when_available(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'sentiment-transformer.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+
+    class FakePipeline:
+        def __init__(self) -> None:
+            self.model = type(
+                "FakeModel",
+                (),
+                {"config": type("FakeConfig", (), {"_commit_hash": "commit-sha-123"})()},
+            )()
+
+        def __call__(self, text: str, truncation: bool = True) -> list[dict[str, float | str]]:
+            assert truncation is True
+            assert text
+            return [{"label": "POSITIVE", "score": 0.91}]
+
+    monkeypatch.setattr(sentiment_module, "_load_transformer_pipeline", lambda **_: FakePipeline())
+    get_sentiment_analyzer.cache_clear()
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    try:
+        with Session(engine) as session:
+            seed_reference_config(session)
+            review = _ingest_single_review(session, external_review_id="sentiment-transformer-001")
+
+            assert review.analysis.model_name == "local-transformer-sentiment-analysis"
+            assert review.analysis.model_version == "commit-sha-123"
+            assert review.analysis.analysis_version == "analysis-v2"
+            assert review.analysis.sentiment_label == "positive"
+            assert review.analysis.sentiment_score == 0.82
+            assert review.analysis.sentiment_confidence == 0.91
+            assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "local_transformer_pipeline"
+            assert review.analysis.explanation_factors["model"]["fallback_note"] is None
+    finally:
+        get_sentiment_analyzer.cache_clear()
 
 
 def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None:
@@ -104,7 +202,7 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert analyzed_review.analysis.is_active is True
         assert analyzed_review.analysis.model_name == "local-deterministic-review-analysis"
         assert analyzed_review.analysis.model_version == "2026.07.demo-fallback"
-        assert analyzed_review.analysis.analysis_version == "analysis-v1"
+        assert analyzed_review.analysis.analysis_version == "analysis-v2"
         assert analyzed_review.analysis.issue_category_code == "cleanliness"
         assert analyzed_review.analysis.department_code == "housekeeping"
         assert analyzed_review.analysis.severity_label in {"high", "critical"}
