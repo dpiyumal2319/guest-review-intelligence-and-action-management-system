@@ -76,6 +76,7 @@ Current committed evidence (`random_state=42`, `test_size=0.3`) shows:
 - trained model macro F1: `0.0`
 - keyword baseline macro F1: `0.5`
 - label counts: 1 row each for `amenities_facilities`, `booking_checkin`, `cleanliness`, `food_beverage`, `noise_events`, `positive_general`, `room_condition`, and `service_delay`.
+- note on labels in confusion matrices: `staff_behavior` appears in the baseline confusion-matrix labels because the keyword baseline predicted it for one test sample, even though the 8-row labelled dataset itself contains no `staff_behavior` row.
 
 ### Dataset Scale Status vs PRD Target
 
