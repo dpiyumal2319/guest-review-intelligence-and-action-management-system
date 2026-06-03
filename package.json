@@ -4,9 +4,9 @@
     "apps/web"
   ],
   "scripts": {
-    "api:migrate": "cd apps/api && python -m alembic upgrade head",
-    "api:seed": "cd apps/api && python -m app.seed",
-    "api:test": "cd apps/api && python -m pytest -s tests",
+    "api:migrate": "cd apps/api && python3 -m alembic upgrade head",
+    "api:seed": "cd apps/api && python3 -m app.seed",
+    "api:test": "cd apps/api && python3 -m pytest -s tests",
     "dev:web": "npm --workspace apps/web run dev",
     "build:web": "npm --workspace apps/web run build",
     "lint:web": "npm --workspace apps/web run lint"
