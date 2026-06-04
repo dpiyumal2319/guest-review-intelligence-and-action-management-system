@@ -50,43 +50,6 @@ REVIEW_SOURCES = [
             "provider_payload_shape": "content API location review with subratings",
         },
     },
-    {
-        "code": "reddit_social_listening",
-        "name": "Reddit Social Listening",
-        "source_type": "social_listening",
-        "description": "Public discussion source excluded from default verified-review KPIs.",
-        "default_enabled": False,
-        "is_verified_channel": False,
-        "connector_key": "reddit",
-        "sample_import_path": None,
-        "source_metadata": {"kpi_scope": "social_listening", "requires_moderation": True},
-    },
-    {
-        "code": "kingsbury_seed_dataset",
-        "name": "Kingsbury Demo Seed Dataset",
-        "source_type": "seed_dataset",
-        "description": "Prepared research dataset used to demonstrate ingestion without live credentials.",
-        "default_enabled": True,
-        "is_verified_channel": False,
-        "connector_key": "seed_dataset",
-        "sample_import_path": "data/seed/kingsbury_reviews.csv",
-        "source_metadata": {"kpi_scope": "demo_dataset", "import_mode": "idempotent_batch"},
-    },
-    {
-        "code": "apify_dataset_import",
-        "name": "Apify Dataset Import",
-        "source_type": "apify_dataset_import",
-        "description": "Offline Apify export import source for JSON or CSV datasets.",
-        "default_enabled": False,
-        "is_verified_channel": False,
-        "connector_key": "apify_dataset_import",
-        "sample_import_path": "data/imports/apify/export.json",
-        "source_metadata": {
-            "kpi_scope": "dataset_import",
-            "live_scraping": False,
-            "import_policy": "offline_dataset_preparation_only",
-        },
-    },
 ]
 
 DEPARTMENTS = [

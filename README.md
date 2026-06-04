@@ -28,10 +28,12 @@ npm run api:seed
 
 Seeded configuration is exposed at http://localhost:8000/config.
 
-The fallback seed review connector can be triggered through the API:
+Review-platform connectors can be triggered through the API:
 
 ```bash
-curl -X POST http://localhost:8000/ingestion/seed
+curl -X POST http://localhost:8000/ingestion/connectors/google_business_profile
+curl -X POST http://localhost:8000/ingestion/connectors/booking_com
+curl -X POST http://localhost:8000/ingestion/connectors/tripadvisor
 ```
 
 Imported normalized reviews are exposed at http://localhost:8000/reviews, and

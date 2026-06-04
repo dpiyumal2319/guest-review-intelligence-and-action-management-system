@@ -6,11 +6,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.apify_importer import ApifyImportInput, run_apify_dataset_import
 from app.analysis import reanalyze_reviews
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
-from app.ingestion import run_mock_connector_by_key, run_seed_ingestion
+from app.ingestion import run_mock_connector_by_key
 from app.models import (
     ActionTicket,
     CategoryDepartmentMapping,
@@ -25,9 +24,7 @@ from app.models import (
     SeverityThreshold,
     TicketEvent,
 )
-from app.reddit_import import run_reddit_social_listening_ingestion
 from app.schemas import (
-    ApifyDatasetImportRequest,
     HealthResponse,
     IngestionRunResponse,
     IngestionRunsResponse,
@@ -50,6 +47,10 @@ from app.semantic_similarity import (
     DEFAULT_SIMILARITY_THRESHOLD,
     analyze_semantic_similarity,
 )
+from app.seed_data import REVIEW_SOURCES
+
+
+MVP_REVIEW_SOURCE_CODES = tuple(source["code"] for source in REVIEW_SOURCES)
 
 
 app = FastAPI(
@@ -74,7 +75,13 @@ async def health() -> HealthResponse:
 @app.get("/config", tags=["configuration"], response_model=ReferenceConfigResponse)
 async def reference_config(session: Session = Depends(get_session)) -> ReferenceConfigResponse:
     return ReferenceConfigResponse(
-        review_sources=list(session.scalars(select(ReviewSource).order_by(ReviewSource.code))),
+        review_sources=list(
+            session.scalars(
+                select(ReviewSource)
+                .where(ReviewSource.code.in_(MVP_REVIEW_SOURCE_CODES))
+                .order_by(ReviewSource.code)
+            )
+        ),
         departments=list(session.scalars(select(Department).order_by(Department.sort_order))),
         issue_categories=list(session.scalars(select(IssueCategory).order_by(IssueCategory.sort_order))),
         category_department_mappings=list(
@@ -91,38 +98,11 @@ async def reference_config(session: Session = Depends(get_session)) -> Reference
     )
 
 
-@app.post("/ingestion/seed", tags=["ingestion"], response_model=IngestionRunResponse)
-async def import_seed_reviews(session: Session = Depends(get_session)) -> IngestionRun:
-    return run_seed_ingestion(session)
-
-
 @app.post("/ingestion/connectors/{connector_key}", tags=["ingestion"], response_model=IngestionRunResponse)
 async def import_verified_connector(connector_key: str, session: Session = Depends(get_session)) -> IngestionRun:
     if connector_key not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown connector '{connector_key}'")
     return run_mock_connector_by_key(session, connector_key)
-
-
-@app.post(
-    "/ingestion/apify-dataset",
-    tags=["ingestion"],
-    response_model=IngestionRunResponse,
-    summary="Import an offline Apify dataset export",
-    description=(
-        "Loads a JSON or CSV file prepared outside the app for research/demo dataset preparation. "
-        "This is not a production Apify connector or live scraping integration."
-    ),
-)
-async def import_apify_dataset(
-    request: ApifyDatasetImportRequest,
-    session: Session = Depends(get_session),
-) -> IngestionRun:
-    return run_apify_dataset_import(session, ApifyImportInput(**request.model_dump()))
-
-
-@app.post("/ingestion/reddit", tags=["ingestion"], response_model=IngestionRunResponse)
-async def import_reddit_social_listening(session: Session = Depends(get_session)) -> IngestionRun:
-    return run_reddit_social_listening_ingestion(session)
 
 
 @app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)
@@ -133,7 +113,13 @@ async def ingestion_runs(session: Session = Depends(get_session)) -> IngestionRu
 
 @app.get("/ingestion/source-status", tags=["ingestion"], response_model=IngestionSourceStatusesResponse)
 async def ingestion_source_status(session: Session = Depends(get_session)) -> IngestionSourceStatusesResponse:
-    sources = list(session.scalars(select(ReviewSource).order_by(ReviewSource.code)))
+    sources = list(
+        session.scalars(
+            select(ReviewSource)
+            .where(ReviewSource.code.in_(MVP_REVIEW_SOURCE_CODES))
+            .order_by(ReviewSource.code)
+        )
+    )
     statuses = []
     for source in sources:
         latest_run = None
@@ -149,7 +135,6 @@ async def ingestion_source_status(session: Session = Depends(get_session)) -> In
                 "source_code": source.code,
                 "source_name": source.name,
                 "connector_key": source.connector_key,
-                "source_type": source.source_type,
                 "is_verified_channel": source.is_verified_channel,
                 "latest_run": latest_run,
                 "errors": latest_run.errors if latest_run is not None else [],
@@ -160,7 +145,6 @@ async def ingestion_source_status(session: Session = Depends(get_session)) -> In
 
 @app.get("/reviews", tags=["reviews"], response_model=ReviewsResponse)
 async def reviews(
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
@@ -170,7 +154,6 @@ async def reviews(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
-    include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
@@ -188,10 +171,7 @@ async def reviews(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -236,11 +216,9 @@ async def reviews(
 
 @app.get("/analysis/semantic-clusters", tags=["analysis"], response_model=SemanticAnalysisResponse)
 async def semantic_clusters(
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
-    include_social_listening: bool = Query(default=False),
     similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
     min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
     session: Session = Depends(get_session),
@@ -253,10 +231,7 @@ async def semantic_clusters(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -291,11 +266,10 @@ async def semantic_clusters(
 
 @app.post("/analysis/reanalyze", tags=["analysis"], response_model=ReanalysisResponse)
 async def reanalyze_imported_reviews(
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> ReanalysisResponse:
-    return ReanalysisResponse(analyzed_count=reanalyze_reviews(session, source_code=source_code, source_type=source_type))
+    return ReanalysisResponse(analyzed_count=reanalyze_reviews(session, source_code=source_code, source_type="verified_review"))
 
 
 _VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verified"}
@@ -396,7 +370,6 @@ def _create_recurring_issue_ticket(
 
 @app.get("/overview/kpis", tags=["overview"], response_model=OverviewKpiResponse)
 async def overview_kpis(
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
@@ -405,7 +378,6 @@ async def overview_kpis(
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
-    include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> OverviewKpiResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
@@ -420,10 +392,7 @@ async def overview_kpis(
         .join(NormalizedReview.source)
         .options(selectinload(NormalizedReview.analysis))
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -505,9 +474,7 @@ async def overview_kpis(
         action_status_mix=action_status_mix,
         top_departments=top_departments,
         top_categories=top_categories,
-        include_social_listening=include_social_listening,
         filters_applied={
-            "source_type": source_type,
             "source_code": source_code,
             "issue_category_code": issue_category_code,
             "department_code": department_code,
@@ -522,7 +489,6 @@ async def overview_kpis(
 
 @app.get("/issues/summary", tags=["issues"], response_model=IssueSummaryResponse)
 async def issues_summary(
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
@@ -531,7 +497,6 @@ async def issues_summary(
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
-    include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> IssueSummaryResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
@@ -550,10 +515,7 @@ async def issues_summary(
             selectinload(NormalizedReview.issue_category),
         )
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -638,9 +600,7 @@ async def issues_summary(
     return IssueSummaryResponse(
         items=items,
         total_reviews=total,
-        include_social_listening=include_social_listening,
         filters_applied={
-            "source_type": source_type,
             "source_code": source_code,
             "issue_category_code": issue_category_code,
             "department_code": department_code,
@@ -657,7 +617,6 @@ async def issues_summary(
 async def create_category_recurrence_ticket(
     category_code: str,
     body: RecurringIssueTicketCreateRequest,
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
@@ -665,7 +624,6 @@ async def create_category_recurrence_ticket(
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
-    include_social_listening: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> ActionTicket:
     category = session.get(IssueCategory, category_code)
@@ -691,10 +649,7 @@ async def create_category_recurrence_ticket(
             )
         )
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if department_code is not None:
@@ -739,11 +694,9 @@ async def create_category_recurrence_ticket(
 async def create_semantic_cluster_ticket(
     cluster_id: str,
     body: RecurringIssueTicketCreateRequest,
-    source_type: str | None = Query(default=None),
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
-    include_social_listening: bool = Query(default=False),
     similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
     min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
     session: Session = Depends(get_session),
@@ -757,10 +710,7 @@ async def create_semantic_cluster_ticket(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    if source_type is not None:
-        query = query.where(ReviewSource.source_type == source_type)
-    elif not include_social_listening:
-        query = query.where(ReviewSource.source_type != "social_listening")
+    query = query.where(ReviewSource.source_type == "verified_review")
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:

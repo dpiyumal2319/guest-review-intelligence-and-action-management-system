@@ -2,15 +2,13 @@
 
 ## Purpose
 
-This document defines how the prototype should be evaluated and how each data source should be described. It prevents assessors, users, and future agents from confusing mock official connectors, social listening, and prepared dataset imports.
+This document defines how the prototype should be evaluated and how each data source should be described. It keeps the MVP focused on hotel review platforms while documenting the boundary between provider-shaped connectors and live production access.
 
-## Source Types
+## MVP Review Sources
 
-### Verified Review Sources
+The MVP product and staff-facing API expose only hotel review platforms.
 
-Verified review sources represent official guest-review channels in the prototype.
-
-Current examples:
+Configured sources:
 
 - Google Business Profile;
 - Booking.com;
@@ -22,56 +20,14 @@ Current implementation mapping:
 - PRD `booking_com_mock` -> source and connector key `booking_com`;
 - PRD `tripadvisor_mock` -> source and connector key `tripadvisor`.
 
-Important boundary:
+Source-policy boundary:
 
 - These are official-shaped mock connectors.
 - They do not use live Kingsbury credentials.
 - They do not claim actual official platform API access.
 - They are suitable for demonstrating provider-shaped ingestion, normalization, idempotency, analysis, and dashboard behavior.
 
-Default dashboard KPIs include verified review sources and exclude social listening.
-
-### Seed Dataset
-
-The seed dataset is controlled demo data for repeatable local demonstrations. It is useful for onboarding, smoke testing, and assessor walkthroughs.
-
-It should be described as a fallback seed dataset, not live production feedback.
-
-Current implementation mapping:
-
-- PRD `fallback_seed` -> source `kingsbury_seed_dataset`, connector key `seed_dataset`, API route `/ingestion/seed`, and backend job `python -m app.jobs seed`.
-
-### Social Listening
-
-Reddit is treated as social listening.
-
-Current implementation mapping:
-
-- PRD `reddit_social_mock` -> source `reddit_social_listening`, API route `/ingestion/reddit`, and backend job `python -m app.jobs reddit`.
-
-Important boundary:
-
-- Social-listening records are public mentions, not verified guest-review records.
-- They are excluded from default verified-review KPIs.
-- They can be included explicitly through source filters or `include_social_listening=true`.
-- They may still be eligible for operational review and tickets when relevant.
-
-### Apify Dataset Import
-
-Apify is supported only as an offline dataset preparation path.
-
-Current implementation mapping:
-
-- PRD `apify_dataset_import` -> source and connector key `apify_dataset_import`, API route `/ingestion/apify-dataset`, and backend job `python -m app.jobs apify`.
-
-Important boundary:
-
-- The app imports exported JSON or CSV files.
-- The app does not call the Apify API as a production connector.
-- The app does not scrape live websites.
-- Dataset metadata such as actor name, export date, platform, and source URL is preserved for audit.
-
-Use this path for research/demo datasets where the export was prepared outside the app.
+The staff-facing source and filter path should not expose seed datasets, Apify imports, CSV imports, Reddit, social listening, or source-type options.
 
 ## Prohibited Claims and Behaviors
 
@@ -81,7 +37,7 @@ Do not claim:
 - production official API integrations exist;
 - Apify is the production ingestion connector;
 - public scraping is part of the production workflow;
-- social-listening records are verified guest reviews.
+- non-platform records are verified guest reviews.
 
 Do not implement:
 
@@ -95,9 +51,8 @@ Do not implement:
 
 Evaluate dashboard behavior through these questions:
 
-- Do Overview KPIs exclude social-listening records by default?
-- Does selecting social listening or `include_social_listening=true` include those records explicitly?
-- Do Reviews, Issues, Tickets, and Overview use consistent filters?
+- Do Overview KPIs use only Google Business Profile, Booking.com, and Tripadvisor review records?
+- Do Reviews, Issues, Tickets, and Overview use consistent platform source-code filters?
 - Do API responses return dashboard-ready aggregates rather than forcing the frontend to reconstruct complex data?
 - Can a manager identify high-severity reviews, recurring categories, semantic clusters, and department load?
 
@@ -125,10 +80,7 @@ Evaluate ingestion behavior through:
 Relevant endpoints:
 
 ```text
-POST /ingestion/seed
 POST /ingestion/connectors/{connector_key}
-POST /ingestion/reddit
-POST /ingestion/apify-dataset
 GET /ingestion/runs
 GET /ingestion/source-status
 ```
@@ -187,12 +139,9 @@ Backend job commands use the same services as the API routes:
 
 ```bash
 cd apps/api
-python -m app.jobs seed
 python -m app.jobs connector google_business_profile
 python -m app.jobs connector booking_com
 python -m app.jobs connector tripadvisor
-python -m app.jobs reddit
-python -m app.jobs apify --file-path data/imports/apify/export.json
 ```
 
 ## Privacy and Data Handling
@@ -201,16 +150,14 @@ The prototype minimizes sensitive data:
 
 - stores public reviewer display names only when provided by the source payload;
 - does not require email, phone, loyalty, payment, or reservation identifiers for reviews;
-- keeps raw payloads for audit, so demo/import data should avoid private personal data;
+- keeps raw platform payloads for audit, so connector fixtures should avoid private personal data;
 - redacts email-like and phone-like text in review API display fields while preserving raw payloads and normalized source fields for audit;
 - treats assignee email on tickets as optional prototype workflow metadata.
 
-If real public datasets are used for assessment, redact private details before import.
-
 ## Assessment Checklist
 
-- Source types are visibly distinct in configuration and docs.
-- Default metrics do not mix social listening with verified review KPIs.
+- Staff-facing source configuration exposes only the three MVP review platforms.
+- Metrics are scoped to Google Business Profile, Booking.com, and Tripadvisor records.
 - Raw and normalized records can be audited.
 - Analysis outputs store model metadata and explanation factors.
 - Evaluation report compares trained classifier against baseline.
