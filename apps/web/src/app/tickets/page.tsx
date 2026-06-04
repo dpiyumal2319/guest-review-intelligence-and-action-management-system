@@ -78,7 +78,7 @@ function eventTypeLabel(eventType: string): string {
 }
 
 function ticketSourceLabel(ticket: Ticket, categoryNameByCode: Record<string, string>): string {
-  if (ticket.source_group_type === "category_recurrence" && ticket.source_category_code) {
+  if (ticket.source_group_type === "category_department_recurrence" && ticket.source_category_code) {
     return `${categoryNameByCode[ticket.source_category_code] ?? ticket.source_category_code.replaceAll("_", " ")} recurrence`
   }
   if (ticket.source_group_type === "semantic_cluster" && ticket.source_cluster_id) {

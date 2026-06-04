@@ -314,13 +314,17 @@ class TicketsResponse(BaseModel):
 
 
 class IssueSummaryItemResponse(BaseModel):
+    group_key: str
     category_code: str
     category_name: str
+    department_code: str
     review_count: int
+    recent_review_count: int
     average_reputation_risk_score: float
-    primary_department_code: str
+    highest_reputation_risk: str
     source_mix: dict[str, int]
     representative_review_id: int
+    latest_review_date: datetime | None
     linked_ticket_ids: list[int] = []
 
 
