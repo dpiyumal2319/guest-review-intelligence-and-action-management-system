@@ -24,7 +24,7 @@ The web app lives in `apps/web`.
 
 Primary pages:
 
-- **Overview**: KPI and chart view for review volume, rating, sentiment, severity, departments, categories, and action statuses.
+- **Overview**: KPI and chart view for review volume, rating, sentiment, Reputation Risk, departments, categories, and action statuses.
 - **Reviews**: normalized review table with shared filters and analysis fields.
 - **Issues**: category recurrence summary and semantic issue clusters.
 - **Tickets**: corrective-action ticket list and ticket detail history.
@@ -32,7 +32,7 @@ Primary pages:
 
 The web app calls the REST API directly using `NEXT_PUBLIC_API_BASE_URL`, defaulting to `http://localhost:8000`. TypeScript API shapes are maintained in `apps/web/src/lib/api-types.ts`.
 
-Dashboard filters are shared through `apps/web/src/hooks/use-dashboard-filters.ts`. Views support the relevant subset of date range, source, sentiment, issue category, department, severity, action status, and social-listening inclusion filters.
+Dashboard filters are shared through `apps/web/src/hooks/use-dashboard-filters.ts`. Views support the relevant subset of date range, source, sentiment, issue category, department, Reputation Risk, action status, and social-listening inclusion filters.
 
 ## API Application
 
@@ -104,7 +104,7 @@ The NLP layer is local and reproducible:
 
 - sentiment prefers a local transformer pipeline when a local model artifact is available and otherwise uses a deterministic local lexicon/rating fallback;
 - issue-category classification uses a trained TF-IDF + Logistic Regression artifact when present, with keyword baseline fallback;
-- severity is transparent and weighted from rating, sentiment, category, urgency terms, recurrence, and duplicate signals;
+- Reputation Risk is transparent and weighted from rating, sentiment, category, urgency terms, recurrence, and duplicate signals;
 - semantic similarity uses local TF-IDF cosine similarity, with token similarity fallback if scikit-learn is unavailable;
 - analysis stores model name, model version, analysis version, confidence, timestamp, and explanation factors.
 

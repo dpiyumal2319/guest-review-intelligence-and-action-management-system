@@ -46,7 +46,7 @@ class IssueCategory(Base):
         back_populates="category",
         cascade="all, delete-orphan",
     )
-    severity_threshold: Mapped["SeverityThreshold"] = relationship(
+    reputation_risk_threshold: Mapped["ReputationRiskThreshold"] = relationship(
         back_populates="category",
         cascade="all, delete-orphan",
     )
@@ -72,8 +72,8 @@ class CategoryDepartmentMapping(Base):
     department: Mapped[Department] = relationship()
 
 
-class SeverityThreshold(Base):
-    __tablename__ = "severity_thresholds"
+class ReputationRiskThreshold(Base):
+    __tablename__ = "reputation_risk_thresholds"
 
     category_code: Mapped[str] = mapped_column(
         String(64),
@@ -86,7 +86,7 @@ class SeverityThreshold(Base):
     recurring_count_7d_min: Mapped[int] = mapped_column(Integer, nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
-    category: Mapped[IssueCategory] = relationship(back_populates="severity_threshold")
+    category: Mapped[IssueCategory] = relationship(back_populates="reputation_risk_threshold")
 
 
 class DemoRole(Base):
@@ -187,7 +187,7 @@ class NormalizedReview(Base):
         ForeignKey("issue_categories.code", ondelete="RESTRICT"),
         nullable=False,
     )
-    severity: Mapped[str] = mapped_column(String(32), nullable=False)
+    reputation_risk: Mapped[str] = mapped_column(String(32), nullable=False)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
@@ -269,8 +269,8 @@ class ReviewAnalysis(Base):
         ForeignKey("issue_categories.code", ondelete="RESTRICT"),
         nullable=False,
     )
-    severity_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    severity_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    reputation_risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation_risk_label: Mapped[str] = mapped_column(String(32), nullable=False)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),

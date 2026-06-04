@@ -126,7 +126,7 @@ CATEGORY_DEPARTMENT_MAPPINGS = [
     {"category_code": "other_uncategorized", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations reviews low-confidence topics before assigning ownership."},
 ]
 
-SEVERITY_THRESHOLDS = [
+REPUTATION_RISK_THRESHOLDS = [
     {"category_code": "cleanliness", "low_rating_max": 3.0, "negative_sentiment_max": -0.35, "urgent_confidence_min": 0.78, "recurring_count_7d_min": 3, "description": "Escalate repeated hygiene complaints quickly because they damage trust."},
     {"category_code": "room_condition", "low_rating_max": 3.0, "negative_sentiment_max": -0.30, "urgent_confidence_min": 0.75, "recurring_count_7d_min": 4, "description": "Escalate defects when guest comfort or core room function is affected."},
     {"category_code": "food_beverage", "low_rating_max": 3.0, "negative_sentiment_max": -0.30, "urgent_confidence_min": 0.72, "recurring_count_7d_min": 4, "description": "Escalate dining issues that repeat across breakfast, restaurant, or banquet contexts."},

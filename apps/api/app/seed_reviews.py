@@ -12,7 +12,7 @@ SEED_REVIEWS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.62,
         "issue_category_code": "booking_checkin",
-        "severity": "high",
+        "reputation_risk": "high",
         "department_code": "front_office",
     },
     {
@@ -28,7 +28,7 @@ SEED_REVIEWS = [
         "sentiment_label": "mixed",
         "sentiment_score": -0.18,
         "issue_category_code": "service_delay",
-        "severity": "medium",
+        "reputation_risk": "medium",
         "department_code": "guest_relations",
     },
     {
@@ -44,7 +44,7 @@ SEED_REVIEWS = [
         "sentiment_label": "positive",
         "sentiment_score": 0.84,
         "issue_category_code": "positive_general",
-        "severity": "low",
+        "reputation_risk": "low",
         "department_code": "guest_relations",
     },
     {
@@ -60,7 +60,7 @@ SEED_REVIEWS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.71,
         "issue_category_code": "room_condition",
-        "severity": "high",
+        "reputation_risk": "high",
         "department_code": "engineering",
     },
     {
@@ -76,7 +76,7 @@ SEED_REVIEWS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.77,
         "issue_category_code": "cleanliness",
-        "severity": "high",
+        "reputation_risk": "high",
         "department_code": "housekeeping",
     },
     {
@@ -92,7 +92,7 @@ SEED_REVIEWS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.48,
         "issue_category_code": "noise_events",
-        "severity": "medium",
+        "reputation_risk": "medium",
         "department_code": "guest_relations",
     },
 ]

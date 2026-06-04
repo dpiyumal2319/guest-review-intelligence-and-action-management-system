@@ -6,7 +6,7 @@ The NLP pipeline turns normalized review text and metadata into operational inte
 
 - sentiment label, score, and confidence;
 - issue-category predictions;
-- severity score and label;
+- Reputation Risk score and label;
 - department ownership;
 - duplicate and recurrence signals;
 - semantic near-duplicate pairs and issue clusters;
@@ -130,9 +130,9 @@ Evaluation output includes:
 
 Macro F1 is the headline metric because issue categories are expected to be imbalanced.
 
-## Severity
+## Reputation Risk
 
-Severity is transparent and deterministic.
+Reputation Risk is transparent and deterministic.
 
 Inputs:
 

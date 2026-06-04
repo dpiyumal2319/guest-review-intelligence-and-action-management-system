@@ -54,7 +54,7 @@ Evaluate dashboard behavior through these questions:
 - Do Overview KPIs use only Google Business Profile, Booking.com, and Tripadvisor review records?
 - Do Reviews, Issues, Tickets, and Overview use consistent platform source-code filters?
 - Do API responses return dashboard-ready aggregates rather than forcing the frontend to reconstruct complex data?
-- Can a manager identify high-severity reviews, recurring categories, semantic clusters, and department load?
+- Can a manager identify high Reputation Risk reviews, recurring categories, semantic clusters, and department load?
 
 Relevant endpoints:
 

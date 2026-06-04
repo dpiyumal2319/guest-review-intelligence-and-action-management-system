@@ -8,7 +8,7 @@ export type DashboardFilters = {
   issue_category_code: string
   department_code: string
   sentiment_label: string
-  severity: string
+  reputation_risk: string
   action_status: string
   search: string
   date_from: string
@@ -20,7 +20,7 @@ const DEFAULTS: DashboardFilters = {
   issue_category_code: "",
   department_code: "",
   sentiment_label: "",
-  severity: "",
+  reputation_risk: "",
   action_status: "",
   search: "",
   date_from: "",
@@ -36,7 +36,7 @@ export function useDashboardFilters() {
     issue_category_code: searchParams.get("issue_category_code") ?? "",
     department_code: searchParams.get("department_code") ?? "",
     sentiment_label: searchParams.get("sentiment_label") ?? "",
-    severity: searchParams.get("severity") ?? "",
+    reputation_risk: searchParams.get("reputation_risk") ?? "",
     action_status: searchParams.get("action_status") ?? "",
     search: searchParams.get("search") ?? "",
     date_from: searchParams.get("date_from") ?? "",
@@ -65,7 +65,7 @@ export function useDashboardFilters() {
     if (filters.issue_category_code) params.set("issue_category_code", filters.issue_category_code)
     if (filters.department_code) params.set("department_code", filters.department_code)
     if (filters.sentiment_label) params.set("sentiment_label", filters.sentiment_label)
-    if (filters.severity) params.set("severity", filters.severity)
+    if (filters.reputation_risk) params.set("reputation_risk", filters.reputation_risk)
     if (filters.action_status) params.set("action_status", filters.action_status)
     if (filters.search) params.set("search", filters.search)
     if (filters.date_from) params.set("date_from", filters.date_from)

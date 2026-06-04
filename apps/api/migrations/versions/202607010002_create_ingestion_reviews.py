@@ -88,7 +88,7 @@ def upgrade() -> None:
             sa.ForeignKey("issue_categories.code", ondelete="RESTRICT"),
             nullable=False,
         ),
-        sa.Column("severity", sa.String(length=32), nullable=False),
+        sa.Column("reputation_risk", sa.String(length=32), nullable=False),
         sa.Column(
             "department_code",
             sa.String(length=64),

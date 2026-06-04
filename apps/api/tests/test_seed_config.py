@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from alembic import command
@@ -10,6 +11,7 @@ from app import sentiment as sentiment_module
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import normalized_content_hash, run_mock_connector_by_key, run_payload_ingestion, run_seed_ingestion
+from app.analysis import score_reputation_risk
 from app.main import app
 from app.models import (
     ActionTicket,
@@ -23,13 +25,69 @@ from app.models import (
     ReviewAnalysis,
     ReviewIssueCategoryPrediction,
     ReviewSource,
-    SeverityThreshold,
+    ReputationRiskThreshold,
     TicketEvent,
 )
 from app.seed import seed_reference_config
 from app import semantic_similarity as semantic_similarity_module
 from app.semantic_similarity import analyze_semantic_similarity, get_semantic_similarity_analyzer
 from app.sentiment import get_sentiment_analyzer
+
+
+def test_reputation_risk_scoring_covers_label_thresholds() -> None:
+    analyzed_at = datetime(2026, 5, 22, tzinfo=UTC)
+
+    low_score, low_label, low_factors = score_reputation_risk(
+        rating=5.0,
+        sentiment_score=0.80,
+        issue_category_code="positive_general",
+        review_date=analyzed_at,
+        analyzed_at=analyzed_at,
+        urgency_score=0,
+        recurrence_count=1,
+        duplicate_signal=False,
+        normalized_payload={},
+    )
+    medium_score, medium_label, medium_factors = score_reputation_risk(
+        rating=4.0,
+        sentiment_score=0.10,
+        issue_category_code="cleanliness",
+        review_date=analyzed_at - timedelta(days=2),
+        analyzed_at=analyzed_at,
+        urgency_score=0,
+        recurrence_count=1,
+        duplicate_signal=False,
+        normalized_payload={},
+    )
+    high_score, high_label, high_factors = score_reputation_risk(
+        rating=2.0,
+        sentiment_score=-0.50,
+        issue_category_code="booking_checkin",
+        review_date=analyzed_at - timedelta(days=1),
+        analyzed_at=analyzed_at,
+        urgency_score=0,
+        recurrence_count=1,
+        duplicate_signal=False,
+        normalized_payload={},
+    )
+    critical_score, critical_label, critical_factors = score_reputation_risk(
+        rating=1.0,
+        sentiment_score=-0.90,
+        issue_category_code="cleanliness",
+        review_date=analyzed_at,
+        analyzed_at=analyzed_at,
+        urgency_score=15,
+        recurrence_count=3,
+        duplicate_signal=True,
+        normalized_payload={"provider_helpful_votes": 4, "provider_url": "https://example.test/review"},
+    )
+
+    assert (low_label, medium_label, high_label, critical_label) == ("low", "medium", "high", "critical")
+    assert low_score < medium_score < high_score < critical_score
+    assert medium_factors["weights"]["recency"] > 0
+    assert "low rating" in high_factors["operational_explanations"]
+    assert "visible platform engagement" in critical_factors["operational_explanations"]
+    assert low_factors["thresholds"] == {"low": "0-29", "medium": "30-49", "high": "50-74", "critical": "75-100"}
 
 
 def migrate(database_url: str) -> None:
@@ -55,7 +113,7 @@ def _ingest_single_review(session: Session, *, external_review_id: str) -> Norma
                 "sentiment_label": "mixed",
                 "sentiment_score": 0.0,
                 "issue_category_code": "service_delay",
-                "severity": "medium",
+                "reputation_risk": "medium",
                 "department_code": "front_office",
             }
         ],
@@ -86,7 +144,7 @@ def _ingest_semantic_reviews(session: Session, *, connector_key: str) -> list[No
                 "sentiment_label": "negative",
                 "sentiment_score": -0.65,
                 "issue_category_code": "booking_checkin",
-                "severity": "high",
+                "reputation_risk": "high",
                 "department_code": "front_office",
             },
             {
@@ -101,7 +159,7 @@ def _ingest_semantic_reviews(session: Session, *, connector_key: str) -> list[No
                 "sentiment_label": "negative",
                 "sentiment_score": -0.62,
                 "issue_category_code": "booking_checkin",
-                "severity": "high",
+                "reputation_risk": "high",
                 "department_code": "front_office",
             },
         ],
@@ -191,7 +249,7 @@ def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None
         assert session.query(Department).count() == 6
         assert session.query(IssueCategory).count() == 11
         assert session.query(CategoryDepartmentMapping).count() == 12
-        assert session.query(SeverityThreshold).count() == 11
+        assert session.query(ReputationRiskThreshold).count() == 11
         assert session.query(DemoRole).count() == 4
 
         google = session.get(ReviewSource, "google_business_profile")
@@ -238,8 +296,8 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert analyzed_review.analysis.analysis_version == "analysis-v2"
         assert analyzed_review.analysis.issue_category_code == "cleanliness"
         assert analyzed_review.analysis.department_code == "housekeeping"
-        assert analyzed_review.analysis.severity_label in {"high", "critical"}
-        assert analyzed_review.analysis.explanation_factors["severity"]["weights"]["rating"] > 0
+        assert analyzed_review.analysis.reputation_risk_label in {"high", "critical"}
+        assert analyzed_review.analysis.explanation_factors["reputation_risk"]["weights"]["rating"] > 0
         assert "fallback_note" in analyzed_review.analysis.explanation_factors["model"]
         primary_prediction = analyzed_review.analysis.issue_category_predictions[0]
         assert primary_prediction.category_code == "cleanliness"
@@ -272,7 +330,7 @@ def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monk
                 "sentiment_label": "negative",
                 "sentiment_score": -0.65,
                 "issue_category_code": "booking_checkin",
-                "severity": "high",
+                "reputation_risk": "high",
                 "department_code": "front_office",
             },
             {
@@ -287,7 +345,7 @@ def test_ingestion_flags_normalized_content_hash_duplicates(tmp_path: Path, monk
                 "sentiment_label": "negative",
                 "sentiment_score": -0.62,
                 "issue_category_code": "booking_checkin",
-                "severity": "high",
+                "reputation_risk": "high",
                 "department_code": "front_office",
             },
         ]
@@ -448,7 +506,7 @@ def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp
                     "sentiment_label": "negative",
                     "sentiment_score": -0.65,
                     "issue_category_code": "booking_checkin",
-                    "severity": "high",
+                    "reputation_risk": "high",
                     "department_code": "front_office",
                 },
                 {
@@ -463,7 +521,7 @@ def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp
                     "sentiment_label": "negative",
                     "sentiment_score": -0.62,
                     "issue_category_code": "booking_checkin",
-                    "severity": "high",
+                    "reputation_risk": "high",
                     "department_code": "front_office",
                 },
             ],
@@ -618,7 +676,7 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
     assert len(payload["departments"]) == 6
     assert len(payload["issue_categories"]) == 11
     assert len(payload["category_department_mappings"]) == 12
-    assert len(payload["severity_thresholds"]) == 11
+    assert len(payload["reputation_risk_thresholds"]) == 11
     assert len(payload["demo_roles"]) == 4
 
     assert reviews_response.status_code == 200
@@ -627,9 +685,9 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
     assert {review["source_code"] for review in default_reviews} == {"google_business_profile"}
     assert all("source_type" not in review for review in default_reviews)
     assert all(review["analysis"] is not None for review in default_reviews)
-    assert all(review["analysis"]["severity_score"] >= 0 for review in default_reviews)
+    assert all(review["analysis"]["reputation_risk_score"] >= 0 for review in default_reviews)
     assert all(review["analysis"]["model_version"] == "2026.07.demo-fallback" for review in default_reviews)
-    assert all("severity" in review["analysis"]["explanation_factors"] for review in default_reviews)
+    assert all("reputation_risk" in review["analysis"]["explanation_factors"] for review in default_reviews)
     assert all(review["analysis"]["issue_category_predictions"] for review in default_reviews)
     assert all(
         {"category_code", "confidence", "model_name", "model_version", "analyzed_at"}
@@ -721,7 +779,7 @@ def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, 
                     "sentiment_label": "negative",
                     "sentiment_score": -0.65,
                     "issue_category_code": "cleanliness",
-                    "severity": "high",
+                    "reputation_risk": "high",
                     "department_code": "housekeeping",
                 },
                 {
@@ -736,7 +794,7 @@ def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, 
                     "sentiment_label": "positive",
                     "sentiment_score": 0.75,
                     "issue_category_code": "positive_general",
-                    "severity": "low",
+                    "reputation_risk": "low",
                     "department_code": "guest_relations",
                 },
             ],
@@ -807,6 +865,16 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
     app.dependency_overrides[get_session] = override_get_session
     try:
         client = TestClient(app)
+        reviews_response = client.get("/reviews")
+        high_risk_review = next(
+            review
+            for review in reviews_response.json()["reviews"]
+            if review["analysis"]["reputation_risk_label"] in {"high", "critical"}
+        )
+        default_priority_response = client.post(
+            f"/reviews/{high_risk_review['id']}/tickets",
+            json={"department_code": high_risk_review["department_code"], "notes": "Default from Reputation Risk."},
+        )
         create_response = client.post(
             "/reviews/1/tickets",
             json={"department_code": "housekeeping", "priority": "medium", "notes": "Initial review."},
@@ -831,6 +899,9 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
         app.dependency_overrides.clear()
 
     assert create_response.status_code == 201
+    assert default_priority_response.status_code == 201
+    expected_priority = "urgent" if high_risk_review["analysis"]["reputation_risk_label"] == "critical" else "high"
+    assert default_priority_response.json()["priority"] == expected_priority
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["status"] == "resolved"

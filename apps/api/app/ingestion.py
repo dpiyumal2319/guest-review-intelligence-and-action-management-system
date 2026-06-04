@@ -77,7 +77,7 @@ def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: da
         "sentiment_label": payload["sentiment_label"],
         "sentiment_score": payload["sentiment_score"],
         "issue_category_code": payload["issue_category_code"],
-        "severity": payload["severity"],
+        "reputation_risk": payload["reputation_risk"],
         "department_code": payload["department_code"],
         "action_status": "new",
         "normalized_payload": normalized_payload,

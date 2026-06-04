@@ -16,7 +16,7 @@ The product will use a Next.js dashboard with shadcn/ui, a FastAPI backend, Post
 
 1. As a hotel general manager, I want to see overall guest sentiment across review sources, so that I can understand the current guest experience quickly.
 2. As a hotel general manager, I want to see recurring issue categories, so that I can prioritize operational improvements.
-3. As a hotel general manager, I want to see high-severity reviews, so that urgent guest experience problems are not missed.
+3. As a hotel general manager, I want to see high Reputation Risk reviews, so that urgent guest experience problems are not missed.
 4. As a hotel general manager, I want to see department-wise issue load, so that I can identify where operational pressure is concentrated.
 5. As a hotel general manager, I want to convert an important review into an action ticket, so that the issue is assigned and tracked.
 6. As a hotel general manager, I want to create a ticket from a recurring issue group, so that repeated complaints are handled as an operational pattern.
@@ -50,12 +50,12 @@ The product will use a Next.js dashboard with shadcn/ui, a FastAPI backend, Post
 34. As a researcher, I want labelled data imported from CSV, so that model training is reproducible.
 35. As a researcher, I want macro F1 reported for issue-category classification, so that imbalanced categories are evaluated honestly.
 36. As a researcher, I want a baseline comparison against rules or simple classical methods, so that model value can be explained.
-37. As a dashboard user, I want an Overview page, so that I can scan review volume, sentiment, severity, and trends.
+37. As a dashboard user, I want an Overview page, so that I can scan review volume, sentiment, Reputation Risk, and trends.
 38. As a dashboard user, I want a Reviews page, so that I can search and filter individual normalized reviews.
 39. As a dashboard user, I want an Issues page, so that I can inspect recurring issue categories and clusters.
 40. As a dashboard user, I want a Tickets page, so that I can manage corrective actions.
 41. As a dashboard user, I want an Ingestion page, so that I can trigger imports and inspect connector run history.
-42. As a dashboard user, I want filters for date range, source, sentiment, issue category, department, severity, and action status, so that I can narrow analysis.
+42. As a dashboard user, I want filters for date range, source, sentiment, issue category, department, Reputation Risk, and action status, so that I can narrow analysis.
 43. As a dashboard user, I want Reddit separated as social listening, so that public discussions do not distort verified review KPIs.
 44. As a dashboard user, I want Reddit mentions still eligible for tickets, so that relevant public issues can be acted on when appropriate.
 45. As a developer, I want a service layer shared by API routes and CLI jobs, so that connector and NLP logic can later move to a worker without rewrite.
@@ -109,8 +109,8 @@ The product will use a Next.js dashboard with shadcn/ui, a FastAPI backend, Post
 - Required transformer usage: pre-trained local transformer model for sentiment and `all-MiniLM-L6-v2`-style embeddings for semantic similarity.
 - Transformer fine-tuning for issue categories is a stretch goal only.
 - Department mapping is rule or table based from issue category to department.
-- Severity scoring is transparent and weighted, using rating, sentiment, issue category, urgency keywords, and duplicate or recurrence frequency.
-- Severity labels map weighted scores into low, medium, high, and critical.
+- Reputation Risk scoring is transparent and weighted, using rating, sentiment, issue category, urgency keywords, and duplicate or recurrence frequency.
+- Reputation Risk labels map weighted scores into low, medium, high, and critical.
 - Issue categories are multi-label in the data model, even if the first trained model emits one primary category.
 - Initial taxonomy includes service delay, room condition, cleanliness, food and beverage, noise/events, pricing/value, staff behavior, booking/check-in, amenities/facilities, positive general, and other/uncategorized.
 - Reviews are automatically analyzed after ingestion.
@@ -131,7 +131,7 @@ The product will use a Next.js dashboard with shadcn/ui, a FastAPI backend, Post
 - Ticket event history records status, priority, assignment, and note changes.
 - Demo authentication is simple seeded users or role simulation, not production auth.
 - Roles are admin, manager, and department user.
-- Configuration is minimal and data-backed: taxonomy, department mapping, severity thresholds, source enabled flags, and duplicate threshold.
+- Configuration is minimal and data-backed: taxonomy, department mapping, Reputation Risk thresholds, source enabled flags, and duplicate threshold.
 - The initial Docker stack contains web, API, and PostgreSQL.
 - Redis and worker services are excluded initially but may be added if performance requires background processing.
 - Final deployment files are `docker-compose.yaml` for local build contexts and `docker-compose.prod.yaml` for Docker Hub images.
@@ -146,7 +146,7 @@ The product will use a Next.js dashboard with shadcn/ui, a FastAPI backend, Post
 - Connector normalization tests should prove that provider-shaped payloads become canonical review records.
 - Idempotent import tests should prove repeated connector runs do not duplicate reviews.
 - Deduplication tests should cover external ID dedupe, normalized hash matching, and semantic near-duplicate flagging where practical.
-- Severity scoring tests should verify transparent score calculation and label thresholds.
+- Reputation Risk scoring tests should verify transparent score calculation and label thresholds.
 - NLP evaluation scripts should produce issue-category metrics, especially macro F1.
 - Ticket workflow tests should verify valid lifecycle transitions and event logging.
 - API smoke tests should verify core route groups are callable and return expected shapes.

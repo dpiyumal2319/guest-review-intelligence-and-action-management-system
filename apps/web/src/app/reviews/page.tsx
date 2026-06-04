@@ -37,7 +37,7 @@ function sentimentVariant(label: string): "default" | "secondary" | "destructive
   return "secondary"
 }
 
-function severityVariant(label: string): "default" | "secondary" | "destructive" | "outline" {
+function reputationRiskVariant(label: string): "default" | "secondary" | "destructive" | "outline" {
   if (label === "critical" || label === "high") return "destructive"
   if (label === "medium") return "secondary"
   return "outline"
@@ -166,7 +166,7 @@ function ReviewsContent() {
                         <TableHead>Source</TableHead>
                         <TableHead>Rating</TableHead>
                         <TableHead>Sentiment</TableHead>
-                        <TableHead>Severity</TableHead>
+                        <TableHead>Reputation Risk</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Action status</TableHead>
@@ -195,8 +195,8 @@ function ReviewsContent() {
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            <Badge variant={severityVariant(review.severity)} className="text-xs">
-                              {review.severity}
+                            <Badge variant={reputationRiskVariant(review.reputation_risk)} className="text-xs">
+                              {review.reputation_risk}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-xs">

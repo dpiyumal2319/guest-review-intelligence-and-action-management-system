@@ -50,7 +50,7 @@ class CategoryDepartmentMappingResponse(BaseModel):
     routing_notes: str
 
 
-class SeverityThresholdResponse(BaseModel):
+class ReputationRiskThresholdResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     category_code: str
@@ -76,7 +76,7 @@ class ReferenceConfigResponse(BaseModel):
     departments: list[DepartmentResponse]
     issue_categories: list[IssueCategoryResponse]
     category_department_mappings: list[CategoryDepartmentMappingResponse]
-    severity_thresholds: list[SeverityThresholdResponse]
+    reputation_risk_thresholds: list[ReputationRiskThresholdResponse]
     demo_roles: list[DemoRoleResponse]
 
 
@@ -119,8 +119,8 @@ class ReviewAnalysisResponse(BaseModel):
     sentiment_score: float
     sentiment_confidence: float
     issue_category_code: str
-    severity_score: int
-    severity_label: str
+    reputation_risk_score: int
+    reputation_risk_label: str
     department_code: str
     model_name: str
     model_version: str
@@ -171,7 +171,7 @@ class ReviewResponse(BaseModel):
     sentiment_label: str
     sentiment_score: float
     issue_category_code: str
-    severity: str
+    reputation_risk: str
     department_code: str
     action_status: str
     updated_at: datetime
@@ -235,9 +235,9 @@ class OverviewDepartmentCountResponse(BaseModel):
 class OverviewKpiResponse(BaseModel):
     total_reviews: int
     average_rating: float | None
-    average_severity_score: int
+    average_reputation_risk_score: int
     sentiment_mix: dict[str, int]
-    severity_mix: dict[str, int]
+    reputation_risk_mix: dict[str, int]
     action_status_mix: dict[str, int]
     top_departments: list[OverviewDepartmentCountResponse]
     top_categories: list[OverviewCategoryCountResponse]
@@ -246,7 +246,7 @@ class OverviewKpiResponse(BaseModel):
 
 class TicketCreateRequest(BaseModel):
     department_code: str
-    priority: str = Field(description="low, medium, high, or urgent")
+    priority: str | None = Field(default=None, description="low, medium, high, or urgent; defaults from Reputation Risk")
     assignee_name: str | None = None
     assignee_email: str | None = None
     due_date: datetime | None = None
@@ -258,7 +258,7 @@ class RecurringIssueTicketCreateRequest(BaseModel):
         default=None,
         description="Defaults to the issue group's primary affected department.",
     )
-    priority: str = Field(default="high", description="low, medium, high, or urgent")
+    priority: str | None = Field(default=None, description="low, medium, high, or urgent; defaults from Reputation Risk")
     assignee_name: str | None = None
     assignee_email: str | None = None
     due_date: datetime | None = None
@@ -318,7 +318,7 @@ class IssueSummaryItemResponse(BaseModel):
     category_code: str
     category_name: str
     review_count: int
-    average_severity_score: float
+    average_reputation_risk_score: float
     primary_department_code: str
     source_mix: dict[str, int]
     representative_review_id: int

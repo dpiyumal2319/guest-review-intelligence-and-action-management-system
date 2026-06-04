@@ -28,9 +28,9 @@ ANALYSIS_FIELD_NAMES = {
     "issue_category_code",
     "department",
     "department_code",
-    "severity",
     "reputation_risk",
     "reputation_risk_label",
+    "reputation_risk_score",
     "precomputed_analysis",
 }
 
@@ -170,7 +170,7 @@ def build_prompt(*, platform: str, theme: str, rating: int, index: int) -> str:
         "- Reuse the scenario theme enough that repeated issue waves are visible across records.\n"
         "- Vary traveller type, wording, tone, and stay context.\n"
         "- Do not include private identifiers, emails, phone numbers, reservation IDs, labels, or analysis.\n"
-        "- Do not include sentiment labels, issue categories, department labels, severity, or reputation risk.\n"
+        "- Do not include sentiment labels, issue categories, department labels, reputation risk, or risk scores.\n"
         "- Do not include markdown, comments, or extra keys."
     )
 
