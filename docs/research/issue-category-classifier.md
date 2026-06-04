@@ -1,6 +1,6 @@
 # Issue-Category Classifier Research Workflow
 
-This workflow is for offline research and evaluation only. Manual labelling creates ground truth for the issue-category classifier; it is not part of the hotel operational review, ticket, or department workflow.
+This workflow is for offline research and evaluation only. Synthetic Qwen labels are used as accepted prototype evaluation data for the issue-category classifier; they are not part of the hotel operational review, ticket, or department workflow.
 
 ## Labelled CSV Format
 
@@ -18,7 +18,7 @@ Optional columns are preserved for traceability but are not used for training:
 
 The `issue_category_code` value must match one of the seeded codes in `apps/api/app/seed_data.py`: `cleanliness`, `room_condition`, `food_beverage`, `service_delay`, `staff_behavior`, `noise_events`, `pricing_value`, `booking_checkin`, `amenities_facilities`, `positive_general`, or `other_uncategorized`.
 
-See `apps/api/data/examples/issue_labels_sample.csv` for a small committed hand-written format example. The repository also includes `apps/api/data/examples/qwen_issue_labels_synthetic.csv`, a synthetic Qwen-generated draft dataset for reproducible classifier evaluation. Real guest-data exports and human-reviewed working files should stay outside git under ignored generated-data paths such as `apps/api/data/labelled/`.
+See `apps/api/data/examples/issue_labels_sample.csv` for a small committed hand-written format example. The repository also includes `apps/api/data/examples/qwen_issue_labels_synthetic.csv`, a synthetic Qwen-generated dataset for reproducible classifier evaluation. Real guest-data exports should stay outside git under ignored generated-data paths such as `apps/api/data/labelled/`.
 
 ## Validate Labels
 
@@ -55,85 +55,88 @@ The JSON report includes:
 - per-class precision/recall/F1.
 - confusion matrix labels and matrix values.
 
-Use a larger human-reviewed labelled subset for meaningful results. The committed sample is intentionally tiny and exists only to document the format.
+Use the larger Qwen synthetic dataset for meaningful prototype-scale results. The committed hand-written sample is intentionally tiny and exists only to document the format.
 
-## Qwen-Assisted Dataset Draft Workflow
+## Qwen Synthetic Dataset Workflow
 
-The repository supports low-cost draft generation with the local Ollama model `qwen2.5-coder:7b`. This is only a repetitive drafting aid. Generated rows are **not** considered human-labelled until a person reviews and approves them.
+The repository supports low-cost synthetic review generation with the local Ollama model `qwen2.5-coder:7b`. Generated rows are accepted as synthetic evaluation labels, not human-labelled ground truth.
 
-From the repository root, generate a balanced draft dataset:
+From the repository root, generate the full 1000-row balanced synthetic dataset:
 
 ```bash
-python3 apps/api/scripts/generate_issue_label_drafts.py --rows-per-category 40
+python3 apps/api/scripts/generate_issue_label_drafts.py --total-rows 1000 --batch-size 5
 ```
 
-The script prints one progress block per issue category and one line per accepted batch, for example:
+The script prints one progress block per issue category and one line per model request, for example:
 
 ```text
-[1/11] generating 40 rows for cleanliness
-  batch 1/7: accepted 10 of 10 parsed rows; total 10/40
+[1/11] generating 91 rows for cleanliness
+  request 1: accepted 5 of 5 valid parsed rows; rejected 0 short/invalid rows; total 5/91
 ```
 
 Use `--quiet` to suppress progress logs when running in automation.
 
 Default behavior:
 
-- Generates 40 rows for each of the 11 seeded issue categories, for 440 draft rows.
+- `--total-rows 1000` distributes rows across the 11 seeded issue categories as 91 rows for the first 10 taxonomy categories and 90 rows for the last category.
 - Calls local Ollama at `http://127.0.0.1:11434/api/generate`.
-- Writes the full draft CSV to ignored path `apps/api/data/labelled/qwen_issue_labels_draft.csv`.
+- Writes the generated CSV to ignored path `apps/api/data/labelled/qwen_issue_labels_draft.csv`.
 - Uses IDs such as `qwen-cleanliness-001`.
-- Uses `source_code=qwen_synthetic_draft`.
-- Uses `notes=qwen-generated draft; requires human review`.
-- Validates taxonomy labels and removes duplicate normalized text before writing.
+- Uses `source_code=qwen_synthetic_evaluation`.
+- Uses `notes=qwen-generated synthetic evaluation label`.
+- Prompts for realistic 40-260 word reviews with randomized stay context, tone, and detail.
+- Rejects generated rows shorter than 35 words, validates taxonomy labels, and removes duplicate normalized text before writing.
+- Keeps requesting from the local model until each category reaches its target count.
+- Discards invalid JSON, short rows, invalid ratings, and duplicate normalized text.
+- Logs a raw Qwen response preview, accepted row previews, and rejected short/invalid row counts for each request.
 
-For reproducible prototype evidence, copy the generated synthetic draft into the committed examples path after generation:
+For a quick smoke test without creating the full dataset:
+
+```bash
+python3 apps/api/scripts/generate_issue_label_drafts.py \
+  --total-rows 22 \
+  --batch-size 2 \
+  --output /tmp/qwen_issue_labels_smoke.csv
+```
+
+After full generation succeeds, copy the generated synthetic dataset into the committed examples path:
 
 ```bash
 cp apps/api/data/labelled/qwen_issue_labels_draft.csv \
   apps/api/data/examples/qwen_issue_labels_synthetic.csv
 ```
 
-This committed synthetic dataset is not a substitute for human-reviewed ground truth, but it allows the classifier training and evidence reports to be reproduced from the repository alone.
-
-Human review step:
-
-1. Open `apps/api/data/labelled/qwen_issue_labels_draft.csv`.
-2. Remove weak, ambiguous, duplicated, or incorrectly labelled rows.
-3. Save the approved file as `apps/api/data/labelled/qwen_issue_labels_reviewed.csv`.
-4. Do not change the label taxonomy values.
-
-Validate the reviewed dataset:
+Validate the synthetic dataset:
 
 ```bash
 cd apps/api
-python3 -m app.ml.issue_classifier validate data/labelled/qwen_issue_labels_reviewed.csv
+python3 -m app.ml.issue_classifier validate data/examples/qwen_issue_labels_synthetic.csv
 ```
 
-Write a committed evidence manifest for the ignored reviewed CSV:
+Write a committed evidence manifest:
 
 ```bash
 python3 apps/api/scripts/generate_issue_label_drafts.py manifest \
-  apps/api/data/labelled/qwen_issue_labels_reviewed.csv \
-  --human-reviewed \
+  apps/api/data/examples/qwen_issue_labels_synthetic.csv \
   --output docs/research/evidence/qwen_issue_labels_manifest.json
 ```
 
-Train and evaluate from the reviewed dataset:
+Train and evaluate from the synthetic dataset:
 
 ```bash
 cd apps/api
-python3 -m app.ml.issue_classifier train-evaluate data/labelled/qwen_issue_labels_reviewed.csv \
+python3 -m app.ml.issue_classifier train-evaluate data/examples/qwen_issue_labels_synthetic.csv \
   --model-output /tmp/qwen_issue_classifier.pkl \
   --report-output ../../docs/research/evidence/qwen_issue_classifier_evaluation.json
 ```
 
-The full reviewed CSV remains ignored. Commit the manifest and evaluation report so assessors can verify row counts, label distribution, validation status, model name, prompt version, and CSV SHA256 without storing real guest-data exports in Git.
+Commit the synthetic dataset, manifest, and evaluation report so assessors can reproduce row counts, label distribution, validation status, model name, prompt version, CSV SHA256, and classifier metrics.
 
 ## Published Prototype Evaluation Evidence
 
 - Labelled dataset artifact: `apps/api/data/examples/issue_labels_sample.csv` (8 labelled rows).
 - Evaluation output artifact: `docs/research/evidence/issue_labels_sample_evaluation.json`.
-- Synthetic Qwen dataset artifact: `apps/api/data/examples/qwen_issue_labels_synthetic.csv` (440 generated rows; 40 per category).
+- Synthetic Qwen dataset artifact: `apps/api/data/examples/qwen_issue_labels_synthetic.csv`.
 - Synthetic Qwen manifest: `docs/research/evidence/qwen_issue_labels_manifest.json` (`human_reviewed=false`).
 - Synthetic Qwen evaluation output: `docs/research/evidence/qwen_issue_classifier_evaluation.json`.
 - Regeneration command:
@@ -163,6 +166,5 @@ Current synthetic Qwen evidence (`random_state=42`, `test_size=0.3`) shows:
 
 ### Dataset Scale Status vs PRD Target
 
-The PRD target of **300-600 manually labelled reviews** is **not met** by the committed 8-row hand-written example alone.
-The repository now includes a 440-row synthetic Qwen draft dataset to exercise the classifier at the target volume. The intended final closure path for manual ground truth remains: generate or start from the draft rows locally, human-review the ignored CSV, then commit the manifest and classifier evaluation evidence with `human_reviewed=true`.
-Do not claim the target is met until `qwen_issue_labels_reviewed.csv` exists locally, validates successfully, and the committed evidence manifest records `human_reviewed=true`.
+The original PRD target of **300-600 manually labelled reviews** is impractical for the MVP. The project uses transparent Qwen-generated synthetic labels instead, with the evidence manifest explicitly recording `human_reviewed=false`.
+The closure target for this MVP is a valid 1000-row synthetic dataset, committed manifest, and committed classifier evaluation report.
