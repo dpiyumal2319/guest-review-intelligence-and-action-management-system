@@ -23,3 +23,4 @@ reports/
 apps/api/artifacts/
 apps/api/reports/
 apps/api/data/labelled/
+apps/api/data/generated-fixtures/

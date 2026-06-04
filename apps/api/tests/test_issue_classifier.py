@@ -3,13 +3,16 @@ import json
 
 import pytest
 
-from app.ml.label_draft_generator import (
-    build_dataset_manifest,
-    generate_label_drafts,
-    parse_generated_rows,
+from app.connector_fixture_generator import (
+    ANALYSIS_FIELD_NAMES,
+    DEFAULT_MODEL,
+    PLATFORMS,
+    contains_analysis_fields,
+    generate_connector_fixtures,
+    parse_review_draft,
+    platform_counts,
 )
 from app.ml.issue_classifier import KeywordBaselineClassifier, train_and_evaluate, validate_labelled_csv
-from app.seed_data import ISSUE_CATEGORIES
 
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -81,99 +84,84 @@ def test_train_and_evaluate_writes_model_and_report(tmp_path: Path) -> None:
     assert "confusion_matrix" in report["model"]
 
 
-def test_qwen_response_parser_accepts_fenced_json() -> None:
-    rows = parse_generated_rows(
+def test_connector_review_parser_accepts_fenced_json() -> None:
+    draft = parse_review_draft(
         """
         ```json
-        {"rows":[{"text":"The check-in queue was slow and our booking could not be found for almost an hour after we arrived from a late flight. The lobby was busy, but nobody explained what was happening or offered water while families waited with luggage. Once the room was finally located, the key cards failed twice and we had to return to the desk again. The staff apologized, yet the arrival felt disorganized and stressful.", "rating":2}]}
+        {"title":"Slow arrival", "text":"The check-in queue was slow and our booking could not be found for almost an hour after we arrived from a late flight.", "rating":2}
         ```
         """,
-        category_code="booking_checkin",
+        fallback_rating=3,
     )
 
-    assert len(rows) == 1
-    assert rows[0].issue_category_code == "booking_checkin"
-    assert rows[0].rating == 2
-    assert "check-in queue" in rows[0].text
+    assert draft.title == "Slow arrival"
+    assert draft.rating == 2
+    assert "check-in queue" in draft.text
 
 
-def test_qwen_response_parser_accepts_shorter_reviews_when_rating_is_valid() -> None:
-    rows = parse_generated_rows(
-        '{"rows":[{"text":"The check-in queue was slow, frustrating, and poorly managed.", "rating":2}]}',
-        category_code="booking_checkin",
-    )
+def test_platform_counts_split_reviews_across_three_sources() -> None:
+    counts = platform_counts(2000)
 
-    assert len(rows) == 1
-    assert rows[0].rating == 2
+    assert set(counts) == set(PLATFORMS)
+    assert sum(counts.values()) == 2000
+    assert max(counts.values()) - min(counts.values()) <= 1
 
 
-def test_ollama_draft_generation_writes_valid_random_category_csv(tmp_path: Path) -> None:
-    output_path = tmp_path / "ollama_issue_labels_synthetic.csv"
+def test_connector_fixture_generation_writes_provider_shapes_without_analysis(tmp_path: Path) -> None:
     prompts: list[str] = []
 
     def fake_requester(prompt: str) -> str:
         prompts.append(prompt)
-        category_line = next(line for line in prompt.splitlines() if line.startswith("Category code:"))
-        category_code = category_line.split(":", 1)[1].strip()
-        return json.dumps({"text": long_review(category_code, str(len(prompts))), "rating": 2})
+        return json.dumps(
+            {
+                "title": f"Fixture title {len(prompts)}",
+                "text": f"Repeated issue wave fixture review {len(prompts)} with natural hotel feedback.",
+                "rating": 2 if len(prompts) % 2 else 5,
+            }
+        )
 
-    result = generate_label_drafts(
-        output_path=output_path,
-        total_rows=5,
+    result = generate_connector_fixtures(
+        output_dir=tmp_path / "fixtures",
+        total_reviews=9,
         request_text=fake_requester,
-    )
-    validation = validate_labelled_csv(output_path)
-
-    assert validation.is_valid
-    assert len(result.rows) == 5
-    assert len(prompts) == 5
-    assert sum(result.label_counts.values()) == 5
-    assert result.rows[0].review_id.startswith("synthetic-")
-    assert result.rows[0].source_code == "ollama_synthetic_evaluation"
-    assert result.rows[0].notes == "ollama-generated synthetic evaluation label"
-    assert output_path.read_text(encoding="utf-8").splitlines()[0] == (
-        "review_id,text,issue_category_code,source_code,rating,notes"
+        seed=42,
     )
 
+    assert result.model == DEFAULT_MODEL
+    assert result.counts == {
+        "google_business_profile": 3,
+        "booking_com": 3,
+        "tripadvisor": 3,
+    }
+    assert len(prompts) == 9
+    assert all("dolphin" not in prompt.lower() for prompt in prompts)
 
-def test_ollama_draft_generation_discards_invalid_and_duplicate_outputs(tmp_path: Path) -> None:
-    output_path = tmp_path / "ollama_issue_labels_total.csv"
-    responses = iter(
-        [
-            "not json",
-            json.dumps({"text": "", "rating": 3}),
-            json.dumps({"text": "Duplicate but otherwise usable review.", "rating": 3}),
-            json.dumps({"text": "Duplicate but otherwise usable review.", "rating": 3}),
-            json.dumps({"text": "A distinct usable review after bad output.", "rating": 4}),
-        ]
-    )
+    google = json.loads(result.files["google_business_profile"].read_text(encoding="utf-8"))
+    booking = json.loads(result.files["booking_com"].read_text(encoding="utf-8"))
+    tripadvisor = json.loads(result.files["tripadvisor"].read_text(encoding="utf-8"))
+    manifest = json.loads(result.files["manifest"].read_text(encoding="utf-8"))
 
-    def fake_requester(prompt: str) -> str:
-        return next(responses)
+    assert google[0]["reviewId"].startswith("gbp-review-")
+    assert google[0]["name"].endswith(google[0]["reviewId"])
+    assert google[0]["starRating"] in {"ONE", "TWO", "THREE", "FOUR", "FIVE"}
+    assert "comment" in google[0]
+    assert "likeCount" in google[0]
 
-    result = generate_label_drafts(
-        output_path=output_path,
-        total_rows=2,
-        request_text=fake_requester,
-    )
+    assert booking[0]["guest_review_id"].startswith("booking-review-")
+    assert booking[0]["reservation_id"].startswith("booking-res-")
+    assert booking[0]["scores"]["overall"] >= 1
+    assert "positive" in booking[0]["content"]
+    assert "helpful_votes" in booking[0]
 
-    assert len(result.rows) == 2
-    assert result.duplicate_count == 1
+    assert tripadvisor[0]["id"].startswith("tripadvisor-review-")
+    assert "subratings" in tripadvisor[0]
+    assert "helpful_votes" in tripadvisor[0]["user"]
+    assert "text" in tripadvisor[0]
 
-
-def test_qwen_manifest_records_hash_counts_and_review_status(tmp_path: Path) -> None:
-    csv_path = tmp_path / "reviewed.csv"
-    csv_path.write_text(
-        "review_id,text,issue_category_code,source_code,rating,notes\n"
-        f"reviewed-001,\"{long_review('cleanliness', 'manifest-one')}\",cleanliness,ollama_synthetic_evaluation,2,synthetic evaluation\n"
-        f"reviewed-002,\"{long_review('positive_general', 'manifest-two')}\",positive_general,ollama_synthetic_evaluation,5,synthetic evaluation\n",
-        encoding="utf-8",
-    )
-
-    manifest = build_dataset_manifest(csv_path=csv_path, human_reviewed=False)
-
-    assert manifest["human_reviewed"] is False
-    assert manifest["row_count"] == 2
-    assert manifest["label_counts"] == {"cleanliness": 1, "positive_general": 1}
-    assert len(manifest["csv_sha256"]) == 64
-    assert manifest["validation"]["is_valid"] is True
+    assert manifest["model"] == "dolphin-llama3:latest"
+    assert manifest["total_reviews"] == 9
+    for payloads in (google, booking, tripadvisor):
+        assert not contains_analysis_fields(payloads)
+        serialized = json.dumps(payloads)
+        for field_name in ANALYSIS_FIELD_NAMES:
+            assert field_name not in serialized

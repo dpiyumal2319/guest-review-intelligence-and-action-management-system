@@ -360,7 +360,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     validate_parser = subparsers.add_parser(
         "validate",
-        help="Validate a manually labelled CSV against the taxonomy.",
+        help="Validate a labelled CSV against the taxonomy.",
     )
     validate_parser.add_argument("csv_path", type=Path)
 
