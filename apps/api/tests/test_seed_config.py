@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+import json
 from pathlib import Path
 
 from alembic import command
@@ -599,7 +600,8 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
     with Session(engine) as session:
         seed_reference_config(session)
 
-        for connector_key in CONNECTORS:
+        for connector_key, connector in CONNECTORS.items():
+            assert "mock_analysis" not in json.dumps(connector.records)
             first_run = run_mock_connector_by_key(session, connector_key)
             second_run = run_mock_connector_by_key(session, connector_key)
 
@@ -618,6 +620,7 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
         raw_google = session.scalar(select(RawReview).where(RawReview.source_code == "google_business_profile"))
         assert raw_google is not None
         assert "reviewId" in raw_google.raw_payload
+        assert "mock_analysis" not in json.dumps(raw_google.raw_payload)
         normalized_google = session.scalar(
             select(NormalizedReview).where(NormalizedReview.source_code == "google_business_profile")
         )
@@ -626,6 +629,55 @@ def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, m
         assert normalized_google.normalized_payload["mock_official_shaped_connector"] is True
         assert normalized_google.analysis is not None
         assert normalized_google.analysis.explanation_factors["department"]["mapping_source"] == "category_department_mappings.primary"
+        assert normalized_google.sentiment_label != "pending"
+
+
+def test_verified_connector_normalizers_only_emit_review_fields_and_platform_metadata() -> None:
+    analysis_fields = {
+        "sentiment_label",
+        "sentiment_score",
+        "issue_category_code",
+        "reputation_risk",
+        "department_code",
+        "mock_analysis",
+    }
+
+    for connector in CONNECTORS.values():
+        normalized = connector.normalize(connector.records[0])
+        assert {"source_code", "external_review_id", "body", "normalized_payload"} <= set(normalized)
+        assert analysis_fields.isdisjoint(normalized)
+        assert analysis_fields.isdisjoint(normalized["normalized_payload"])
+
+
+def test_verified_connector_fixture_files_run_through_shared_ingestion_path(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'verified-connector-fixtures.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url)
+    with Session(engine) as session:
+        seed_reference_config(session)
+
+        for connector_key, connector in CONNECTORS.items():
+            fixture_path = tmp_path / f"{connector_key}.json"
+            fixture_path.write_text(json.dumps(list(connector.records), indent=2), encoding="utf-8")
+
+            first_run = run_mock_connector_by_key(session, connector_key, fixture_path=fixture_path)
+            second_run = run_mock_connector_by_key(session, connector_key, fixture_path=fixture_path)
+
+            assert first_run.connector_key == connector_key
+            assert first_run.source_code == connector.source_code
+            assert first_run.status == "completed"
+            assert first_run.records_seen == len(connector.records)
+            assert first_run.records_created == len(connector.records)
+            assert second_run.status == "completed"
+            assert second_run.records_skipped == len(connector.records)
+
+        imported_reviews = list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
+        assert len(imported_reviews) == 6
+        assert all(review.analysis is not None for review in imported_reviews)
+        assert all(review.sentiment_label != "pending" for review in imported_reviews)
+        assert all("mock_analysis" not in json.dumps(review.raw_review.raw_payload) for review in imported_reviews)
 
 
 def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path: Path, monkeypatch) -> None:
@@ -638,6 +690,8 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
     with TestingSessionLocal() as session:
         seed_reference_config(session)
         run_seed_ingestion(session)
+    fixture_path = tmp_path / "google_business_profile-fixture.json"
+    fixture_path.write_text(json.dumps(list(CONNECTORS["google_business_profile"].records), indent=2), encoding="utf-8")
 
     def override_get_session():
         with TestingSessionLocal() as session:
@@ -654,8 +708,14 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
         semantic_response = client.get("/analysis/semantic-clusters", params={"similarity_threshold": 0.30})
         runs_response = client.get("/ingestion/runs")
         reanalysis_response = client.post("/analysis/reanalyze")
-        connector_response = client.post("/ingestion/connectors/google_business_profile")
-        repeat_connector_response = client.post("/ingestion/connectors/google_business_profile")
+        connector_response = client.post(
+            "/ingestion/connectors/google_business_profile",
+            json={"fixture_path": str(fixture_path)},
+        )
+        repeat_connector_response = client.post(
+            "/ingestion/connectors/google_business_profile",
+            json={"fixture_path": str(fixture_path)},
+        )
         source_status_response = client.get("/ingestion/source-status")
         openapi_response = client.get("/openapi.json")
         removed_seed_response = client.post("/ingestion/seed")

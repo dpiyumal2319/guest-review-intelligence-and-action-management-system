@@ -44,7 +44,10 @@ cd apps/api
 python3 -m app.jobs connector google_business_profile
 python3 -m app.jobs connector booking_com
 python3 -m app.jobs connector tripadvisor
+python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors/google_business_profile.json
 ```
+
+The same connector endpoint also accepts an optional JSON body with `fixture_path` to import a local provider-shaped fixture file through the normal connector ingestion path.
 
 ## Automatic review analysis
 

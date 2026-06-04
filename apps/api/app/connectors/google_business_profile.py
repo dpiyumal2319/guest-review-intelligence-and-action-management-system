@@ -20,13 +20,6 @@ GOOGLE_BUSINESS_PROFILE_PAYLOADS: tuple[dict[str, Any], ...] = (
             "comment": "Thank you for the note. Engineering has been asked to inspect the unit.",
             "updateTime": "2026-05-17T09:15:00+05:30",
         },
-        "mock_analysis": {
-            "sentiment_label": "mixed",
-            "sentiment_score": -0.120,
-            "issue_category_code": "room_condition",
-            "reputation_risk": "medium",
-            "department_code": "engineering",
-        },
     },
     {
         "name": "accounts/1029384756/locations/8945123001/reviews/gbp-review-002",
@@ -40,13 +33,6 @@ GOOGLE_BUSINESS_PROFILE_PAYLOADS: tuple[dict[str, Any], ...] = (
         "comment": "Check-in queue was very slow and our prepaid booking was not visible at the desk.",
         "createTime": "2026-05-18T20:05:00+05:30",
         "updateTime": "2026-05-18T20:05:00+05:30",
-        "mock_analysis": {
-            "sentiment_label": "negative",
-            "sentiment_score": -0.610,
-            "issue_category_code": "booking_checkin",
-            "reputation_risk": "high",
-            "department_code": "front_office",
-        },
     },
 )
 
@@ -61,7 +47,6 @@ STAR_RATINGS = {
 
 
 def normalize_google_business_profile(payload: dict[str, Any]) -> dict[str, Any]:
-    analysis = payload["mock_analysis"]
     return {
         "source_code": "google_business_profile",
         "external_review_id": payload["reviewId"],
@@ -71,11 +56,6 @@ def normalize_google_business_profile(payload: dict[str, Any]) -> dict[str, Any]
         "language": "en",
         "title": None,
         "body": payload["comment"],
-        "sentiment_label": analysis["sentiment_label"],
-        "sentiment_score": analysis["sentiment_score"],
-        "issue_category_code": analysis["issue_category_code"],
-        "reputation_risk": analysis["reputation_risk"],
-        "department_code": analysis["department_code"],
         "normalized_payload": {
             "connector_key": "google_business_profile",
             "provider": "Google Business Profile",

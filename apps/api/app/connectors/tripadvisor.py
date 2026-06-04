@@ -28,13 +28,6 @@ TRIPADVISOR_PAYLOADS: tuple[dict[str, Any], ...] = (
             "text": "We are reviewing event sound controls with our operations team.",
             "published_date": "2026-05-15T12:10:00+05:30",
         },
-        "mock_analysis": {
-            "sentiment_label": "mixed",
-            "sentiment_score": -0.280,
-            "issue_category_code": "noise_events",
-            "reputation_risk": "medium",
-            "department_code": "guest_relations",
-        },
     },
     {
         "id": "tripadvisor-review-002",
@@ -56,19 +49,11 @@ TRIPADVISOR_PAYLOADS: tuple[dict[str, Any], ...] = (
             "sleep_quality": 3,
             "cleanliness": 3,
         },
-        "mock_analysis": {
-            "sentiment_label": "negative",
-            "sentiment_score": -0.680,
-            "issue_category_code": "room_condition",
-            "reputation_risk": "high",
-            "department_code": "engineering",
-        },
     },
 )
 
 
 def normalize_tripadvisor(payload: dict[str, Any]) -> dict[str, Any]:
-    analysis = payload["mock_analysis"]
     return {
         "source_code": "tripadvisor",
         "external_review_id": payload["id"],
@@ -78,11 +63,6 @@ def normalize_tripadvisor(payload: dict[str, Any]) -> dict[str, Any]:
         "language": "en",
         "title": payload.get("title"),
         "body": payload["text"],
-        "sentiment_label": analysis["sentiment_label"],
-        "sentiment_score": analysis["sentiment_score"],
-        "issue_category_code": analysis["issue_category_code"],
-        "reputation_risk": analysis["reputation_risk"],
-        "department_code": analysis["department_code"],
         "normalized_payload": {
             "connector_key": "tripadvisor",
             "provider": "Tripadvisor",

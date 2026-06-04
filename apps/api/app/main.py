@@ -25,6 +25,7 @@ from app.models import (
     TicketEvent,
 )
 from app.schemas import (
+    ConnectorImportRequest,
     HealthResponse,
     IngestionRunResponse,
     IngestionRunsResponse,
@@ -99,10 +100,14 @@ async def reference_config(session: Session = Depends(get_session)) -> Reference
 
 
 @app.post("/ingestion/connectors/{connector_key}", tags=["ingestion"], response_model=IngestionRunResponse)
-async def import_verified_connector(connector_key: str, session: Session = Depends(get_session)) -> IngestionRun:
+async def import_verified_connector(
+    connector_key: str,
+    request: ConnectorImportRequest | None = None,
+    session: Session = Depends(get_session),
+) -> IngestionRun:
     if connector_key not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown connector '{connector_key}'")
-    return run_mock_connector_by_key(session, connector_key)
+    return run_mock_connector_by_key(session, connector_key, fixture_path=request.fixture_path if request else None)
 
 
 @app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)

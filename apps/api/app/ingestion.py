@@ -2,6 +2,7 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from decimal import Decimal
+from pathlib import Path
 import unicodedata
 from typing import Any
 
@@ -17,6 +18,13 @@ from app.seed_reviews import SEED_REVIEWS
 
 SEED_SOURCE_CODE = "google_business_profile"
 SEED_CONNECTOR_KEY = "seed_dataset"
+PENDING_ANALYSIS_VALUES = {
+    "sentiment_label": "pending",
+    "sentiment_score": 0.0,
+    "issue_category_code": "other_uncategorized",
+    "reputation_risk": "low",
+    "department_code": "guest_relations",
+}
 
 
 def stable_payload_hash(payload: dict[str, Any]) -> str:
@@ -74,15 +82,26 @@ def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: da
         "title": payload.get("title"),
         "body": payload["body"],
         "content_hash": normalized_content_hash(payload),
-        "sentiment_label": payload["sentiment_label"],
-        "sentiment_score": payload["sentiment_score"],
-        "issue_category_code": payload["issue_category_code"],
-        "reputation_risk": payload["reputation_risk"],
-        "department_code": payload["department_code"],
+        "sentiment_label": payload.get("sentiment_label", PENDING_ANALYSIS_VALUES["sentiment_label"]),
+        "sentiment_score": payload.get("sentiment_score", PENDING_ANALYSIS_VALUES["sentiment_score"]),
+        "issue_category_code": payload.get("issue_category_code", PENDING_ANALYSIS_VALUES["issue_category_code"]),
+        "reputation_risk": payload.get("reputation_risk", PENDING_ANALYSIS_VALUES["reputation_risk"]),
+        "department_code": payload.get("department_code", PENDING_ANALYSIS_VALUES["department_code"]),
         "action_status": "new",
         "normalized_payload": normalized_payload,
         "updated_at": now,
     }
+
+
+def load_connector_fixture_records(connector: MockConnector, fixture_path: str | Path | None) -> list[dict[str, Any]]:
+    if fixture_path is None:
+        return list(connector.iter_records())
+
+    resolved_path = Path(fixture_path).expanduser().resolve()
+    payload = json.loads(resolved_path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list) or not all(isinstance(item, dict) for item in payload):
+        raise ValueError(f"Fixture file {resolved_path} must contain a JSON array of objects.")
+    return list(payload)
 
 
 def refresh_content_duplicate_group(session: Session, content_hash: str) -> None:
@@ -185,7 +204,12 @@ def upsert_ingested_review(
     refresh_content_duplicate_group(session, values["content_hash"])
 
 
-def run_mock_connector(session: Session, connector: MockConnector) -> IngestionRun:
+def run_mock_connector(
+    session: Session,
+    connector: MockConnector,
+    *,
+    fixture_path: str | Path | None = None,
+) -> IngestionRun:
     now = datetime.now(UTC)
     source = session.get(ReviewSource, connector.source_code)
     if source is None:
@@ -193,7 +217,7 @@ def run_mock_connector(session: Session, connector: MockConnector) -> IngestionR
     if not source.is_verified_channel or source.source_type != "verified_review":
         raise ValueError(f"Connector {connector.connector_key} is not configured as a verified review source.")
 
-    records = list(connector.iter_records())
+    records = load_connector_fixture_records(connector, fixture_path)
     run = IngestionRun(
         connector_key=connector.connector_key,
         source_code=connector.source_code,
@@ -238,8 +262,12 @@ def run_mock_connector(session: Session, connector: MockConnector) -> IngestionR
     return run
 
 
-def run_mock_connector_by_key(session: Session, connector_key: str) -> IngestionRun:
-    return run_mock_connector(session, get_connector(connector_key))
+def run_mock_connector_by_key(
+    session: Session,
+    connector_key: str,
+    fixture_path: str | Path | None = None,
+) -> IngestionRun:
+    return run_mock_connector(session, get_connector(connector_key), fixture_path=fixture_path)
 
 
 def run_payload_ingestion(
