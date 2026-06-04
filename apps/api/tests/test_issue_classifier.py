@@ -98,13 +98,14 @@ def test_qwen_response_parser_accepts_fenced_json() -> None:
     assert "check-in queue" in rows[0].text
 
 
-def test_qwen_response_parser_rejects_short_reviews() -> None:
+def test_qwen_response_parser_accepts_shorter_reviews_when_rating_is_valid() -> None:
     rows = parse_generated_rows(
         '{"rows":[{"text":"The check-in queue was slow, frustrating, and poorly managed.", "rating":2}]}',
         category_code="booking_checkin",
     )
 
-    assert rows == []
+    assert len(rows) == 1
+    assert rows[0].rating == 2
 
 
 def test_total_row_distribution_balances_across_taxonomy() -> None:

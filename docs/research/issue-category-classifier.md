@@ -71,7 +71,7 @@ The script prints one progress block per issue category and one line per model r
 
 ```text
 [1/11] generating 91 rows for cleanliness
-  request 1: accepted 5 of 5 valid parsed rows; rejected 0 short/invalid rows; total 5/91
+  request 1: accepted 5 of 5 valid parsed rows; rejected 0 invalid rows; total 5/91
 ```
 
 Use `--quiet` to suppress progress logs when running in automation.
@@ -85,10 +85,9 @@ Default behavior:
 - Uses `source_code=qwen_synthetic_evaluation`.
 - Uses `notes=qwen-generated synthetic evaluation label`.
 - Prompts for realistic 40-260 word reviews with randomized stay context, tone, and detail.
-- Rejects generated rows shorter than 35 words, validates taxonomy labels, and removes duplicate normalized text before writing.
 - Keeps requesting from the local model until each category reaches its target count.
-- Discards invalid JSON, short rows, invalid ratings, and duplicate normalized text.
-- Logs a raw Qwen response preview, accepted row previews, and rejected short/invalid row counts for each request.
+- Discards invalid JSON, empty text rows, invalid ratings, and duplicate normalized text.
+- Logs a raw Qwen response preview, accepted row previews, and rejected invalid row counts for each request.
 
 For a quick smoke test without creating the full dataset:
 

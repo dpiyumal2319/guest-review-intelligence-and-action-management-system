@@ -25,7 +25,6 @@ DEFAULT_BATCH_SIZE = 10
 DEFAULT_MAX_RETRIES = 3
 DEFAULT_SOURCE_CODE = "qwen_synthetic_evaluation"
 DEFAULT_NOTES = "qwen-generated synthetic evaluation label"
-MIN_REVIEW_WORDS = 35
 PROMPT_VERSION = "qwen-issue-label-synthetic-v2"
 
 
@@ -162,7 +161,7 @@ def parse_generated_rows(
         if not isinstance(item, dict):
             continue
         text = str(item.get("text") or item.get("review") or item.get("review_text") or "").strip()
-        if word_count(text) < MIN_REVIEW_WORDS:
+        if not text:
             continue
         try:
             rating = int(float(item.get("rating", 3)))
@@ -310,7 +309,7 @@ def generate_label_drafts(
                 rejected = max(raw_row_count - len(parsed_rows), 0)
                 log(
                     f"  request {attempts}: accepted {accepted} "
-                    f"of {len(parsed_rows)} valid parsed rows; rejected {rejected} short/invalid rows; "
+                    f"of {len(parsed_rows)} valid parsed rows; rejected {rejected} invalid rows; "
                     f"total {len(category_rows)}/{category_target}"
                 )
         if log is not None:
