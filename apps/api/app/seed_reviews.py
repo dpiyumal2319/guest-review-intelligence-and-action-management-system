@@ -1,7 +1,7 @@
 SEED_REVIEWS = [
     {
         "external_review_id": "seed-kg-001",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Ayesha F.",
         "review_date": "2026-06-12T10:30:00+00:00",
@@ -17,7 +17,7 @@ SEED_REVIEWS = [
     },
     {
         "external_review_id": "seed-kg-002",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Michael R.",
         "review_date": "2026-06-13T14:15:00+00:00",
@@ -33,7 +33,7 @@ SEED_REVIEWS = [
     },
     {
         "external_review_id": "seed-kg-003",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Nadeesha P.",
         "review_date": "2026-06-14T08:00:00+00:00",
@@ -49,7 +49,7 @@ SEED_REVIEWS = [
     },
     {
         "external_review_id": "seed-kg-004",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Priyan S.",
         "review_date": "2026-06-15T19:45:00+00:00",
@@ -65,7 +65,7 @@ SEED_REVIEWS = [
     },
     {
         "external_review_id": "seed-kg-005",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Sara K.",
         "review_date": "2026-06-16T16:20:00+00:00",
@@ -81,7 +81,7 @@ SEED_REVIEWS = [
     },
     {
         "external_review_id": "seed-kg-006",
-        "source_code": "kingsbury_seed_dataset",
+        "source_code": "google_business_profile",
         "source_name": "Kingsbury Demo Seed Dataset",
         "reviewer_name": "Daniel W.",
         "review_date": "2026-06-17T21:10:00+00:00",

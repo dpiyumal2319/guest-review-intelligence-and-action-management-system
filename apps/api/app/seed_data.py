@@ -2,7 +2,6 @@ REVIEW_SOURCES = [
     {
         "code": "google_business_profile",
         "name": "Google Business Profile",
-        "source_type": "verified_review",
         "description": "Official-shaped verified review connector for Google hotel reviews.",
         "default_enabled": True,
         "is_verified_channel": True,
@@ -19,7 +18,6 @@ REVIEW_SOURCES = [
     {
         "code": "booking_com",
         "name": "Booking.com",
-        "source_type": "verified_review",
         "description": "Official-shaped verified review connector for Booking.com guest reviews.",
         "default_enabled": True,
         "is_verified_channel": True,
@@ -36,7 +34,6 @@ REVIEW_SOURCES = [
     {
         "code": "tripadvisor",
         "name": "Tripadvisor",
-        "source_type": "verified_review",
         "description": "Official-shaped verified review connector for Tripadvisor guest reviews.",
         "default_enabled": True,
         "is_verified_channel": True,

@@ -27,7 +27,6 @@ class ReviewSemanticRecord:
     body: str
     source_code: str
     source_name: str
-    source_type: str
     review_date: str | None
     category_code: str
     department_code: str
@@ -195,7 +194,6 @@ def _semantic_record(review: NormalizedReview) -> ReviewSemanticRecord:
         body=review.body,
         source_code=review.source_code,
         source_name=review.source_name,
-        source_type=review.source_type,
         review_date=review.review_date.isoformat() if review.review_date is not None else None,
         category_code=category_code,
         department_code=department_code,

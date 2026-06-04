@@ -20,17 +20,12 @@ def upgrade() -> None:
         "review_sources",
         sa.Column("code", sa.String(length=64), primary_key=True),
         sa.Column("name", sa.String(length=120), nullable=False),
-        sa.Column("source_type", sa.String(length=32), nullable=False),
         sa.Column("description", sa.Text(), nullable=False),
         sa.Column("default_enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("is_verified_channel", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("connector_key", sa.String(length=120), nullable=True),
         sa.Column("sample_import_path", sa.String(length=255), nullable=True),
         sa.Column("metadata", sa.JSON(), nullable=False, server_default=sa.text("'{}'")),
-        sa.CheckConstraint(
-            "source_type in ('verified_review', 'social_listening', 'seed_dataset', 'apify_dataset_import')",
-            name="ck_review_sources_source_type",
-        ),
     )
     op.create_table(
         "departments",

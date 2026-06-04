@@ -17,7 +17,7 @@ from app.seed_reviews import SEED_REVIEWS
 
 
 SEED_SOURCE_CODE = "google_business_profile"
-SEED_CONNECTOR_KEY = "seed_dataset"
+SEED_CONNECTOR_KEY = "google_business_profile"
 PENDING_ANALYSIS_VALUES = {
     "sentiment_label": "pending",
     "sentiment_score": 0.0,
@@ -214,7 +214,7 @@ def run_mock_connector(
     source = session.get(ReviewSource, connector.source_code)
     if source is None:
         raise ValueError(f"Review source configuration is missing for {connector.source_code}.")
-    if not source.is_verified_channel or source.source_type != "verified_review":
+    if not source.is_verified_channel:
         raise ValueError(f"Connector {connector.connector_key} is not configured as a verified review source.")
 
     records = load_connector_fixture_records(connector, fixture_path)
@@ -308,7 +308,6 @@ def run_payload_ingestion(
                 **payload,
                 "normalized_payload": {
                     **payload.get("normalized_payload", {}),
-                    "source_type": payload.get("source_type"),
                     "source_url": payload.get("source_url"),
                     "connector_key": connector_key,
                 },

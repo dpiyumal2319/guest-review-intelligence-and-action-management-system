@@ -323,7 +323,7 @@ def test_migrations_and_seed_are_repeatable(tmp_path: Path, monkeypatch) -> None
 
         source_codes = set(session.scalars(select(ReviewSource.code)))
         assert source_codes == {"google_business_profile", "booking_com", "tripadvisor"}
-        assert set(session.scalars(select(ReviewSource.source_type))) == {"verified_review"}
+        assert set(session.scalars(select(ReviewSource.code))) == {"google_business_profile", "booking_com", "tripadvisor"}
         assert session.query(ReviewSource).count() == 3
         assert session.query(Department).count() == 6
         assert session.query(IssueCategory).count() == 11

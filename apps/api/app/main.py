@@ -181,7 +181,7 @@ async def reviews(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -247,7 +247,7 @@ async def semantic_clusters(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -286,7 +286,7 @@ async def reanalyze_imported_reviews(
     session: Session = Depends(get_session),
 ) -> ReanalysisResponse:
     try:
-        analyzed_count = reanalyze_reviews(session, source_code=source_code, source_type="verified_review")
+        analyzed_count = reanalyze_reviews(session, source_code=source_code)
     except AnalysisRuntimeUnavailableError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return ReanalysisResponse(analyzed_count=analyzed_count)
@@ -403,7 +403,7 @@ def _filtered_verified_reviews_query(
             selectinload(NormalizedReview.issue_category),
         )
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -517,7 +517,7 @@ async def overview_kpis(
         .join(NormalizedReview.source)
         .options(selectinload(NormalizedReview.analysis))
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:
@@ -810,7 +810,7 @@ async def create_semantic_cluster_ticket(
             selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
         )
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
     if issue_category_code is not None:

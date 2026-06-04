@@ -186,7 +186,6 @@ def reanalyze_reviews(
     session: Session,
     *,
     source_code: str | None = None,
-    source_type: str | None = None,
     analyzed_at: datetime | None = None,
 ) -> int:
     analyzed_at = analyzed_at or datetime.now(UTC)
@@ -200,8 +199,6 @@ def reanalyze_reviews(
     )
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
-    if source_type is not None:
-        query = query.where(NormalizedReview.source.has(source_type=source_type))
 
     reviews = list(session.scalars(query.order_by(NormalizedReview.id)))
     for review in reviews:

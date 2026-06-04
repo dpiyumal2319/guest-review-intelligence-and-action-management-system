@@ -15,7 +15,6 @@ class ReviewSource(Base):
 
     code: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     default_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     is_verified_channel: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
@@ -210,10 +209,6 @@ class NormalizedReview(Base):
     @property
     def source_name(self) -> str:
         return self.source.name
-
-    @property
-    def source_type(self) -> str:
-        return self.source.source_type
 
     @property
     def is_verified_channel(self) -> bool:
