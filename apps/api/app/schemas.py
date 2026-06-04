@@ -98,6 +98,10 @@ class IngestionRunResponse(BaseModel):
     errors: list[str]
 
 
+class ConnectorImportRequest(BaseModel):
+    fixture_path: str | None = None
+
+
 class IngestionSourceStatusResponse(BaseModel):
     source_code: str
     source_name: str

@@ -13,6 +13,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     connector_parser = subparsers.add_parser("connector", help="Run one review-platform connector.")
     connector_parser.add_argument("connector_key", choices=sorted(CONNECTORS))
+    connector_parser.add_argument("--fixture-path")
     return parser
 
 
@@ -20,7 +21,7 @@ def main() -> None:
     args = build_parser().parse_args()
     with SessionLocal() as session:
         if args.command == "connector":
-            run = run_mock_connector_by_key(session, args.connector_key)
+            run = run_mock_connector_by_key(session, args.connector_key, fixture_path=args.fixture_path)
         else:
             raise SystemExit(f"Unknown command {args.command!r}")
 

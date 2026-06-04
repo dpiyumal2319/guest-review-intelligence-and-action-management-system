@@ -30,13 +30,6 @@ BOOKING_COM_PAYLOADS: tuple[dict[str, Any], ...] = (
         "created_at": "2026-05-12T10:18:00+05:30",
         "updated_at": "2026-05-13T08:00:00+05:30",
         "review_status": "published",
-        "mock_analysis": {
-            "sentiment_label": "mixed",
-            "sentiment_score": -0.180,
-            "issue_category_code": "food_beverage",
-            "reputation_risk": "medium",
-            "department_code": "food_beverage",
-        },
     },
     {
         "guest_review_id": "booking-review-002",
@@ -64,19 +57,11 @@ BOOKING_COM_PAYLOADS: tuple[dict[str, Any], ...] = (
         "created_at": "2026-05-19T11:30:00+05:30",
         "updated_at": "2026-05-19T11:30:00+05:30",
         "review_status": "published",
-        "mock_analysis": {
-            "sentiment_label": "positive",
-            "sentiment_score": 0.720,
-            "issue_category_code": "positive_general",
-            "reputation_risk": "low",
-            "department_code": "guest_relations",
-        },
     },
 )
 
 
 def normalize_booking_com(payload: dict[str, Any]) -> dict[str, Any]:
-    analysis = payload["mock_analysis"]
     content = payload["content"]
     body_parts = [content.get("positive", ""), content.get("negative", "")]
     return {
@@ -88,11 +73,6 @@ def normalize_booking_com(payload: dict[str, Any]) -> dict[str, Any]:
         "language": content.get("language_code", "en"),
         "title": content.get("headline"),
         "body": " ".join(part for part in body_parts if part).strip(),
-        "sentiment_label": analysis["sentiment_label"],
-        "sentiment_score": analysis["sentiment_score"],
-        "issue_category_code": analysis["issue_category_code"],
-        "reputation_risk": analysis["reputation_risk"],
-        "department_code": analysis["department_code"],
         "normalized_payload": {
             "connector_key": "booking_com",
             "provider": "Booking.com",
