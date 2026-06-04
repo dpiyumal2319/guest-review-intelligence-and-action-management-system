@@ -14,7 +14,7 @@ The project is a polished university prototype, not a production SaaS platform.
 - **Connector**: A backend provider module that imports source-shaped data into the shared ingestion pipeline. Connectors are API-triggerable and individually runnable as backend jobs.
 - **Raw review**: The original source payload stored for audit and reprocessing.
 - **Normalized review**: The canonical review record used by analysis, dashboard views, and ticket workflows.
-- **Review analysis**: The latest active NLP and scoring output for a review, including sentiment, issue categories, severity, department mapping, duplicate flags, model metadata, confidence, and explanation factors.
+- **Review analysis**: The latest active NLP and scoring output for a review, including sentiment, issue categories, Reputation Risk, department mapping, duplicate flags, model metadata, confidence, and explanation factors.
 - **Issue category**: An operational review topic such as cleanliness, room condition, food and beverage, service delay, staff behavior, noise/events, pricing/value, booking/check-in, amenities/facilities, positive general, or other/uncategorized.
 - **Recurring issue**: A repeated operational issue detected first by category counts and, where available, semantic clustering.
 - **Action ticket**: A department-owned corrective-action item created from either a single review or a recurring issue group.

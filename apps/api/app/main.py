@@ -21,7 +21,7 @@ from app.models import (
     ReviewAnalysis,
     ReviewIssueCategoryPrediction,
     ReviewSource,
-    SeverityThreshold,
+    ReputationRiskThreshold,
     TicketEvent,
 )
 from app.schemas import (
@@ -93,7 +93,7 @@ async def reference_config(session: Session = Depends(get_session)) -> Reference
                 )
             )
         ),
-        severity_thresholds=list(session.scalars(select(SeverityThreshold).order_by(SeverityThreshold.category_code))),
+        reputation_risk_thresholds=list(session.scalars(select(ReputationRiskThreshold).order_by(ReputationRiskThreshold.category_code))),
         demo_roles=list(session.scalars(select(DemoRole).order_by(DemoRole.code))),
     )
 
@@ -149,7 +149,7 @@ async def reviews(
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
-    severity: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -158,8 +158,8 @@ async def reviews(
 ) -> ReviewsResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
-        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
@@ -192,8 +192,8 @@ async def reviews(
         )
     if sentiment_label is not None:
         query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if severity is not None:
-        query = query.where(NormalizedReview.severity == severity)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
     if action_status is not None:
         query = query.where(NormalizedReview.action_status == action_status)
     if date_from is not None:
@@ -276,7 +276,7 @@ _VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verifie
 _VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
 _VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
 _VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
-_VALID_SEVERITY_LABELS = {"low", "medium", "high", "critical"}
+_VALID_REPUTATION_RISK_LABELS = {"low", "medium", "high", "critical"}
 
 
 def _ticket_ids_by_source_group(session: Session, source_group_type: str) -> dict[str, list[int]]:
@@ -296,7 +296,7 @@ def _ticket_ids_by_source_group(session: Session, source_group_type: str) -> dic
 
 
 def _validate_recurring_ticket_request(body: RecurringIssueTicketCreateRequest, session: Session) -> None:
-    if body.priority not in _VALID_TICKET_PRIORITIES:
+    if body.priority is not None and body.priority not in _VALID_TICKET_PRIORITIES:
         raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
     if body.department_code is not None and session.scalar(
         select(Department).where(Department.code == body.department_code)
@@ -311,10 +311,39 @@ def _dominant_department(reviews: list[NormalizedReview]) -> str:
     return max(counts, key=lambda department: counts[department])
 
 
+def _priority_from_reputation_risk_label(label: str | None) -> str:
+    if label == "critical":
+        return "urgent"
+    if label == "high":
+        return "high"
+    if label == "medium":
+        return "medium"
+    return "low"
+
+
+def _priority_from_review(review: NormalizedReview) -> str:
+    label = review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
+    return _priority_from_reputation_risk_label(label)
+
+
+def _priority_from_reviews(reviews: list[NormalizedReview]) -> str:
+    order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+    highest_label = max(
+        (
+            review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
+            for review in reviews
+        ),
+        key=lambda label: order.get(label, 0),
+        default="low",
+    )
+    return _priority_from_reputation_risk_label(highest_label)
+
+
 def _create_recurring_issue_ticket(
     *,
     session: Session,
     body: RecurringIssueTicketCreateRequest,
+    priority: str,
     department_code: str,
     source_group_type: str,
     source_group_key: str,
@@ -334,7 +363,7 @@ def _create_recurring_issue_ticket(
         source_category_code=source_category_code,
         source_cluster_id=source_cluster_id,
         source_review_ids=source_review_ids,
-        priority=body.priority,
+        priority=priority,
         status="open",
         assignee_name=body.assignee_name,
         assignee_email=body.assignee_email,
@@ -374,7 +403,7 @@ async def overview_kpis(
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
-    severity: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -382,8 +411,8 @@ async def overview_kpis(
 ) -> OverviewKpiResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
-        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
@@ -413,8 +442,8 @@ async def overview_kpis(
         )
     if sentiment_label is not None:
         query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if severity is not None:
-        query = query.where(NormalizedReview.severity == severity)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
     if action_status is not None:
         query = query.where(NormalizedReview.action_status == action_status)
     if date_from is not None:
@@ -426,20 +455,20 @@ async def overview_kpis(
     total = len(matched_reviews)
 
     sentiment_mix = {label: 0 for label in _VALID_SENTIMENT_LABELS}
-    severity_mix = {label: 0 for label in _VALID_SEVERITY_LABELS}
+    reputation_risk_mix = {label: 0 for label in _VALID_REPUTATION_RISK_LABELS}
     action_status_mix = {label: 0 for label in _VALID_REVIEW_ACTION_STATUSES}
     department_counts: dict[str, int] = {}
     category_counts: dict[str, int] = {}
     rating_total = 0.0
     rating_count = 0
-    severity_score_total = 0
-    severity_score_count = 0
+    reputation_risk_score_total = 0
+    reputation_risk_score_count = 0
 
     for review in matched_reviews:
         if review.sentiment_label in sentiment_mix:
             sentiment_mix[review.sentiment_label] += 1
-        if review.severity in severity_mix:
-            severity_mix[review.severity] += 1
+        if review.reputation_risk in reputation_risk_mix:
+            reputation_risk_mix[review.reputation_risk] += 1
         if review.action_status in action_status_mix:
             action_status_mix[review.action_status] += 1
         if review.rating is not None:
@@ -450,11 +479,11 @@ async def overview_kpis(
         if review.issue_category_code:
             category_counts[review.issue_category_code] = category_counts.get(review.issue_category_code, 0) + 1
         if review.analysis is not None:
-            severity_score_total += review.analysis.severity_score
-            severity_score_count += 1
+            reputation_risk_score_total += review.analysis.reputation_risk_score
+            reputation_risk_score_count += 1
 
     average_rating = round(rating_total / rating_count, 2) if rating_count else None
-    average_severity_score = round(severity_score_total / severity_score_count) if severity_score_count else 0
+    average_reputation_risk_score = round(reputation_risk_score_total / reputation_risk_score_count) if reputation_risk_score_count else 0
 
     top_departments = [
         {"code": code, "count": count}
@@ -468,9 +497,9 @@ async def overview_kpis(
     return OverviewKpiResponse(
         total_reviews=total,
         average_rating=average_rating,
-        average_severity_score=average_severity_score,
+        average_reputation_risk_score=average_reputation_risk_score,
         sentiment_mix=sentiment_mix,
-        severity_mix=severity_mix,
+        reputation_risk_mix=reputation_risk_mix,
         action_status_mix=action_status_mix,
         top_departments=top_departments,
         top_categories=top_categories,
@@ -479,7 +508,7 @@ async def overview_kpis(
             "issue_category_code": issue_category_code,
             "department_code": department_code,
             "sentiment_label": sentiment_label,
-            "severity": severity,
+            "reputation_risk": reputation_risk,
             "action_status": action_status,
             "date_from": date_from.isoformat() if date_from else None,
             "date_to": date_to.isoformat() if date_to else None,
@@ -493,7 +522,7 @@ async def issues_summary(
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
-    severity: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -501,8 +530,8 @@ async def issues_summary(
 ) -> IssueSummaryResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
-        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
@@ -536,8 +565,8 @@ async def issues_summary(
         )
     if sentiment_label is not None:
         query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if severity is not None:
-        query = query.where(NormalizedReview.severity == severity)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
     if action_status is not None:
         query = query.where(NormalizedReview.action_status == action_status)
     if date_from is not None:
@@ -557,8 +586,8 @@ async def issues_summary(
                 "category_code": cat_code,
                 "category_name": review.issue_category.name if review.issue_category else cat_code.replace("_", " ").title(),
                 "review_count": 0,
-                "severity_score_total": 0,
-                "severity_score_count": 0,
+                "reputation_risk_score_total": 0,
+                "reputation_risk_score_count": 0,
                 "primary_department_code": review.department_code,
                 "department_counts": {},
                 "source_mix": {},
@@ -567,8 +596,8 @@ async def issues_summary(
         agg = category_aggregates[cat_code]
         agg["review_count"] += 1
         if review.analysis is not None:
-            agg["severity_score_total"] += review.analysis.severity_score
-            agg["severity_score_count"] += 1
+            agg["reputation_risk_score_total"] += review.analysis.reputation_risk_score
+            agg["reputation_risk_score_count"] += 1
         dept = review.department_code
         agg["department_counts"][dept] = agg["department_counts"].get(dept, 0) + 1
         src = review.source_code
@@ -579,9 +608,9 @@ async def issues_summary(
     category_ticket_ids = _ticket_ids_by_source_group(session, "category_recurrence")
     items: list[IssueSummaryItemResponse] = []
     for agg in sorted(category_aggregates.values(), key=lambda x: x["review_count"], reverse=True):
-        avg_severity = (
-            round(agg["severity_score_total"] / agg["severity_score_count"], 1)
-            if agg["severity_score_count"] > 0
+        avg_reputation_risk = (
+            round(agg["reputation_risk_score_total"] / agg["reputation_risk_score_count"], 1)
+            if agg["reputation_risk_score_count"] > 0
             else 0.0
         )
         # Determine primary department from the most frequent department
@@ -590,7 +619,7 @@ async def issues_summary(
             category_code=agg["category_code"],
             category_name=agg["category_name"],
             review_count=agg["review_count"],
-            average_severity_score=avg_severity,
+            average_reputation_risk_score=avg_reputation_risk,
             primary_department_code=primary_dept,
             source_mix=agg["source_mix"],
             representative_review_id=agg["min_review_id"],
@@ -605,7 +634,7 @@ async def issues_summary(
             "issue_category_code": issue_category_code,
             "department_code": department_code,
             "sentiment_label": sentiment_label,
-            "severity": severity,
+            "reputation_risk": reputation_risk,
             "action_status": action_status,
             "date_from": date_from.isoformat() if date_from else None,
             "date_to": date_to.isoformat() if date_to else None,
@@ -620,7 +649,7 @@ async def create_category_recurrence_ticket(
     source_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
-    severity: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
@@ -632,8 +661,8 @@ async def create_category_recurrence_ticket(
     _validate_recurring_ticket_request(body, session)
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
-        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
@@ -662,8 +691,8 @@ async def create_category_recurrence_ticket(
         )
     if sentiment_label is not None:
         query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if severity is not None:
-        query = query.where(NormalizedReview.severity == severity)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
     if action_status is not None:
         query = query.where(NormalizedReview.action_status == action_status)
     if date_from is not None:
@@ -679,6 +708,7 @@ async def create_category_recurrence_ticket(
     return _create_recurring_issue_ticket(
         session=session,
         body=body,
+        priority=body.priority or _priority_from_reviews(reviews),
         department_code=affected_department,
         source_group_type="category_recurrence",
         source_group_key=category_code,
@@ -745,6 +775,7 @@ async def create_semantic_cluster_ticket(
     return _create_recurring_issue_ticket(
         session=session,
         body=body,
+        priority=body.priority or _priority_from_reviews([review for review in reviews if review.id in cluster.review_ids]),
         department_code=body.department_code or cluster.department_code,
         source_group_type="semantic_cluster",
         source_group_key=cluster.cluster_id,
@@ -765,7 +796,7 @@ async def create_ticket(
     review = session.get(NormalizedReview, review_id)
     if review is None:
         raise HTTPException(status_code=404, detail="Review not found")
-    if body.priority not in _VALID_TICKET_PRIORITIES:
+    if body.priority is not None and body.priority not in _VALID_TICKET_PRIORITIES:
         raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
     if session.scalar(select(Department).where(Department.code == body.department_code)) is None:
         raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
@@ -774,7 +805,7 @@ async def create_ticket(
     ticket = ActionTicket(
         review_id=review_id,
         department_code=body.department_code,
-        priority=body.priority,
+        priority=body.priority or _priority_from_review(review),
         status="open",
         assignee_name=body.assignee_name,
         assignee_email=body.assignee_email,
@@ -829,19 +860,19 @@ async def list_tickets(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
-    severity: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> TicketsResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if severity is not None and severity not in _VALID_SEVERITY_LABELS:
-        raise HTTPException(status_code=422, detail=f"severity must be one of {sorted(_VALID_SEVERITY_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
-    needs_review_join = any(v is not None for v in [sentiment_label, severity, issue_category_code, action_status])
+    needs_review_join = any(v is not None for v in [sentiment_label, reputation_risk, issue_category_code, action_status])
 
     if needs_review_join:
         query = (
@@ -864,8 +895,8 @@ async def list_tickets(
         query = query.where(ActionTicket.created_at <= date_to)
     if sentiment_label is not None:
         query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if severity is not None:
-        query = query.where(NormalizedReview.severity == severity)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
     if issue_category_code is not None:
         query = query.where(
             or_(

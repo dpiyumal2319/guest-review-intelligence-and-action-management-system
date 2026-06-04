@@ -66,7 +66,7 @@ def upgrade() -> None:
         sa.Column("routing_notes", sa.Text(), nullable=False),
     )
     op.create_table(
-        "severity_thresholds",
+        "reputation_risk_thresholds",
         sa.Column(
             "category_code",
             sa.String(length=64),
@@ -91,7 +91,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("demo_roles")
-    op.drop_table("severity_thresholds")
+    op.drop_table("reputation_risk_thresholds")
     op.drop_table("category_department_mappings")
     op.drop_table("issue_categories")
     op.drop_table("departments")

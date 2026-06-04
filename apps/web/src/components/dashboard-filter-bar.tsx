@@ -1,7 +1,7 @@
 "use client"
 
 import { SearchIcon, XIcon } from "lucide-react"
-import { ACTION_STATUSES, type Department, type IssueCategory, type ReviewSource, SENTIMENT_LABELS, SEVERITY_LABELS } from "@/lib/api-types"
+import { ACTION_STATUSES, type Department, type IssueCategory, type ReviewSource, SENTIMENT_LABELS, REPUTATION_RISK_LABELS } from "@/lib/api-types"
 import { type DashboardFilters } from "@/hooks/use-dashboard-filters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -158,17 +158,17 @@ export function DashboardFilterBar({
       )}
 
       <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Severity</Label>
+        <Label className="text-xs">Reputation Risk</Label>
         <Select
-          value={toSelectValue(filters.severity)}
-          onValueChange={(v) => onFilterChange("severity", fromSelectValue(v))}
+          value={toSelectValue(filters.reputation_risk)}
+          onValueChange={(v) => onFilterChange("reputation_risk", fromSelectValue(v))}
         >
           <SelectTrigger className="h-8 w-36 text-xs">
-            <SelectValue placeholder="Any severity" />
+            <SelectValue placeholder="Any risk" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={NONE}>Any severity</SelectItem>
-            {SEVERITY_LABELS.map((l) => (
+            <SelectItem value={NONE}>Any risk</SelectItem>
+            {REPUTATION_RISK_LABELS.map((l) => (
               <SelectItem key={l} value={l}>{l}</SelectItem>
             ))}
           </SelectContent>

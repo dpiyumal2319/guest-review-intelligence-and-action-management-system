@@ -47,9 +47,9 @@ Operational issue taxonomy:
 
 Maps issue categories to owning departments. One mapping can be primary, with optional secondary mappings for cross-functional routing.
 
-### `severity_thresholds`
+### `reputation_risk_thresholds`
 
-Stores category-specific low-rating, negative-sentiment, urgent-confidence, and recurrence-count thresholds. These explain escalation expectations even when the current severity algorithm uses deterministic scoring.
+Stores category-specific low-rating, negative-sentiment, urgent-confidence, and recurrence-count thresholds. These explain escalation expectations even when the current Reputation Risk algorithm uses deterministic scoring.
 
 ### `demo_roles`
 
@@ -102,7 +102,7 @@ Important fields:
 - `review_date`, `rating`, `language`, `title`, `body`: core review content.
 - `content_hash`: normalized hash of body/title/rating/language for content dedupe.
 - `is_content_duplicate` and `duplicate_of_review_id`: content duplicate flagging.
-- `sentiment_label`, `sentiment_score`, `issue_category_code`, `severity`, `department_code`: denormalized latest analysis summary for API compatibility and fast dashboard reads.
+- `sentiment_label`, `sentiment_score`, `issue_category_code`, `reputation_risk`, `department_code`: denormalized latest analysis summary for API compatibility and fast dashboard reads.
 - `action_status`: review input workflow state: `new`, `reviewed`, `ticket_created`, or `ignored`.
 - `normalized_payload`: canonical source-specific metadata.
 - `updated_at`.
@@ -120,7 +120,7 @@ Important fields:
 - `review_id`: one-to-one link to the normalized review.
 - `sentiment_label`, `sentiment_score`, `sentiment_confidence`;
 - `issue_category_code`;
-- `severity_score`, `severity_label`;
+- `reputation_risk_score`, `reputation_risk_label`;
 - `department_code`;
 - `model_name`, `model_version`, `analysis_version`;
 - `explanation_factors`;

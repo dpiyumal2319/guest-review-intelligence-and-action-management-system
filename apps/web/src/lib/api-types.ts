@@ -16,8 +16,8 @@ export type ReviewAnalysis = {
   sentiment_score: number
   sentiment_confidence: number
   issue_category_code: string
-  severity_score: number
-  severity_label: string
+  reputation_risk_score: number
+  reputation_risk_label: string
   department_code: string
   model_name: string
   model_version: string
@@ -59,7 +59,7 @@ export type Review = {
   sentiment_label: string
   sentiment_score: number
   issue_category_code: string
-  severity: string
+  reputation_risk: string
   department_code: string
   action_status: string
   updated_at: string
@@ -163,7 +163,7 @@ export type IssueSummaryItem = {
   category_code: string
   category_name: string
   review_count: number
-  average_severity_score: number
+  average_reputation_risk_score: number
   primary_department_code: string
   source_mix: Record<string, number>
   representative_review_id: number
@@ -209,7 +209,7 @@ export type SemanticAnalysis = {
 }
 
 export const SENTIMENT_LABELS = ["positive", "mixed", "negative"] as const
-export const SEVERITY_LABELS = ["low", "medium", "high", "critical"] as const
+export const REPUTATION_RISK_LABELS = ["low", "medium", "high", "critical"] as const
 export const ACTION_STATUSES = ["new", "reviewed", "ticket_created", "ignored"] as const
 export const TICKET_STATUSES = ["open", "in_progress", "blocked", "resolved", "verified"] as const
 export const TICKET_PRIORITIES = ["low", "medium", "high", "urgent"] as const

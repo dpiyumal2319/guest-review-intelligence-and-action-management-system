@@ -89,7 +89,7 @@ What to show:
 - departments are seeded;
 - issue categories are seeded;
 - category-to-department mappings are visible;
-- severity thresholds and demo roles are visible.
+- Reputation Risk thresholds and demo roles are visible.
 
 ## 2a. Set the Demo Role in the Web UI
 
@@ -185,7 +185,7 @@ Filter examples:
 
 ```bash
 curl "$API/reviews?sentiment_label=negative"
-curl "$API/reviews?severity=high"
+curl "$API/reviews?reputation_risk=high"
 curl "$API/reviews?issue_category_code=cleanliness"
 curl "$API/reviews?department_code=housekeeping"
 curl "$API/reviews?search=check-in&department_code=front_office"
@@ -200,7 +200,7 @@ What to show:
 - active analysis;
 - sentiment label and score;
 - issue category predictions;
-- severity label and score;
+- Reputation Risk label and score;
 - department ownership;
 - model metadata and explanation factors, including `analysis.model_name`, `analysis.model_version`, `analysis.analysis_version`, and any fallback note.
 
@@ -257,7 +257,7 @@ curl "$API/analysis/semantic-clusters?similarity_threshold=0.30"
 What to show:
 
 - repeated issue categories by count;
-- average severity score;
+- average Reputation Risk score;
 - primary department;
 - source mix;
 - semantic near-duplicate pairs and clusters;

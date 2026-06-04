@@ -180,7 +180,7 @@ def normalize_apify_row(row: dict[str, Any], row_number: int, dataset_metadata: 
         external_review_id = generated_external_id(row, body, review_date, source_url, row_number)
 
     sentiment_label, sentiment_score = sentiment_from_rating(rating)
-    issue_category_code, severity, department_code = defaults_from_rating(rating, sentiment_label)
+    issue_category_code, reputation_risk, department_code = defaults_from_rating(rating, sentiment_label)
 
     row_metadata = compact_metadata(
         {
@@ -203,7 +203,7 @@ def normalize_apify_row(row: dict[str, Any], row_number: int, dataset_metadata: 
         "sentiment_label": sentiment_label,
         "sentiment_score": sentiment_score,
         "issue_category_code": issue_category_code,
-        "severity": severity,
+        "reputation_risk": reputation_risk,
         "department_code": department_code,
         "dataset_metadata": compact_metadata(dataset_metadata | row_metadata),
         "normalized_payload": {

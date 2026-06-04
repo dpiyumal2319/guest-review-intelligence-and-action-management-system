@@ -31,7 +31,7 @@ import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
-function severityScoreVariant(score: number): "default" | "secondary" | "destructive" | "outline" {
+function reputationRiskScoreVariant(score: number): "default" | "secondary" | "destructive" | "outline" {
   if (score >= 75) return "destructive"
   if (score >= 50) return "secondary"
   return "outline"
@@ -64,7 +64,7 @@ function CategorySummaryTable({
           <TableRow>
             <TableHead>Category</TableHead>
             <TableHead className="text-right">Reviews</TableHead>
-            <TableHead className="text-right">Avg severity score</TableHead>
+            <TableHead className="text-right">Avg Reputation Risk score</TableHead>
             <TableHead>Primary department</TableHead>
             <TableHead>Source mix</TableHead>
             <TableHead>Tickets</TableHead>
@@ -80,8 +80,8 @@ function CategorySummaryTable({
               </TableCell>
               <TableCell className="text-right text-sm">{item.review_count}</TableCell>
               <TableCell className="text-right">
-                <Badge variant={severityScoreVariant(item.average_severity_score)} className="text-xs tabular-nums">
-                  {item.average_severity_score.toFixed(1)}
+                <Badge variant={reputationRiskScoreVariant(item.average_reputation_risk_score)} className="text-xs tabular-nums">
+                  {item.average_reputation_risk_score.toFixed(1)}
                 </Badge>
               </TableCell>
               <TableCell className="text-xs">
@@ -258,7 +258,7 @@ function IssuesContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           department_code: item.primary_department_code,
-          priority: item.average_severity_score >= 75 ? "urgent" : "high",
+          priority: item.average_reputation_risk_score >= 75 ? "urgent" : "high",
           notes: `Created from ${item.review_count} recurring ${item.category_name} reviews.`,
         }),
       })

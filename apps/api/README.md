@@ -66,7 +66,7 @@ SENTIMENT_TRANSFORMER_MODEL_ID=distilbert/distilbert-base-uncased-finetuned-sst-
 SEMANTIC_SIMILARITY_MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
 ```
 
-The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Stored explanation metadata records which sentiment path ran, the active model name/version, confidence, analysis version, and any fallback note. Severity is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
+The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Stored explanation metadata records which sentiment path ran, the active model name/version, confidence, analysis version, and any fallback note. Reputation Risk is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
 
 ## Run with Docker
 

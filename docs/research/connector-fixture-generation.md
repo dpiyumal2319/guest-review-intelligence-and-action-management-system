@@ -52,7 +52,7 @@ Generated fixture payloads must not include precomputed analysis fields:
 - sentiment labels or scores;
 - issue category labels;
 - department labels;
-- severity labels;
+- Reputation Risk labels;
 - reputation-risk labels;
 - analysis objects.
 

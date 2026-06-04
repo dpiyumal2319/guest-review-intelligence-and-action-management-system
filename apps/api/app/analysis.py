@@ -47,7 +47,7 @@ CATEGORY_RULES = {
     "booking_checkin": {"arrival", "booking", "check-in", "checkout", "desk", "prepaid", "reservation"},
     "amenities_facilities": {"gym", "lift", "parking", "pool", "spa", "wi-fi", "wifi"},
 }
-CATEGORY_SEVERITY_WEIGHT = {
+CATEGORY_REPUTATION_RISK_WEIGHT = {
     "cleanliness": 18,
     "booking_checkin": 16,
     "room_condition": 15,
@@ -69,8 +69,8 @@ class AnalysisResult:
     sentiment_confidence: float
     issue_category_code: str
     issue_category_predictions: list[IssueCategoryPredictionResult]
-    severity_score: int
-    severity_label: str
+    reputation_risk_score: int
+    reputation_risk_label: str
     department_code: str
     explanation_factors: dict
 
@@ -83,8 +83,8 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
         "sentiment_score": result.sentiment_score,
         "sentiment_confidence": result.sentiment_confidence,
         "issue_category_code": result.issue_category_code,
-        "severity_score": result.severity_score,
-        "severity_label": result.severity_label,
+        "reputation_risk_score": result.reputation_risk_score,
+        "reputation_risk_label": result.reputation_risk_label,
         "department_code": result.department_code,
         "model_name": result.explanation_factors["model"]["sentiment_model_name"],
         "model_version": result.explanation_factors["model"]["sentiment_model_version"],
@@ -122,7 +122,7 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
     review.sentiment_label = result.sentiment_label
     review.sentiment_score = result.sentiment_score
     review.issue_category_code = result.issue_category_code
-    review.severity = result.severity_label
+    review.reputation_risk = result.reputation_risk_label
     review.department_code = result.department_code
     review.updated_at = analyzed_at
     return analysis
@@ -142,18 +142,21 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
     urgency_score, urgency_matches = urgency_factor(text)
     recurrence_count = recurrence_count_7d(session, review, issue_category_code, analyzed_at)
     duplicate_signal = bool(review.normalized_payload.get("duplicate_signal") or review.normalized_payload.get("duplicate_review_ids"))
-    severity_score, severity_label, severity_factors = score_severity(
+    reputation_risk_score, reputation_risk_label, reputation_risk_factors = score_reputation_risk(
         rating=review.rating,
         sentiment_score=sentiment_result.sentiment_score,
         issue_category_code=issue_category_code,
+        review_date=review.review_date,
+        analyzed_at=analyzed_at,
         urgency_score=urgency_score,
         recurrence_count=recurrence_count,
         duplicate_signal=duplicate_signal,
+        normalized_payload=review.normalized_payload,
     )
     explanation_factors = {
         "sentiment": sentiment_result.explanation_factors,
         "issue_category": category_factors,
-        "severity": severity_factors,
+        "reputation_risk": reputation_risk_factors,
         "department": {
             "department_code": department_code,
             "mapping_source": "category_department_mappings.primary",
@@ -180,8 +183,8 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
         sentiment_confidence=sentiment_result.sentiment_confidence,
         issue_category_code=issue_category_code,
         issue_category_predictions=issue_category_predictions,
-        severity_score=severity_score,
-        severity_label=severity_label,
+        reputation_risk_score=reputation_risk_score,
+        reputation_risk_label=reputation_risk_label,
         department_code=department_code,
         explanation_factors=explanation_factors,
     )
@@ -226,7 +229,7 @@ def classify_issue_category(tokens: set[str], sentiment_label: str) -> tuple[str
         category: len({term for term in terms if term in tokens})
         for category, terms in CATEGORY_RULES.items()
     }
-    category, score = max(scores.items(), key=lambda item: (item[1], CATEGORY_SEVERITY_WEIGHT.get(item[0], 0)))
+    category, score = max(scores.items(), key=lambda item: (item[1], CATEGORY_REPUTATION_RISK_WEIGHT.get(item[0], 0)))
     if sentiment_label == "positive" and score <= 2:
         category = "positive_general"
         score = 0
@@ -267,21 +270,36 @@ def reanalyze_reviews(
     return len(reviews)
 
 
-def score_severity(
+def score_reputation_risk(
     *,
     rating: float | None,
     sentiment_score: float,
     issue_category_code: str,
+    review_date: datetime | None,
+    analyzed_at: datetime,
     urgency_score: int,
     recurrence_count: int,
     duplicate_signal: bool,
+    normalized_payload: dict | None = None,
 ) -> tuple[int, str, dict]:
     rating_points = 0 if rating is None else round(max(0.0, (5.0 - float(rating)) / 4.0) * 30)
     sentiment_points = round(max(0.0, -sentiment_score) * 25)
-    category_points = CATEGORY_SEVERITY_WEIGHT.get(issue_category_code, 6)
+    category_points = CATEGORY_REPUTATION_RISK_WEIGHT.get(issue_category_code, 6)
+    recency_points = recency_factor(review_date, analyzed_at)
     recurrence_points = min(10, max(0, recurrence_count - 1) * 3)
     duplicate_points = 5 if duplicate_signal else 0
-    total = int(min(100, rating_points + sentiment_points + category_points + urgency_score + recurrence_points + duplicate_points))
+    visibility_points, visibility_signals = visibility_factor(normalized_payload or {})
+    total = int(min(
+        100,
+        rating_points
+        + sentiment_points
+        + category_points
+        + recency_points
+        + urgency_score
+        + recurrence_points
+        + duplicate_points
+        + visibility_points,
+    ))
     if total >= 75:
         label = "critical"
     elif total >= 50:
@@ -297,12 +315,96 @@ def score_severity(
             "rating": rating_points,
             "sentiment": sentiment_points,
             "issue_category": category_points,
+            "recency": recency_points,
             "urgency_terms": urgency_score,
             "recurrence": recurrence_points,
             "duplicate_signal": duplicate_points,
+            "platform_visibility": visibility_points,
         },
+        "operational_explanations": reputation_risk_explanations(
+            rating_points=rating_points,
+            sentiment_points=sentiment_points,
+            category_points=category_points,
+            recency_points=recency_points,
+            recurrence_points=recurrence_points,
+            visibility_signals=visibility_signals,
+        ),
         "thresholds": {"low": "0-29", "medium": "30-49", "high": "50-74", "critical": "75-100"},
     }
+
+
+def recency_factor(review_date: datetime | None, analyzed_at: datetime) -> int:
+    if review_date is None:
+        return 0
+    if review_date.tzinfo is None and analyzed_at.tzinfo is not None:
+        review_date = review_date.replace(tzinfo=analyzed_at.tzinfo)
+    if analyzed_at.tzinfo is None and review_date.tzinfo is not None:
+        analyzed_at = analyzed_at.replace(tzinfo=review_date.tzinfo)
+    age_days = max(0, (analyzed_at - review_date).days)
+    if age_days <= 7:
+        return 5
+    if age_days <= 30:
+        return 2
+    return 0
+
+
+def visibility_factor(normalized_payload: dict) -> tuple[int, list[str]]:
+    signals: list[str] = []
+    points = 0
+    helpful_votes = first_numeric_payload_value(
+        normalized_payload,
+        "helpful_votes",
+        "provider_helpful_votes",
+        "provider_helpful_vote_count",
+        "helpful_count",
+    )
+    if helpful_votes is not None and helpful_votes > 0:
+        signals.append("helpful_vote_visibility")
+        points += min(5, int(helpful_votes))
+    if normalized_payload.get("provider_url"):
+        signals.append("public_review_url")
+        points += 2
+    if normalized_payload.get("provider_has_reply") is False or normalized_payload.get("provider_has_management_response") is False:
+        signals.append("unreplied_public_review")
+        points += 2
+    return min(8, points), signals
+
+
+def first_numeric_payload_value(normalized_payload: dict, *keys: str) -> float | None:
+    for key in keys:
+        value = normalized_payload.get(key)
+        if value is None:
+            continue
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def reputation_risk_explanations(
+    *,
+    rating_points: int,
+    sentiment_points: int,
+    category_points: int,
+    recency_points: int,
+    recurrence_points: int,
+    visibility_signals: list[str],
+) -> list[str]:
+    explanations: list[str] = []
+    if rating_points >= 15:
+        explanations.append("low rating")
+    if sentiment_points >= 10:
+        explanations.append("negative sentiment")
+    if category_points >= 14:
+        explanations.append("high-impact issue category")
+    if recency_points:
+        explanations.append("recent review")
+    if recurrence_points:
+        explanations.append("recent recurrence")
+    if visibility_signals:
+        explanations.append("visible platform engagement")
+    return explanations
 
 
 def urgency_factor(text: str) -> tuple[int, list[str]]:

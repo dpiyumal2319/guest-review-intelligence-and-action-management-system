@@ -56,7 +56,7 @@ const queues = [
   {
     title: "Reviews",
     id: "reviews",
-    body: "Searchable normalized review queue with source, rating, sentiment, category, severity, and action status filters.",
+    body: "Searchable normalized review queue with source, rating, sentiment, category, Reputation Risk, and action status filters.",
     status: "Shell ready",
   },
   {
@@ -96,7 +96,7 @@ type Review = {
   sentiment_label: string
   sentiment_score: number
   issue_category_code: string
-  severity: string
+  reputation_risk: string
   department_code: string
   action_status: string
   analysis: ReviewAnalysis | null
@@ -108,8 +108,8 @@ type ReviewAnalysis = {
   sentiment_score: number
   sentiment_confidence: number
   issue_category_code: string
-  severity_score: number
-  severity_label: string
+  reputation_risk_score: number
+  reputation_risk_label: string
   department_code: string
   model_name: string
   model_version: string
@@ -216,9 +216,9 @@ type OverviewCount = {
 type OverviewKpi = {
   total_reviews: number
   average_rating: number | null
-  average_severity_score: number
+  average_reputation_risk_score: number
   sentiment_mix: Record<string, number>
-  severity_mix: Record<string, number>
+  reputation_risk_mix: Record<string, number>
   action_status_mix: Record<string, number>
   top_departments: OverviewCount[]
   top_categories: OverviewCount[]
@@ -275,7 +275,7 @@ export default function Page() {
   const importedMetrics = useMemo(() => {
     const kpiSentimentNegative = overviewKpi?.sentiment_mix?.negative ?? 0
     const kpiTotal = overviewKpi?.total_reviews ?? 0
-    const kpiSeverityHigh = (overviewKpi?.severity_mix?.high ?? 0) + (overviewKpi?.severity_mix?.critical ?? 0)
+    const kpiReputationRiskHigh = (overviewKpi?.reputation_risk_mix?.high ?? 0) + (overviewKpi?.reputation_risk_mix?.critical ?? 0)
     const kpiTopDepartment = overviewKpi?.top_departments?.[0]
     return [
       {
@@ -289,9 +289,9 @@ export default function Page() {
         detail: `${kpiSentimentNegative} of ${kpiTotal} records`,
       },
       {
-        label: "High severity",
-        value: kpiSeverityHigh.toString(),
-        detail: `average severity score ${overviewKpi?.average_severity_score ?? 0}`,
+        label: "High Reputation Risk",
+        value: kpiReputationRiskHigh.toString(),
+        detail: `average Reputation Risk score ${overviewKpi?.average_reputation_risk_score ?? 0}`,
       },
       {
         label: "Department focus",
@@ -776,7 +776,7 @@ export default function Page() {
                         <TableHead>Sentiment</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
-                        <TableHead>Severity</TableHead>
+                        <TableHead>Reputation Risk</TableHead>
                         <TableHead>Analysis</TableHead>
                         <TableHead>Dedupe</TableHead>
                         <TableHead>Status</TableHead>
@@ -819,11 +819,11 @@ export default function Page() {
                               (review.analysis?.department_code ?? review.department_code).replaceAll("_", " ")}
                           </TableCell>
                           <TableCell>
-                            <Badge variant={["high", "critical"].includes(review.analysis?.severity_label ?? review.severity) ? "destructive" : "outline"}>
-                              {review.analysis?.severity_label ?? review.severity}
+                            <Badge variant={["high", "critical"].includes(review.analysis?.reputation_risk_label ?? review.reputation_risk) ? "destructive" : "outline"}>
+                              {review.analysis?.reputation_risk_label ?? review.reputation_risk}
                             </Badge>
                             <div className="mt-1 text-xs text-muted-foreground">
-                              score {review.analysis?.severity_score ?? "N/A"}
+                              score {review.analysis?.reputation_risk_score ?? "N/A"}
                             </div>
                           </TableCell>
                           <TableCell className="min-w-48">

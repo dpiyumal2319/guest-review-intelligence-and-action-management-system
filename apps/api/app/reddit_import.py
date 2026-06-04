@@ -22,7 +22,7 @@ REDDIT_SOCIAL_LISTENING_RECORDS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.41,
         "issue_category_code": "booking_checkin",
-        "severity": "medium",
+        "reputation_risk": "medium",
         "department_code": "front_office",
     },
     {
@@ -40,7 +40,7 @@ REDDIT_SOCIAL_LISTENING_RECORDS = [
         "sentiment_label": "negative",
         "sentiment_score": -0.36,
         "issue_category_code": "noise_events",
-        "severity": "medium",
+        "reputation_risk": "medium",
         "department_code": "guest_relations",
     },
 ]
