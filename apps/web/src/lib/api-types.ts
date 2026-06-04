@@ -39,7 +39,6 @@ export type Review = {
   id: number
   source_code: string
   source_name: string
-  source_type: string
   is_verified_channel: boolean
   external_review_id: string
   reviewer_name: string | null
@@ -86,7 +85,6 @@ export type Department = {
 export type ReviewSource = {
   code: string
   name: string
-  source_type: string
   is_verified_channel: boolean
 }
 
@@ -125,7 +123,6 @@ export type IngestionSourceStatus = {
   source_code: string
   source_name: string
   connector_key: string | null
-  source_type: string
   is_verified_channel: boolean
   latest_run: IngestionRun | null
   errors: string[]
@@ -176,7 +173,6 @@ export type IssueSummaryItem = {
 export type IssueSummary = {
   items: IssueSummaryItem[]
   total_reviews: number
-  include_social_listening: boolean
   filters_applied: Record<string, string | null>
 }
 

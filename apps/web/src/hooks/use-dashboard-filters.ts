@@ -5,7 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 
 export type DashboardFilters = {
   source_code: string
-  source_type: string
   issue_category_code: string
   department_code: string
   sentiment_label: string
@@ -14,12 +13,10 @@ export type DashboardFilters = {
   search: string
   date_from: string
   date_to: string
-  include_social_listening: boolean
 }
 
 const DEFAULTS: DashboardFilters = {
   source_code: "",
-  source_type: "",
   issue_category_code: "",
   department_code: "",
   sentiment_label: "",
@@ -28,7 +25,6 @@ const DEFAULTS: DashboardFilters = {
   search: "",
   date_from: "",
   date_to: "",
-  include_social_listening: false,
 }
 
 export function useDashboardFilters() {
@@ -37,7 +33,6 @@ export function useDashboardFilters() {
 
   const filters: DashboardFilters = useMemo(() => ({
     source_code: searchParams.get("source_code") ?? "",
-    source_type: searchParams.get("source_type") ?? "",
     issue_category_code: searchParams.get("issue_category_code") ?? "",
     department_code: searchParams.get("department_code") ?? "",
     sentiment_label: searchParams.get("sentiment_label") ?? "",
@@ -46,7 +41,6 @@ export function useDashboardFilters() {
     search: searchParams.get("search") ?? "",
     date_from: searchParams.get("date_from") ?? "",
     date_to: searchParams.get("date_to") ?? "",
-    include_social_listening: searchParams.get("include_social_listening") === "true",
   }), [searchParams])
 
   const setFilter = useCallback((key: keyof DashboardFilters, value: string | boolean) => {
@@ -68,7 +62,6 @@ export function useDashboardFilters() {
   const buildApiParams = useCallback((extraParams?: Record<string, string>) => {
     const params = new URLSearchParams()
     if (filters.source_code) params.set("source_code", filters.source_code)
-    if (filters.source_type) params.set("source_type", filters.source_type)
     if (filters.issue_category_code) params.set("issue_category_code", filters.issue_category_code)
     if (filters.department_code) params.set("department_code", filters.department_code)
     if (filters.sentiment_label) params.set("sentiment_label", filters.sentiment_label)
@@ -77,7 +70,6 @@ export function useDashboardFilters() {
     if (filters.search) params.set("search", filters.search)
     if (filters.date_from) params.set("date_from", filters.date_from)
     if (filters.date_to) params.set("date_to", filters.date_to)
-    if (filters.include_social_listening) params.set("include_social_listening", "true")
     if (extraParams) {
       for (const [key, value] of Object.entries(extraParams)) {
         params.set(key, value)

@@ -13,7 +13,6 @@ class ReviewSourceResponse(BaseModel):
 
     code: str
     name: str
-    source_type: str
     description: str
     default_enabled: bool
     is_verified_channel: bool
@@ -103,7 +102,6 @@ class IngestionSourceStatusResponse(BaseModel):
     source_code: str
     source_name: str
     connector_key: str | None
-    source_type: str
     is_verified_channel: bool
     latest_run: IngestionRunResponse | None
     errors: list[str]
@@ -111,25 +109,6 @@ class IngestionSourceStatusResponse(BaseModel):
 
 class IngestionSourceStatusesResponse(BaseModel):
     sources: list[IngestionSourceStatusResponse]
-
-
-class ApifyDatasetImportRequest(BaseModel):
-    file_path: str | None = Field(
-        default=None,
-        description="Server-local path to an offline Apify JSON or CSV export.",
-    )
-    content: str | None = Field(
-        default=None,
-        description="Raw JSON or CSV export content for offline dataset preparation.",
-    )
-    file_name: str | None = Field(
-        default=None,
-        description="Original export file name used to infer JSON or CSV when content is supplied.",
-    )
-    actor_name: str | None = None
-    export_date: str | None = None
-    platform: str | None = None
-    source_url: str | None = None
 
 
 class ReviewAnalysisResponse(BaseModel):
@@ -172,7 +151,6 @@ class ReviewResponse(BaseModel):
     id: int
     source_code: str
     source_name: str
-    source_type: str
     is_verified_channel: bool
     external_review_id: str
     reviewer_name: str | None
@@ -263,7 +241,6 @@ class OverviewKpiResponse(BaseModel):
     action_status_mix: dict[str, int]
     top_departments: list[OverviewDepartmentCountResponse]
     top_categories: list[OverviewCategoryCountResponse]
-    include_social_listening: bool
     filters_applied: dict[str, str | None]
 
 
@@ -351,5 +328,4 @@ class IssueSummaryItemResponse(BaseModel):
 class IssueSummaryResponse(BaseModel):
     items: list[IssueSummaryItemResponse]
     total_reviews: int
-    include_social_listening: bool
     filters_applied: dict[str, str | None]

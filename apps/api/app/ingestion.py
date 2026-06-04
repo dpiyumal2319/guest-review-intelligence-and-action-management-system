@@ -15,7 +15,7 @@ from app.models import IngestionRun, NormalizedReview, RawReview, ReviewSource
 from app.seed_reviews import SEED_REVIEWS
 
 
-SEED_SOURCE_CODE = "kingsbury_seed_dataset"
+SEED_SOURCE_CODE = "google_business_profile"
 SEED_CONNECTOR_KEY = "seed_dataset"
 
 
@@ -311,9 +311,17 @@ def run_payload_ingestion(
 
 
 def run_seed_ingestion(session: Session) -> IngestionRun:
+    platform_seed_reviews = [
+        {
+            **review,
+            "source_code": SEED_SOURCE_CODE,
+            "external_review_id": review["external_review_id"].replace("seed-kg", "gbp-seed", 1),
+        }
+        for review in SEED_REVIEWS
+    ]
     return run_payload_ingestion(
         session,
         source_code=SEED_SOURCE_CODE,
         connector_key=SEED_CONNECTOR_KEY,
-        payloads=SEED_REVIEWS,
+        payloads=platform_seed_reviews,
     )

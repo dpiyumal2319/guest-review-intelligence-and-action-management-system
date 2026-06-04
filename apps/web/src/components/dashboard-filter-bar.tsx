@@ -193,22 +193,6 @@ export function DashboardFilterBar({
         </Select>
       </div>
 
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Social listening</Label>
-        <Select
-          value={filters.include_social_listening ? "true" : "false"}
-          onValueChange={(v) => onFilterChange("include_social_listening", v === "true")}
-        >
-          <SelectTrigger className="h-8 w-36 text-xs">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="false">Verified only</SelectItem>
-            <SelectItem value="true">Include social</SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={onClear}>
           <XIcon className="size-3" />

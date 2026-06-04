@@ -74,7 +74,7 @@ const queues = [
   {
     title: "Ingestion",
     id: "ingestion",
-    body: "Manual connector runs for mock verified sources, Reddit social listening, fallback seed, and Apify dataset files.",
+    body: "Manual connector runs for Google Business Profile, Booking.com, and Tripadvisor review platforms.",
     status: "API hook next",
   },
 ]
@@ -83,7 +83,6 @@ type Review = {
   id: number
   source_code: string
   source_name: string
-  source_type: string
   is_verified_channel: boolean
   external_review_id: string
   reviewer_name: string | null
@@ -173,7 +172,6 @@ type IngestionSourceStatus = {
   source_code: string
   source_name: string
   connector_key: string | null
-  source_type: string
   is_verified_channel: boolean
   latest_run: IngestionRun | null
   errors: string[]
@@ -224,18 +222,10 @@ type OverviewKpi = {
   action_status_mix: Record<string, number>
   top_departments: OverviewCount[]
   top_categories: OverviewCount[]
-  include_social_listening: boolean
   filters_applied: Record<string, string | null>
 }
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
-const reviewScopeLabels = {
-  default: "Verified and dataset imports",
-  social: "Reddit social listening",
-  all: "All imported records",
-} as const
-
-type ReviewScope = keyof typeof reviewScopeLabels
 
 function formatDate(value: string | null) {
   if (!value) {
@@ -258,11 +248,9 @@ export default function Page() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null)
-  const [reviewScope, setReviewScope] = useState<ReviewScope>("default")
   const [issueCategoryFilter, setIssueCategoryFilter] = useState("all")
   const [departmentFilter, setDepartmentFilter] = useState("all")
   const [isLoading, setIsLoading] = useState(true)
-  const [importingSource, setImportingSource] = useState<"seed" | "reddit" | null>(null)
   const [importingConnector, setImportingConnector] = useState<string | null>(null)
   const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -291,9 +279,9 @@ export default function Page() {
     const kpiTopDepartment = overviewKpi?.top_departments?.[0]
     return [
       {
-        label: reviewScope === "social" ? "Reddit mentions" : "Imported records",
+        label: "Imported records",
         value: kpiTotal.toString(),
-        detail: latestRun ? `${reviewScopeLabels[reviewScope]} · last run ${latestRun.status}` : reviewScopeLabels[reviewScope],
+        detail: latestRun ? `Review platforms · last run ${latestRun.status}` : "Review platforms",
       },
       {
         label: "Negative sentiment",
@@ -313,10 +301,10 @@ export default function Page() {
       {
         label: "Average rating",
         value: overviewKpi?.average_rating != null ? overviewKpi.average_rating.toFixed(2) : "N/A",
-        detail: overviewKpi ? `${overviewKpi.include_social_listening ? "incl." : "excl."} social listening` : "run an import to compute KPIs",
+        detail: overviewKpi ? "Google Business Profile, Booking.com, and Tripadvisor" : "run a connector import to compute KPIs",
       },
     ]
-  }, [departmentNameByCode, latestRun, overviewKpi, reviewScope])
+  }, [departmentNameByCode, latestRun, overviewKpi])
   const sentimentData = useMemo(
     () =>
       ["positive", "mixed", "negative"].map((sentiment) => ({
@@ -375,16 +363,6 @@ export default function Page() {
     const reviewsUrl = new URL(`${apiBaseUrl}/reviews`)
     const semanticUrl = new URL(`${apiBaseUrl}/analysis/semantic-clusters`)
     const overviewUrl = new URL(`${apiBaseUrl}/overview/kpis`)
-    if (reviewScope === "social") {
-      reviewsUrl.searchParams.set("source_type", "social_listening")
-      semanticUrl.searchParams.set("source_type", "social_listening")
-      overviewUrl.searchParams.set("source_type", "social_listening")
-    }
-    if (reviewScope === "all") {
-      reviewsUrl.searchParams.set("include_social_listening", "true")
-      semanticUrl.searchParams.set("include_social_listening", "true")
-      overviewUrl.searchParams.set("include_social_listening", "true")
-    }
     if (issueCategoryFilter !== "all") {
       reviewsUrl.searchParams.set("issue_category_code", issueCategoryFilter)
       semanticUrl.searchParams.set("issue_category_code", issueCategoryFilter)
@@ -423,7 +401,7 @@ export default function Page() {
     setSourceStatuses(sourceStatusPayload.sources)
     setIssueCategories(configPayload.issue_categories)
     setDepartments(configPayload.departments)
-  }, [departmentFilter, effectiveDepartmentCode, issueCategoryFilter, reviewScope])
+  }, [departmentFilter, effectiveDepartmentCode, issueCategoryFilter])
 
   useEffect(() => {
     setIsLoading(true)
@@ -431,22 +409,6 @@ export default function Page() {
       .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load data"))
       .finally(() => setIsLoading(false))
   }, [loadIngestionData])
-
-  async function triggerImport(source: "seed" | "reddit") {
-    setImportingSource(source)
-    setError(null)
-    try {
-      const response = await fetch(`${apiBaseUrl}/ingestion/${source}`, { method: "POST" })
-      if (!response.ok) {
-        throw new Error(source === "reddit" ? "Reddit import failed" : "Seed import failed")
-      }
-      await loadIngestionData()
-    } catch (importError) {
-      setError(importError instanceof Error ? importError.message : "Import failed")
-    } finally {
-      setImportingSource(null)
-    }
-  }
 
   async function triggerConnectorImport(connectorKey: string) {
     setImportingConnector(connectorKey)
@@ -503,9 +465,8 @@ export default function Page() {
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
                 A focused dashboard shell for reviewing verified guest feedback,
-                separating social listening signals, spotting recurring service
-                issues, and turning priority findings into department-owned
-                action tickets.
+                spotting recurring service issues, and turning priority findings
+                into department-owned action tickets.
               </p>
               {activeRole && (
                 <div className="mt-4 flex flex-wrap gap-2">
@@ -525,8 +486,8 @@ export default function Page() {
                 <CardTitle className="text-base">Source policy</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>Verified KPIs use Google Business Profile, Booking.com, and Tripadvisor mock connectors.</p>
-                <p>Reddit remains social listening and is excluded from default verified-review KPIs.</p>
+                <p>MVP KPIs use Google Business Profile, Booking.com, and Tripadvisor review-platform connectors.</p>
+                <p>Connector runs keep source identity and ingestion audit history for each platform.</p>
               </CardContent>
             </Card>
           </section>
@@ -699,12 +660,6 @@ export default function Page() {
                     <Button onClick={triggerReanalysis} disabled={isReanalyzing} variant="outline">
                       {isReanalyzing ? "Reanalyzing" : "Refresh analysis"}
                     </Button>
-                    <Button onClick={() => triggerImport("seed")} disabled={importingSource !== null} variant="outline">
-                      {importingSource === "seed" ? "Importing" : "Run seed import"}
-                    </Button>
-                    <Button onClick={() => triggerImport("reddit")} disabled={importingSource !== null}>
-                      {importingSource === "reddit" ? "Importing" : "Import Reddit mentions"}
-                    </Button>
                   </div>
                 </div>
               </CardHeader>
@@ -773,20 +728,10 @@ export default function Page() {
                   <div>
                     <CardTitle>Imported records</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Reddit is shown as social listening, not verified guest reviews.
+                      Review records imported from the configured platform connectors.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {(Object.keys(reviewScopeLabels) as ReviewScope[]).map((scope) => (
-                      <Button
-                        key={scope}
-                        size="sm"
-                        variant={reviewScope === scope ? "default" : "outline"}
-                        onClick={() => setReviewScope(scope)}
-                      >
-                        {reviewScopeLabels[scope]}
-                      </Button>
-                    ))}
                     <Select value={issueCategoryFilter} onValueChange={(value) => setIssueCategoryFilter(value ?? "all")}>
                       <SelectTrigger size="sm" className="min-w-44">
                         <SelectValue placeholder="Issue category" />
@@ -819,7 +764,7 @@ export default function Page() {
               <CardContent>
                 {reviews.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    Run the seed import or Reddit import to populate normalized records.
+                    Run a review-platform connector import to populate normalized records.
                   </p>
                 ) : (
                   <Table>
@@ -849,9 +794,7 @@ export default function Page() {
                           </TableCell>
                           <TableCell>
                             <div className="font-medium">{review.source_name}</div>
-                            <Badge variant={review.source_type === "social_listening" ? "outline" : "secondary"}>
-                              {review.source_type === "social_listening" ? "Social listening" : "Review source"}
-                            </Badge>
+                            <Badge variant="secondary">Review platform</Badge>
                           </TableCell>
                           <TableCell>{review.rating ?? "N/A"}</TableCell>
                           <TableCell>
