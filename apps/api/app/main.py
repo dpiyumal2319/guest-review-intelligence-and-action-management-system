@@ -1,5 +1,5 @@
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -359,6 +359,58 @@ def _priority_from_reviews(reviews: list[NormalizedReview]) -> str:
     return _priority_from_reputation_risk_label(highest_label)
 
 
+def _filtered_verified_reviews_query(
+    *,
+    source_code: str | None = None,
+    issue_category_code: str | None = None,
+    department_code: str | None = None,
+    sentiment_label: str | None = None,
+    reputation_risk: str | None = None,
+    action_status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+):
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(
+            selectinload(NormalizedReview.source),
+            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.issue_category),
+        )
+    )
+    query = query.where(ReviewSource.source_type == "verified_review")
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if issue_category_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.category_code == issue_category_code
+                )
+            )
+        )
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.issue_category_predictions.any(
+                    ReviewIssueCategoryPrediction.department_code == department_code
+                )
+            )
+        )
+    if sentiment_label is not None:
+        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
+    if reputation_risk is not None:
+        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
+    if action_status is not None:
+        query = query.where(NormalizedReview.action_status == action_status)
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
+    return query
+
+
 def _create_recurring_issue_ticket(
     *,
     session: Session,
@@ -555,95 +607,91 @@ async def issues_summary(
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
-    query = (
-        select(NormalizedReview)
-        .join(NormalizedReview.source)
-        .options(
-            selectinload(NormalizedReview.source),
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
-            selectinload(NormalizedReview.issue_category),
-        )
+    query = _filtered_verified_reviews_query(
+        source_code=source_code,
+        issue_category_code=issue_category_code,
+        department_code=department_code,
+        sentiment_label=sentiment_label,
+        reputation_risk=reputation_risk,
+        action_status=action_status,
+        date_from=date_from,
+        date_to=date_to,
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
-    if department_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
-        )
-    if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if reputation_risk is not None:
-        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
-    if action_status is not None:
-        query = query.where(NormalizedReview.action_status == action_status)
-    if date_from is not None:
-        query = query.where(NormalizedReview.review_date >= date_from)
-    if date_to is not None:
-        query = query.where(NormalizedReview.review_date <= date_to)
 
-    matched_reviews = list(session.scalars(query))
+    matched_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
     total = len(matched_reviews)
 
-    # Aggregate per category
-    category_aggregates: dict[str, dict] = {}
+    most_recent_review_date = max(
+        (review.review_date for review in matched_reviews if review.review_date is not None),
+        default=None,
+    )
+    recent_window_start = most_recent_review_date - timedelta(days=14) if most_recent_review_date is not None else None
+
+    grouped_aggregates: dict[tuple[str, str], dict] = {}
+    risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
     for review in matched_reviews:
         cat_code = review.issue_category_code
-        if cat_code not in category_aggregates:
-            category_aggregates[cat_code] = {
+        dept_code = review.department_code
+        group_key = (cat_code, dept_code)
+        if group_key not in grouped_aggregates:
+            grouped_aggregates[group_key] = {
+                "group_key": f"{cat_code}:{dept_code}",
                 "category_code": cat_code,
                 "category_name": review.issue_category.name if review.issue_category else cat_code.replace("_", " ").title(),
+                "department_code": dept_code,
                 "review_count": 0,
+                "recent_review_count": 0,
                 "reputation_risk_score_total": 0,
                 "reputation_risk_score_count": 0,
-                "primary_department_code": review.department_code,
-                "department_counts": {},
+                "highest_reputation_risk": "low",
                 "source_mix": {},
                 "min_review_id": review.id,
+                "latest_review_date": review.review_date,
             }
-        agg = category_aggregates[cat_code]
+        agg = grouped_aggregates[group_key]
         agg["review_count"] += 1
+        if recent_window_start is not None and review.review_date is not None and review.review_date >= recent_window_start:
+            agg["recent_review_count"] += 1
         if review.analysis is not None:
             agg["reputation_risk_score_total"] += review.analysis.reputation_risk_score
             agg["reputation_risk_score_count"] += 1
-        dept = review.department_code
-        agg["department_counts"][dept] = agg["department_counts"].get(dept, 0) + 1
+        review_risk_label = review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
+        if risk_order.get(review_risk_label, 0) > risk_order.get(agg["highest_reputation_risk"], 0):
+            agg["highest_reputation_risk"] = review_risk_label
         src = review.source_code
         agg["source_mix"][src] = agg["source_mix"].get(src, 0) + 1
         if review.id < agg["min_review_id"]:
             agg["min_review_id"] = review.id
+        if agg["latest_review_date"] is None or (
+            review.review_date is not None and review.review_date > agg["latest_review_date"]
+        ):
+            agg["latest_review_date"] = review.review_date
 
-    category_ticket_ids = _ticket_ids_by_source_group(session, "category_recurrence")
+    category_ticket_ids = _ticket_ids_by_source_group(session, "category_department_recurrence")
     items: list[IssueSummaryItemResponse] = []
-    for agg in sorted(category_aggregates.values(), key=lambda x: x["review_count"], reverse=True):
+    for agg in sorted(
+        grouped_aggregates.values(),
+        key=lambda x: (x["recent_review_count"], x["review_count"], x["average_reputation_risk_score"] if "average_reputation_risk_score" in x else 0),
+        reverse=True,
+    ):
         avg_reputation_risk = (
             round(agg["reputation_risk_score_total"] / agg["reputation_risk_score_count"], 1)
             if agg["reputation_risk_score_count"] > 0
             else 0.0
         )
-        # Determine primary department from the most frequent department
-        primary_dept = max(agg["department_counts"], key=lambda d: agg["department_counts"][d])
         items.append(IssueSummaryItemResponse(
+            group_key=agg["group_key"],
             category_code=agg["category_code"],
             category_name=agg["category_name"],
+            department_code=agg["department_code"],
             review_count=agg["review_count"],
+            recent_review_count=agg["recent_review_count"],
             average_reputation_risk_score=avg_reputation_risk,
-            primary_department_code=primary_dept,
+            highest_reputation_risk=agg["highest_reputation_risk"],
             source_mix=agg["source_mix"],
             representative_review_id=agg["min_review_id"],
-            linked_ticket_ids=category_ticket_ids.get(agg["category_code"], []),
+            latest_review_date=agg["latest_review_date"],
+            linked_ticket_ids=category_ticket_ids.get(agg["group_key"], []),
         ))
 
     return IssueSummaryResponse(
@@ -662,12 +710,12 @@ async def issues_summary(
     )
 
 
-@app.post("/issues/categories/{category_code}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
-async def create_category_recurrence_ticket(
+@app.post("/issues/groups/{category_code}/{department_code}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
+async def create_issue_group_ticket(
     category_code: str,
+    department_code: str,
     body: RecurringIssueTicketCreateRequest,
     source_code: str | None = Query(default=None),
-    department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
     reputation_risk: str | None = Query(default=None),
     action_status: str | None = Query(default=None),
@@ -686,57 +734,35 @@ async def create_category_recurrence_ticket(
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
 
-    query = (
-        select(NormalizedReview)
-        .join(NormalizedReview.source)
-        .options(selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions))
-        .where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == category_code
-                )
-            )
-        )
+    query = _filtered_verified_reviews_query(
+        source_code=source_code,
+        issue_category_code=category_code,
+        department_code=department_code,
+        sentiment_label=sentiment_label,
+        reputation_risk=reputation_risk,
+        action_status=action_status,
+        date_from=date_from,
+        date_to=date_to,
     )
-    query = query.where(ReviewSource.source_type == "verified_review")
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if department_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
-        )
-    if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    if reputation_risk is not None:
-        query = query.where(NormalizedReview.reputation_risk == reputation_risk)
-    if action_status is not None:
-        query = query.where(NormalizedReview.action_status == action_status)
-    if date_from is not None:
-        query = query.where(NormalizedReview.review_date >= date_from)
-    if date_to is not None:
-        query = query.where(NormalizedReview.review_date <= date_to)
 
     reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
+    reviews = [review for review in reviews if review.department_code == department_code]
     if not reviews:
-        raise HTTPException(status_code=404, detail="No reviews found for this issue category recurrence")
+        raise HTTPException(status_code=404, detail="No reviews found for this recurring issue group")
 
-    affected_department = body.department_code or _dominant_department(reviews)
+    affected_department = body.department_code or department_code
     return _create_recurring_issue_ticket(
         session=session,
         body=body,
         priority=body.priority or _priority_from_reviews(reviews),
         department_code=affected_department,
-        source_group_type="category_recurrence",
-        source_group_key=category_code,
-        source_group_label=f"{category.name} recurrence",
+        source_group_type="category_department_recurrence",
+        source_group_key=f"{category_code}:{department_code}",
+        source_group_label=f"{category.name} recurrence for {department_code.replace('_', ' ')}",
         source_category_code=category_code,
         source_cluster_id=None,
         source_review_ids=[review.id for review in reviews],
-        note_prefix=f"Created from recurring issue category {category.name}",
+        note_prefix=f"Created from recurring issue group {category.name} / {department_code.replace('_', ' ')}",
     )
 
 

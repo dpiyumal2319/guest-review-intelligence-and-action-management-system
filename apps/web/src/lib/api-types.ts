@@ -154,13 +154,17 @@ export type Ticket = {
 }
 
 export type IssueSummaryItem = {
+  group_key: string
   category_code: string
   category_name: string
+  department_code: string
   review_count: number
+  recent_review_count: number
   average_reputation_risk_score: number
-  primary_department_code: string
+  highest_reputation_risk: string
   source_mix: Record<string, number>
   representative_review_id: number
+  latest_review_date: string | null
   linked_ticket_ids: number[]
 }
 

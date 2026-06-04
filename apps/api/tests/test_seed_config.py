@@ -614,9 +614,11 @@ def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp
     try:
         client = TestClient(app)
         initial_summary_response = client.get("/issues/summary")
-        category_code = initial_summary_response.json()["items"][0]["category_code"]
+        summary_item = initial_summary_response.json()["items"][0]
+        category_code = summary_item["category_code"]
+        department_code = summary_item["department_code"]
         category_response = client.post(
-            f"/issues/categories/{category_code}/tickets",
+            f"/issues/groups/{category_code}/{department_code}/tickets",
             json={"priority": "high", "notes": "Repeated arrival friction."},
         )
         summary_response = client.get("/issues/summary")
@@ -635,17 +637,25 @@ def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp
     assert category_response.status_code == 201
     category_ticket = category_response.json()
     assert category_ticket["review_id"] is None
-    assert category_ticket["department_code"] in {"front_office", "guest_relations"}
-    assert category_ticket["source_group_type"] == "category_recurrence"
-    assert category_ticket["source_group_key"] == category_code
+    assert category_ticket["department_code"] == department_code
+    assert category_ticket["source_group_type"] == "category_department_recurrence"
+    assert category_ticket["source_group_key"] == f"{category_code}:{department_code}"
     assert category_ticket["source_category_code"] == category_code
     assert len(category_ticket["source_review_ids"]) == 2
     assert category_ticket["events"][0]["event_type"] == "created"
 
     assert initial_summary_response.status_code == 200
     assert summary_response.status_code == 200
-    booking_summary = next(item for item in summary_response.json()["items"] if item["category_code"] == category_code)
+    booking_summary = next(
+        item
+        for item in summary_response.json()["items"]
+        if item["category_code"] == category_code and item["department_code"] == department_code
+    )
     assert category_ticket["id"] in booking_summary["linked_ticket_ids"]
+    assert booking_summary["recent_review_count"] == 2
+    assert booking_summary["review_count"] == 2
+    assert booking_summary["highest_reputation_risk"] == "high"
+    assert booking_summary["source_mix"] == {"google_business_profile": 2}
 
     assert semantic_response.status_code == 200
     assert semantic_response.json()["clusters"]
@@ -667,6 +677,123 @@ def test_recurring_issue_and_semantic_cluster_tickets_reuse_ticket_lifecycle(tmp
         assert session.query(ActionTicket).count() == 2
         assert session.query(TicketEvent).count() == 2
         assert {review.action_status for review in session.scalars(select(NormalizedReview))} == {"ticket_created"}
+
+
+def test_issue_summary_groups_recent_reviews_by_category_and_department(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'issue-summary-groups.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_payload_ingestion(
+            session,
+            source_code="google_business_profile",
+            connector_key="test_issue_summary_groups",
+            payloads=[
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "front-desk-001",
+                    "reviewer_name": "Guest One",
+                    "review_date": "2026-05-20T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Slow front desk",
+                    "body": "Check-in at the front desk was slow and the queue moved badly.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.62,
+                    "issue_category_code": "booking_checkin",
+                    "reputation_risk": "high",
+                    "department_code": "front_office",
+                },
+            ],
+        )
+        run_payload_ingestion(
+            session,
+            source_code="booking_com",
+            connector_key="test_issue_summary_groups_booking",
+            payloads=[
+                {
+                    "source_code": "booking_com",
+                    "external_review_id": "front-desk-002",
+                    "reviewer_name": "Guest Two",
+                    "review_date": "2026-05-19T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Arrival queue",
+                    "body": "The booking was fine but check-in had a long queue and slow service.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.55,
+                    "issue_category_code": "booking_checkin",
+                    "reputation_risk": "high",
+                    "department_code": "front_office",
+                },
+            ],
+        )
+        run_payload_ingestion(
+            session,
+            source_code="tripadvisor",
+            connector_key="test_issue_summary_groups_tripadvisor",
+            payloads=[
+                {
+                    "source_code": "tripadvisor",
+                    "external_review_id": "service-delay-001",
+                    "reviewer_name": "Guest Three",
+                    "review_date": "2026-05-01T10:00:00+00:00",
+                    "rating": 3.0,
+                    "language": "en",
+                    "title": "Slow response",
+                    "body": "Requests took too long and staff follow-up was delayed.",
+                    "sentiment_label": "mixed",
+                    "sentiment_score": -0.18,
+                    "issue_category_code": "service_delay",
+                    "reputation_risk": "medium",
+                    "department_code": "guest_relations",
+                },
+            ],
+        )
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        summary_response = client.get("/issues/summary")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert summary_response.status_code == 200
+    payload = summary_response.json()
+    assert payload["total_reviews"] == 3
+    assert len(payload["items"]) == 2
+
+    front_office_group = next(
+        item
+        for item in payload["items"]
+        if item["category_code"] == "booking_checkin" and item["department_code"] == "front_office"
+    )
+    assert front_office_group["group_key"] == "booking_checkin:front_office"
+    assert front_office_group["review_count"] == 2
+    assert front_office_group["recent_review_count"] == 2
+    assert front_office_group["highest_reputation_risk"] == "high"
+    assert front_office_group["average_reputation_risk_score"] >= 50
+    assert front_office_group["source_mix"] == {
+        "google_business_profile": 1,
+        "booking_com": 1,
+    }
+
+    guest_relations_group = next(
+        item
+        for item in payload["items"]
+        if item["category_code"] == "service_delay" and item["department_code"] == "guest_relations"
+    )
+    assert guest_relations_group["review_count"] == 1
+    assert guest_relations_group["recent_review_count"] == 0
+    assert guest_relations_group["highest_reputation_risk"] == "medium"
 
 
 def test_verified_mock_connectors_are_independently_repeatable(tmp_path: Path, monkeypatch) -> None:
