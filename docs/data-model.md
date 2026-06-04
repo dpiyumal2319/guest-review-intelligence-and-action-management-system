@@ -2,24 +2,23 @@
 
 ## Model Goals
 
-The data model is designed to support auditability, operational dashboarding, NLP reproducibility, and ticket workflow tracking. It intentionally separates source payload preservation from normalized records and separates review action state from ticket lifecycle state.
+The data model supports auditability, operational dashboarding, NLP reproducibility, and ticket workflow tracking. It intentionally separates raw source payloads from normalized review records and separates review action state from ticket lifecycle state.
 
 ## Reference Configuration
 
 ### `review_sources`
 
-Defines every source the system can ingest or report on.
+Defines the MVP review platforms the system can ingest and report on.
 
 Important fields:
 
-- `code`: stable source identifier.
+- `code`: stable source identifier such as `google_business_profile`, `booking_com`, or `tripadvisor`.
 - `name`: display name.
-- `source_type`: `verified_review`, `social_listening`, `seed_dataset`, or `apify_dataset_import`.
-- `is_verified_channel`: whether the source should be counted in default verified-review KPIs.
-- `connector_key`: API-triggerable connector key when applicable.
+- `is_verified_channel`: whether this is treated as a review-platform channel in the MVP.
+- `connector_key`: API/CLI connector key.
 - `metadata`: source policy and connector metadata.
 
-Default dashboard behavior excludes `source_type = social_listening` unless explicitly included or selected.
+There is no product-facing dataset, Apify, Reddit, social-listening, or source-type model in the MVP.
 
 ### `departments`
 
@@ -49,7 +48,7 @@ Maps issue categories to owning departments. One mapping can be primary, with op
 
 ### `reputation_risk_thresholds`
 
-Stores category-specific low-rating, negative-sentiment, urgent-confidence, and recurrence-count thresholds. These explain escalation expectations even when the current Reputation Risk algorithm uses deterministic scoring.
+Stores category-specific low-rating, negative-sentiment, urgent-confidence, and recurrence-count thresholds. These document escalation expectations for the transparent Reputation Risk score.
 
 ### `demo_roles`
 
@@ -59,7 +58,7 @@ Seeded role definitions for prototype behavior and documentation. This is not pr
 
 ### `ingestion_runs`
 
-Audits each import attempt.
+Audits each connector import attempt.
 
 Tracked counts:
 
@@ -71,11 +70,11 @@ Tracked counts:
 - `error_count`;
 - `errors`.
 
-Run statuses include completed, completed with errors, and failed depending on importer behavior.
+Run statuses include completed and failed depending on importer behavior.
 
 ### `raw_reviews`
 
-Stores original provider or dataset payloads for audit and reprocessing.
+Stores original provider-shaped payloads for audit and reprocessing.
 
 Important fields:
 
@@ -144,7 +143,7 @@ Important fields:
 - `model_name`, `model_version`;
 - `analyzed_at`.
 
-This keeps the data model multi-label capable even when the first operational classifier emits one primary category.
+This keeps the data model multi-label capable even when the operational UI uses the top-ranked category as the primary issue.
 
 ## Action Tickets
 
@@ -155,7 +154,7 @@ Corrective-action item owned by a department.
 Tickets can originate from:
 
 - a single review via `review_id`;
-- a category recurrence via `source_group_type = category_recurrence`;
+- a category/department recurrence via `source_group_type = category_department_recurrence`;
 - a semantic cluster via `source_group_type = semantic_cluster`.
 
 Important fields:
@@ -184,6 +183,7 @@ Tracked event types include:
 - `created`;
 - `status_change`;
 - `priority_change`;
+- `department_change`;
 - `assignment_change`;
 - `note_added`.
 
@@ -194,20 +194,16 @@ Each event stores old/new values where relevant, a note, and `occurred_at`.
 Model metadata is stored with analysis outputs, not only in code:
 
 - `model_name` identifies the analyzer or classifier.
-- `model_version` identifies the fallback version or trained artifact version.
+- `model_version` identifies the active model version or artifact identifier.
 - `analysis_version` identifies the analysis contract.
 - `analyzed_at` records when the output was generated.
 - `explanation_factors` stores transparent feature contributions and routing notes.
 
-The issue classifier runtime also supports:
-
-- `ISSUE_CLASSIFIER_MODEL_PATH`;
-- `ISSUE_CLASSIFIER_MODEL_VERSION`;
-- default artifact path `apps/api/artifacts/ml/issue_classifier.pkl`.
+Staff-facing review responses hide model metadata from normal UI views while keeping it available in persisted analysis records for technical audit.
 
 ## Data Flow Summary
 
-1. A connector/importer creates an `ingestion_runs` row.
+1. A connector creates an `ingestion_runs` row.
 2. Raw source data is upserted into `raw_reviews`.
 3. Canonical data is upserted into `normalized_reviews`.
 4. Content duplicates are flagged by normalized content hash.

@@ -1,49 +1,18 @@
-# Issue-Category Classifier Research Workflow
+# Legacy Issue-Category Classifier Research Notes
 
-This workflow is offline research support only. It is not the main MVP demo-data path and is not part of the hotel staff product runtime.
+This document is retained only as historical research context. It is not the MVP product path, not the demo-data path, and not required for the current walkthrough.
 
-## Labelled CSV Format
+The current MVP uses:
 
-Use a UTF-8 CSV with these required columns:
+- Hugging Face `facebook/bart-large-mnli` zero-shot classification against the hotel issue taxonomy for product issue categorization;
+- connector-shaped review fixtures generated with `apps/api/scripts/generate_connector_fixtures.py` for demo data.
 
-- `text`: review text used as classifier input.
-- `issue_category_code`: one seeded issue taxonomy code.
+Do not use labelled CSV generation, TF-IDF/logistic-regression training, or keyword-rule baselines as the main MVP proof. Those older workflows were part of the superseded PRDs #1 and #41.
 
-Optional columns are preserved for traceability but are not used for training:
-
-- `review_id`
-- `source_code`
-- `rating`
-- `notes`
-
-See `apps/api/data/examples/issue_labels_sample.csv` for a small committed format example.
-
-## Validate Labels
-
-From `apps/api`:
-
-```bash
-python3 -m app.ml.issue_classifier validate data/examples/issue_labels_sample.csv
-```
-
-## Train And Evaluate
-
-From `apps/api`:
-
-```bash
-python3 -m app.ml.issue_classifier train-evaluate data/examples/issue_labels_sample.csv \
-  --model-output artifacts/ml/issue_classifier.pkl \
-  --report-output reports/ml/issue_classifier_evaluation.json
-```
-
-The report compares the trained TF-IDF/logistic-regression classifier with the deterministic keyword-rule baseline.
-
-## MVP Demo Data
-
-Do not use labelled CSV generation as the main MVP path. Demo review data should come from connector-shaped platform fixtures generated with:
+For the current fixture generation workflow, see:
 
 ```bash
 python3 apps/api/scripts/generate_connector_fixtures.py
 ```
 
-See `docs/research/connector-fixture-generation.md`.
+Reference: `docs/research/connector-fixture-generation.md`.
