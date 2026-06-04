@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
+import random
 import re
 import sys
 from typing import Callable, Iterable
@@ -18,14 +19,12 @@ from app.seed_data import ISSUE_CATEGORIES
 
 CSV_COLUMNS = ("review_id", "text", "issue_category_code", "source_code", "rating", "notes")
 DEFAULT_MODEL = "qwen2.5-coder:7b"
+DOLPHIN_MODEL = "dolphin-llama3:latest"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-DEFAULT_ROWS_PER_CATEGORY = 40
 DEFAULT_TOTAL_ROWS = 1000
-DEFAULT_BATCH_SIZE = 10
-DEFAULT_MAX_RETRIES = 3
-DEFAULT_SOURCE_CODE = "qwen_synthetic_evaluation"
-DEFAULT_NOTES = "qwen-generated synthetic evaluation label"
-PROMPT_VERSION = "qwen-issue-label-synthetic-v2"
+DEFAULT_SOURCE_CODE = "ollama_synthetic_evaluation"
+DEFAULT_NOTES = "ollama-generated synthetic evaluation label"
+PROMPT_VERSION = "ollama-issue-label-synthetic-v3"
 
 
 @dataclass(frozen=True)
@@ -59,48 +58,36 @@ def slug_for_category(category_code: str) -> str:
     return category_code.replace("_", "-")
 
 
-def word_count(text: str) -> int:
-    return len(re.findall(r"\b[\w'-]+\b", text))
-
-
-def preview_text(text: str, *, limit: int = 220) -> str:
+def preview_text(text: str, *, limit: int = 500) -> str:
     normalized = re.sub(r"\s+", " ", text.strip())
     if len(normalized) <= limit:
         return normalized
     return f"{normalized[: limit - 3]}..."
 
 
-def label_counts_for_total(total_rows: int) -> dict[str, int]:
-    codes = taxonomy_codes()
-    if total_rows < len(codes):
-        raise ValueError(f"total_rows must be at least {len(codes)} so every category is represented.")
-    base_count, remainder = divmod(total_rows, len(codes))
-    return {
-        code: base_count + (1 if index < remainder else 0)
-        for index, code in enumerate(codes)
-    }
-
-
-def build_prompt(*, category_code: str, category_name: str, category_description: str, count: int) -> str:
+def build_prompt(*, category_code: str, category_name: str, category_description: str, model: str) -> str:
+    tone_rule = (
+        "Dolphin is allowed to produce blunt, angry, aggressive guest language when the rating is low, "
+        "but do not include hate speech, threats, private identifiers, or explicit slurs.\n"
+        if model == DOLPHIN_MODEL
+        else ""
+    )
     return (
-        "Generate synthetic hotel guest review training examples for an academic issue-category classifier.\n"
+        "Generate one synthetic hotel guest review for an academic issue-category classifier.\n"
         "Return JSON only, with this exact shape: "
-        '{"rows":[{"text":"...", "rating": 1}]}\n'
+        '{"text":"...", "rating": 1}\n'
         f"Category code: {category_code}\n"
         f"Category name: {category_name}\n"
         f"Category description: {category_description}\n"
-        f"Number of rows: {count}\n"
         "Rules:\n"
-        "- Each text must be a realistic English hotel guest review between 40 and 260 words.\n"
-        "- Use 2 to 6 sentences per review, with natural detail rather than generic one-line complaints.\n"
-        "- Randomize stay context: solo travel, couple, family, business trip, event, weekend, long stay, or transit.\n"
-        "- Vary voice and structure: calm and specific, frustrated, balanced, highly positive, or disappointed.\n"
-        "- Include concrete hotel details such as arrival time, room features, staff interactions, meals, noise sources, facilities, price expectations, or follow-up requests.\n"
-        "- The main label must clearly match the requested category, but natural background context is allowed.\n"
-        "- Vary wording, guest situation, severity, and rating.\n"
-        "- Use ratings from 1 to 5.\n"
+        "- The review should usually be 40 to 260 words, but natural shorter reviews are fine.\n"
+        "- Make the main issue clearly match the requested category.\n"
+        "- Randomize stay context: solo, couple, family, business trip, weekend, long stay, event, or transit.\n"
+        "- Vary tone, severity, wording, and rating.\n"
+        "- Include concrete hotel details when useful.\n"
+        f"{tone_rule}"
+        "- Use a rating from 1 to 5.\n"
         "- Do not include names, phone numbers, emails, reservation IDs, or private identifiers.\n"
-        "- Do not make every review the same length or template.\n"
         "- Do not include markdown, explanations, comments, or extra keys."
     )
 
@@ -112,7 +99,7 @@ def ollama_request(prompt: str, *, model: str = DEFAULT_MODEL, ollama_url: str =
             "prompt": prompt,
             "stream": False,
             "format": "json",
-            "options": {"temperature": 0.8},
+            "options": {"temperature": 0.95},
         }
     ).encode("utf-8")
     http_request = request.Request(
@@ -149,12 +136,14 @@ def parse_generated_rows(
     notes: str = DEFAULT_NOTES,
 ) -> list[GeneratedLabelRow]:
     payload = extract_json_payload(raw_response)
-    if isinstance(payload, dict):
+    if isinstance(payload, dict) and any(key in payload for key in ("text", "review", "review_text")):
+        raw_rows = [payload]
+    elif isinstance(payload, dict):
         raw_rows = payload.get("rows") or payload.get("reviews") or payload.get("items")
     else:
         raw_rows = payload
     if not isinstance(raw_rows, list):
-        raise ValueError("Ollama response did not contain a JSON row list.")
+        raise ValueError("Ollama response did not contain a JSON review object or row list.")
 
     rows: list[GeneratedLabelRow] = []
     for index, item in enumerate(raw_rows, start=1):
@@ -182,32 +171,6 @@ def parse_generated_rows(
     return rows
 
 
-def count_raw_rows(raw_response: str) -> int:
-    try:
-        payload = extract_json_payload(raw_response)
-    except json.JSONDecodeError:
-        return 0
-    if isinstance(payload, dict):
-        raw_rows = payload.get("rows") or payload.get("reviews") or payload.get("items")
-    else:
-        raw_rows = payload
-    return len(raw_rows) if isinstance(raw_rows, list) else 0
-
-
-def dedupe_rows(rows: Iterable[GeneratedLabelRow]) -> tuple[list[GeneratedLabelRow], int]:
-    seen_texts: set[str] = set()
-    deduped: list[GeneratedLabelRow] = []
-    duplicate_count = 0
-    for row in rows:
-        key = normalize_text(row.text)
-        if key in seen_texts:
-            duplicate_count += 1
-            continue
-        seen_texts.add(key)
-        deduped.append(row)
-    return deduped, duplicate_count
-
-
 def assign_review_ids(rows: Iterable[GeneratedLabelRow]) -> list[GeneratedLabelRow]:
     counters = {code: 0 for code in taxonomy_codes()}
     assigned: list[GeneratedLabelRow] = []
@@ -215,7 +178,7 @@ def assign_review_ids(rows: Iterable[GeneratedLabelRow]) -> list[GeneratedLabelR
         counters[row.issue_category_code] = counters.get(row.issue_category_code, 0) + 1
         assigned.append(
             GeneratedLabelRow(
-                review_id=f"qwen-{slug_for_category(row.issue_category_code)}-{counters[row.issue_category_code]:03d}",
+                review_id=f"synthetic-{slug_for_category(row.issue_category_code)}-{counters[row.issue_category_code]:03d}",
                 text=row.text,
                 issue_category_code=row.issue_category_code,
                 source_code=row.source_code,
@@ -238,88 +201,56 @@ def write_labelled_csv(rows: Iterable[GeneratedLabelRow], output_path: Path) -> 
 def generate_label_drafts(
     *,
     output_path: Path,
-    rows_per_category: int = DEFAULT_ROWS_PER_CATEGORY,
-    target_counts: dict[str, int] | None = None,
-    batch_size: int = DEFAULT_BATCH_SIZE,
-    max_retries: int = DEFAULT_MAX_RETRIES,
+    total_rows: int = DEFAULT_TOTAL_ROWS,
     model: str = DEFAULT_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
     request_text: Callable[[str], str] | None = None,
     log: Callable[[str], None] | None = None,
+    rng: random.Random | None = None,
 ) -> DraftGenerationResult:
     requester = request_text or (lambda prompt: ollama_request(prompt, model=model, ollama_url=ollama_url))
-    all_rows: list[GeneratedLabelRow] = []
+    randomizer = rng or random.Random()
+    accepted_rows: list[GeneratedLabelRow] = []
+    seen_texts: set[str] = set()
     duplicate_count = 0
-    allowed_codes = set(taxonomy_codes())
-    counts_by_category = target_counts or {code: rows_per_category for code in taxonomy_codes()}
 
-    for category_index, category in enumerate(ISSUE_CATEGORIES, start=1):
+    while len(accepted_rows) < total_rows:
+        category = randomizer.choice(ISSUE_CATEGORIES)
         category_code = category["code"]
-        category_target = counts_by_category[category_code]
-        category_rows: list[GeneratedLabelRow] = []
-        seen_for_category: set[str] = set()
-        attempts = 0
-        if log is not None:
-            log(
-                f"[{category_index}/{len(ISSUE_CATEGORIES)}] generating {category_target} "
-                f"rows for {category_code}"
-            )
-        while len(category_rows) < category_target:
-            attempts += 1
-            target_for_batch = min(batch_size, category_target - len(category_rows))
-            prompt = build_prompt(
-                category_code=category_code,
-                category_name=category["name"],
-                category_description=category["description"],
-                count=target_for_batch,
-            )
-            raw_response = requester(prompt)
+        prompt = build_prompt(
+            category_code=category_code,
+            category_name=category["name"],
+            category_description=category["description"],
+            model=model,
+        )
+        raw_response = requester(prompt)
+        try:
+            parsed_rows = parse_generated_rows(raw_response, category_code=category_code)
+        except (json.JSONDecodeError, ValueError):
             if log is not None:
-                log(f'  raw qwen preview: "{preview_text(raw_response, limit=500)}"')
-            raw_row_count = count_raw_rows(raw_response)
-            try:
-                parsed_rows = parse_generated_rows(raw_response, category_code=category_code)
-            except (json.JSONDecodeError, ValueError) as error:
-                if log is not None:
-                    log(
-                        f"  request {attempts}: discarded invalid qwen response "
-                        f"({error.__class__.__name__}); total {len(category_rows)}/{category_target}"
-                    )
-                continue
-            accepted_before_batch = len(category_rows)
-            for row in parsed_rows:
-                if row.issue_category_code not in allowed_codes:
-                    continue
-                normalized = normalize_text(row.text)
-                if normalized in seen_for_category:
-                    duplicate_count += 1
-                    continue
-                seen_for_category.add(normalized)
-                category_rows.append(row)
-                if log is not None:
-                    log(
-                        f'    accepted {category_code} #{len(category_rows)}: '
-                        f'rating={row.rating}, words={word_count(row.text)}, '
-                        f'text="{preview_text(row.text)}"'
-                    )
-                if len(category_rows) >= category_target:
-                    break
-            if log is not None:
-                accepted = len(category_rows) - accepted_before_batch
-                rejected = max(raw_row_count - len(parsed_rows), 0)
-                log(
-                    f"  request {attempts}: accepted {accepted} "
-                    f"of {len(parsed_rows)} valid parsed rows; rejected {rejected} invalid rows; "
-                    f"total {len(category_rows)}/{category_target}"
-                )
-        if log is not None:
-            log(f"  completed {category_code}: {len(category_rows)} rows")
-        all_rows.extend(category_rows)
+                log(f"discarded invalid model output; completed {len(accepted_rows)}/{total_rows}")
+                log(f'model output: "{preview_text(raw_response)}"')
+            continue
 
-    assigned_rows, cross_category_duplicates = dedupe_rows(assign_review_ids(all_rows))
-    duplicate_count += cross_category_duplicates
-    if log is not None:
-        log(f"writing {len(assigned_rows)} rows to {output_path}")
+        accepted_this_call = False
+        for row in parsed_rows:
+            normalized = normalize_text(row.text)
+            if normalized in seen_texts:
+                duplicate_count += 1
+                continue
+            seen_texts.add(normalized)
+            accepted_rows.append(row)
+            accepted_this_call = True
+            if log is not None:
+                log(f"completed {len(accepted_rows)}/{total_rows} [{category_code}] rating={row.rating}")
+                log(f'model output review: "{preview_text(row.text)}"')
+            break
+
+        if not accepted_this_call and log is not None:
+            log(f"discarded invalid or duplicate model output; completed {len(accepted_rows)}/{total_rows}")
+            log(f'model output: "{preview_text(raw_response)}"')
+
+    assigned_rows = assign_review_ids(accepted_rows)
     write_labelled_csv(assigned_rows, output_path)
     validation = validate_labelled_csv(output_path)
     label_counts = {
@@ -377,41 +308,28 @@ def write_dataset_manifest(manifest: dict, output_path: Path) -> None:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Generate or document Qwen-assisted issue-label datasets.")
+    parser = argparse.ArgumentParser(description="Generate or document Ollama-assisted issue-label datasets.")
     subparsers = parser.add_subparsers(dest="command")
 
     generate_parser = subparsers.add_parser("generate", help="Generate synthetic labelled rows with local Ollama.")
-    row_count_group = generate_parser.add_mutually_exclusive_group()
-    row_count_group.add_argument("--rows-per-category", type=int, default=DEFAULT_ROWS_PER_CATEGORY)
-    row_count_group.add_argument(
-        "--total-rows",
-        type=int,
-        help=f"Generate a balanced dataset with this many total rows. Full synthetic target: {DEFAULT_TOTAL_ROWS}.",
-    )
-    generate_parser.add_argument("--batch-size", type=int, default=DEFAULT_BATCH_SIZE)
-    generate_parser.add_argument(
-        "--max-retries",
-        type=int,
-        default=DEFAULT_MAX_RETRIES,
-        help="Deprecated compatibility option; generation now continues until targets are filled.",
-    )
+    generate_parser.add_argument("--total-rows", type=int, default=DEFAULT_TOTAL_ROWS)
     generate_parser.add_argument("--model", default=DEFAULT_MODEL)
     generate_parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
     generate_parser.add_argument("--quiet", action="store_true", help="Suppress progress logs.")
     generate_parser.add_argument(
         "--output",
         type=Path,
-        default=Path("apps/api/data/labelled/qwen_issue_labels_draft.csv"),
+        default=Path("apps/api/data/labelled/ollama_issue_labels_synthetic.csv"),
     )
 
-    manifest_parser = subparsers.add_parser("manifest", help="Write an evidence manifest for an approved CSV.")
+    manifest_parser = subparsers.add_parser("manifest", help="Write an evidence manifest for a generated CSV.")
     manifest_parser.add_argument("csv_path", type=Path)
     manifest_parser.add_argument("--model", default=DEFAULT_MODEL)
     manifest_parser.add_argument("--human-reviewed", action="store_true")
     manifest_parser.add_argument(
         "--output",
         type=Path,
-        default=Path("docs/research/evidence/qwen_issue_labels_manifest.json"),
+        default=Path("docs/research/evidence/ollama_issue_labels_manifest.json"),
     )
     return parser
 
@@ -425,13 +343,9 @@ def main(argv: list[str] | None = None) -> int:
     command = args.command
 
     if command == "generate":
-        target_counts = label_counts_for_total(args.total_rows) if args.total_rows is not None else None
         result = generate_label_drafts(
             output_path=args.output,
-            rows_per_category=args.rows_per_category,
-            target_counts=target_counts,
-            batch_size=args.batch_size,
-            max_retries=args.max_retries,
+            total_rows=args.total_rows,
             model=args.model,
             ollama_url=args.ollama_url,
             log=None if args.quiet else lambda message: print(message, flush=True),

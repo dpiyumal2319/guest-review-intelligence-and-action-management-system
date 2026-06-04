@@ -6,7 +6,6 @@ import pytest
 from app.ml.label_draft_generator import (
     build_dataset_manifest,
     generate_label_drafts,
-    label_counts_for_total,
     parse_generated_rows,
 )
 from app.ml.issue_classifier import KeywordBaselineClassifier, train_and_evaluate, validate_labelled_csv
@@ -108,91 +107,66 @@ def test_qwen_response_parser_accepts_shorter_reviews_when_rating_is_valid() -> 
     assert rows[0].rating == 2
 
 
-def test_total_row_distribution_balances_across_taxonomy() -> None:
-    counts = label_counts_for_total(1000)
-    category_codes = [category["code"] for category in ISSUE_CATEGORIES]
-
-    assert sum(counts.values()) == 1000
-    assert [counts[code] for code in category_codes[:10]] == [91] * 10
-    assert counts[category_codes[-1]] == 90
-
-
-def test_qwen_draft_generation_writes_valid_deduped_csv(tmp_path: Path) -> None:
-    output_path = tmp_path / "qwen_issue_labels_draft.csv"
+def test_ollama_draft_generation_writes_valid_random_category_csv(tmp_path: Path) -> None:
+    output_path = tmp_path / "ollama_issue_labels_synthetic.csv"
+    prompts: list[str] = []
 
     def fake_requester(prompt: str) -> str:
+        prompts.append(prompt)
         category_line = next(line for line in prompt.splitlines() if line.startswith("Category code:"))
         category_code = category_line.split(":", 1)[1].strip()
-        rows = [
-            {
-                "text": long_review(category_code, "one"),
-                "rating": 2,
-            },
-            {
-                "text": long_review(category_code, "one"),
-                "rating": 2,
-            },
-            {
-                "text": long_review(category_code, "two"),
-                "rating": 3,
-            },
-        ]
-        return json.dumps({"rows": rows})
+        return json.dumps({"text": long_review(category_code, str(len(prompts))), "rating": 2})
 
     result = generate_label_drafts(
         output_path=output_path,
-        rows_per_category=2,
-        batch_size=2,
+        total_rows=5,
         request_text=fake_requester,
     )
     validation = validate_labelled_csv(output_path)
 
     assert validation.is_valid
-    assert len(result.rows) == len(ISSUE_CATEGORIES) * 2
-    assert result.duplicate_count >= len(ISSUE_CATEGORIES)
-    assert result.label_counts == {category["code"]: 2 for category in ISSUE_CATEGORIES}
-    assert result.rows[0].review_id.startswith("qwen-cleanliness-")
-    assert result.rows[0].source_code == "qwen_synthetic_evaluation"
-    assert result.rows[0].notes == "qwen-generated synthetic evaluation label"
+    assert len(result.rows) == 5
+    assert len(prompts) == 5
+    assert sum(result.label_counts.values()) == 5
+    assert result.rows[0].review_id.startswith("synthetic-")
+    assert result.rows[0].source_code == "ollama_synthetic_evaluation"
+    assert result.rows[0].notes == "ollama-generated synthetic evaluation label"
     assert output_path.read_text(encoding="utf-8").splitlines()[0] == (
         "review_id,text,issue_category_code,source_code,rating,notes"
     )
 
 
-def test_qwen_draft_generation_accepts_total_target_counts(tmp_path: Path) -> None:
-    output_path = tmp_path / "qwen_issue_labels_total.csv"
+def test_ollama_draft_generation_discards_invalid_and_duplicate_outputs(tmp_path: Path) -> None:
+    output_path = tmp_path / "ollama_issue_labels_total.csv"
+    responses = iter(
+        [
+            "not json",
+            json.dumps({"text": "", "rating": 3}),
+            json.dumps({"text": "Duplicate but otherwise usable review.", "rating": 3}),
+            json.dumps({"text": "Duplicate but otherwise usable review.", "rating": 3}),
+            json.dumps({"text": "A distinct usable review after bad output.", "rating": 4}),
+        ]
+    )
 
     def fake_requester(prompt: str) -> str:
-        category_line = next(line for line in prompt.splitlines() if line.startswith("Category code:"))
-        count_line = next(line for line in prompt.splitlines() if line.startswith("Number of rows:"))
-        category_code = category_line.split(":", 1)[1].strip()
-        count = int(count_line.split(":", 1)[1].strip())
-        rows = [
-            {
-                "text": long_review(category_code, f"total-{index}"),
-                "rating": 3,
-            }
-            for index in range(count)
-        ]
-        return json.dumps({"rows": rows})
+        return next(responses)
 
     result = generate_label_drafts(
         output_path=output_path,
-        target_counts=label_counts_for_total(22),
-        batch_size=2,
+        total_rows=2,
         request_text=fake_requester,
     )
 
-    assert len(result.rows) == 22
-    assert result.label_counts == {category["code"]: 2 for category in ISSUE_CATEGORIES}
+    assert len(result.rows) == 2
+    assert result.duplicate_count == 1
 
 
 def test_qwen_manifest_records_hash_counts_and_review_status(tmp_path: Path) -> None:
     csv_path = tmp_path / "reviewed.csv"
     csv_path.write_text(
         "review_id,text,issue_category_code,source_code,rating,notes\n"
-        f"reviewed-001,\"{long_review('cleanliness', 'manifest-one')}\",cleanliness,qwen_synthetic_evaluation,2,synthetic evaluation\n"
-        f"reviewed-002,\"{long_review('positive_general', 'manifest-two')}\",positive_general,qwen_synthetic_evaluation,5,synthetic evaluation\n",
+        f"reviewed-001,\"{long_review('cleanliness', 'manifest-one')}\",cleanliness,ollama_synthetic_evaluation,2,synthetic evaluation\n"
+        f"reviewed-002,\"{long_review('positive_general', 'manifest-two')}\",positive_general,ollama_synthetic_evaluation,5,synthetic evaluation\n",
         encoding="utf-8",
     )
 
