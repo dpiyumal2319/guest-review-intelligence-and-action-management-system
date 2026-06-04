@@ -297,6 +297,13 @@ _VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
 _VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
 _VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
 _VALID_REPUTATION_RISK_LABELS = {"low", "medium", "high", "critical"}
+_ALLOWED_TICKET_STATUS_TRANSITIONS = {
+    "open": {"in_progress", "blocked", "resolved"},
+    "in_progress": {"open", "blocked", "resolved"},
+    "blocked": {"open", "in_progress", "resolved"},
+    "resolved": {"open", "in_progress", "blocked", "verified"},
+    "verified": set(),
+}
 
 
 def _ticket_ids_by_source_group(session: Session, source_group_type: str) -> dict[str, list[int]]:
@@ -357,6 +364,23 @@ def _priority_from_reviews(reviews: list[NormalizedReview]) -> str:
         default="low",
     )
     return _priority_from_reputation_risk_label(highest_label)
+
+
+def _validate_ticket_status_transition(current_status: str, next_status: str) -> None:
+    if next_status == current_status:
+        return
+    allowed_next = _ALLOWED_TICKET_STATUS_TRANSITIONS.get(current_status, set())
+    if next_status not in allowed_next:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot transition ticket from {current_status} to {next_status}",
+        )
+
+
+def _assignment_value(name: str | None, email: str | None) -> str | None:
+    if name and email:
+        return f"{name} <{email}>"
+    return name or email
 
 
 def _filtered_verified_reviews_query(
@@ -988,10 +1012,12 @@ async def update_ticket(
 
     now = datetime.now(timezone.utc)
     events: list[TicketEvent] = []
+    explicitly_set_fields = body.model_fields_set
 
     if body.status is not None and body.status != ticket.status:
         if body.status not in _VALID_TICKET_STATUSES:
             raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_TICKET_STATUSES)}")
+        _validate_ticket_status_transition(ticket.status, body.status)
         events.append(TicketEvent(ticket_id=ticket_id, event_type="status_change", old_value=ticket.status, new_value=body.status, occurred_at=now))
         ticket.status = body.status
 
@@ -1007,21 +1033,38 @@ async def update_ticket(
         events.append(TicketEvent(ticket_id=ticket_id, event_type="department_change", old_value=ticket.department_code, new_value=body.department_code, occurred_at=now))
         ticket.department_code = body.department_code
 
-    if body.assignee_name is not None or body.assignee_email is not None:
-        old_assignee = ticket.assignee_name or ticket.assignee_email
-        new_assignee = body.assignee_name or body.assignee_email
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="assignment_change", old_value=old_assignee, new_value=new_assignee, occurred_at=now))
-        if body.assignee_name is not None:
-            ticket.assignee_name = body.assignee_name
-        if body.assignee_email is not None:
-            ticket.assignee_email = body.assignee_email
+    if "assignee_name" in explicitly_set_fields or "assignee_email" in explicitly_set_fields:
+        next_assignee_name = body.assignee_name if "assignee_name" in explicitly_set_fields else ticket.assignee_name
+        next_assignee_email = body.assignee_email if "assignee_email" in explicitly_set_fields else ticket.assignee_email
+        old_assignee = _assignment_value(ticket.assignee_name, ticket.assignee_email)
+        new_assignee = _assignment_value(next_assignee_name, next_assignee_email)
+        if old_assignee != new_assignee:
+            events.append(
+                TicketEvent(
+                    ticket_id=ticket_id,
+                    event_type="assignment_change",
+                    old_value=old_assignee,
+                    new_value=new_assignee,
+                    occurred_at=now,
+                )
+            )
+            ticket.assignee_name = next_assignee_name
+            ticket.assignee_email = next_assignee_email
 
     if body.notes is not None:
         events.append(TicketEvent(ticket_id=ticket_id, event_type="note_added", old_value=None, new_value=None, note=body.notes, occurred_at=now))
         ticket.notes = body.notes
 
-    if body.due_date is not None and body.due_date != ticket.due_date:
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="due_date_change", old_value=ticket.due_date.isoformat() if ticket.due_date else None, new_value=body.due_date.isoformat(), occurred_at=now))
+    if "due_date" in explicitly_set_fields and body.due_date != ticket.due_date:
+        events.append(
+            TicketEvent(
+                ticket_id=ticket_id,
+                event_type="due_date_change",
+                old_value=ticket.due_date.isoformat() if ticket.due_date else None,
+                new_value=body.due_date.isoformat() if body.due_date else None,
+                occurred_at=now,
+            )
+        )
         ticket.due_date = body.due_date
 
     if events:

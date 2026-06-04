@@ -5,7 +5,24 @@ import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
 import {
   Table,
   TableBody,
@@ -17,7 +34,7 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
 import { useDemoRole } from "@/hooks/use-demo-role"
-import type { Department, IssueCategory, Review, ReviewSource } from "@/lib/api-types"
+import { TICKET_PRIORITIES, type Department, type IssueCategory, type Review, type ReviewSource, type Ticket } from "@/lib/api-types"
 import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -64,15 +81,201 @@ function buildOperationalSummary(
   return `Route to ${departmentName} for ${categoryName.toLowerCase()} follow-up. Reputation Risk is ${review.reputation_risk}.`
 }
 
+function ReviewTicketSheet({
+  review,
+  open,
+  onOpenChange,
+  departments,
+  departmentNameByCode,
+  categoryNameByCode,
+  onTicketCreated,
+}: {
+  review: Review | null
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  departments: Department[]
+  departmentNameByCode: Record<string, string>
+  categoryNameByCode: Record<string, string>
+  onTicketCreated: (ticket: Ticket) => void
+}) {
+  const [departmentCode, setDepartmentCode] = useState("")
+  const [priority, setPriority] = useState("auto")
+  const [assigneeName, setAssigneeName] = useState("")
+  const [assigneeEmail, setAssigneeEmail] = useState("")
+  const [dueDate, setDueDate] = useState("")
+  const [notes, setNotes] = useState("")
+  const [isSaving, setIsSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!review) return
+    setDepartmentCode(review.department_code)
+    setPriority("auto")
+    setAssigneeName("")
+    setAssigneeEmail("")
+    setDueDate("")
+    setNotes("")
+    setSaveError(null)
+  }, [review])
+
+  if (!review) return null
+
+  const categoryName = categoryNameByCode[review.issue_category_code] ?? formatCodeLabel(review.issue_category_code)
+  const departmentName = departmentNameByCode[review.department_code] ?? formatCodeLabel(review.department_code)
+
+  async function submitTicket() {
+    if (!review) return
+    setIsSaving(true)
+    setSaveError(null)
+    try {
+      const response = await fetch(`${apiBaseUrl}/reviews/${review.id}/tickets`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          department_code: departmentCode,
+          priority: priority === "auto" ? undefined : priority,
+          assignee_name: assigneeName || null,
+          assignee_email: assigneeEmail || null,
+          due_date: dueDate ? new Date(`${dueDate}T00:00:00`).toISOString() : null,
+          notes: notes || null,
+        }),
+      })
+      if (!response.ok) {
+        const errorPayload = await response.json().catch(() => ({ detail: "Failed to create ticket" }))
+        throw new Error(errorPayload.detail ?? "Failed to create ticket")
+      }
+      const created = await response.json()
+      onTicketCreated(created)
+      onOpenChange(false)
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Failed to create ticket")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetHeader className="pb-4">
+          <SheetTitle>Create ticket from review #{review.id}</SheetTitle>
+          <SheetDescription>
+            Convert this review into a department-owned corrective action without automatic ticket creation.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex flex-col gap-4 px-4 pb-4">
+          <div className="rounded-lg border bg-muted/30 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={reputationRiskVariant(review.reputation_risk)} className="text-xs">
+                {review.reputation_risk} risk
+              </Badge>
+              <Badge variant={sentimentVariant(review.sentiment_label)} className="text-xs">
+                {review.sentiment_label}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {categoryName}
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {departmentName}
+              </Badge>
+            </div>
+            <div className="mt-3 space-y-2">
+              {review.display_title && (
+                <p className="text-sm font-medium text-foreground">{review.display_title}</p>
+              )}
+              <p className="text-xs text-muted-foreground">{review.display_reviewer_name ?? "Guest"} · {formatDate(review.review_date)}</p>
+              <p className="text-sm leading-6 text-foreground">{review.display_body}</p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Department</Label>
+              <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {departments.map((department) => (
+                    <SelectItem key={department.code} value={department.code}>
+                      {department.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Priority</Label>
+              <Select value={priority} onValueChange={(value) => value && setPriority(value)}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="auto">Auto from Reputation Risk</SelectItem>
+                  {TICKET_PRIORITIES.map((item) => (
+                    <SelectItem key={item} value={item}>
+                      {item}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Assignee</Label>
+              <Input value={assigneeName} onChange={(event) => setAssigneeName(event.target.value)} />
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label className="text-xs">Assignee email</Label>
+              <Input value={assigneeEmail} onChange={(event) => setAssigneeEmail(event.target.value)} />
+            </div>
+
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label className="text-xs">Due date</Label>
+              <Input type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            </div>
+
+            <div className="flex flex-col gap-1.5 sm:col-span-2">
+              <Label className="text-xs">Manager note</Label>
+              <textarea
+                className="min-h-28 rounded-md border bg-background px-3 py-2 text-sm shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+                placeholder="Capture the corrective action expected from the owning department."
+              />
+            </div>
+          </div>
+
+          {saveError && <p className="text-sm text-destructive">{saveError}</p>}
+
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={isSaving}>
+              Cancel
+            </Button>
+            <Button onClick={submitTicket} disabled={isSaving || !departmentCode}>
+              {isSaving ? "Creating..." : "Create ticket"}
+            </Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  )
+}
+
 function ReviewsContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
-  const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
+  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
   const [sources, setSources] = useState<ReviewSource[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [selectedReview, setSelectedReview] = useState<Review | null>(null)
+  const [sheetOpen, setSheetOpen] = useState(false)
 
   const loadConfig = useCallback(async () => {
     const res = await fetch(`${apiBaseUrl}/config`)
@@ -109,6 +312,11 @@ function ReviewsContent() {
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
+  function openTicketSheet(review: Review) {
+    setSelectedReview(review)
+    setSheetOpen(true)
+  }
+
   return (
     <SidebarProvider
       style={
@@ -135,6 +343,9 @@ function ReviewsContent() {
                   </Badge>
                   <Badge variant="secondary" className="text-xs">
                     {scopeLabel}
+                  </Badge>
+                  <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
+                    {canManageTickets ? "Manual ticket creation enabled" : "Read-only review workflow"}
                   </Badge>
                   {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
                     <Badge variant="outline" className="text-xs">
@@ -187,6 +398,7 @@ function ReviewsContent() {
                         <TableHead>Action status</TableHead>
                         <TableHead className="min-w-64">Review</TableHead>
                         <TableHead className="min-w-64">Operational note</TableHead>
+                        <TableHead className="text-right">Action</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -235,6 +447,20 @@ function ReviewsContent() {
                           <TableCell className="max-w-xs text-xs text-muted-foreground">
                             {buildOperationalSummary(review, categoryNameByCode, departmentNameByCode)}
                           </TableCell>
+                          <TableCell className="text-right">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={!canManageTickets}
+                              onClick={() => openTicketSheet(review)}
+                            >
+                              {!canManageTickets
+                                ? "Read-only role"
+                                : review.action_status === "ticket_created"
+                                  ? "Create follow-up"
+                                  : "Create ticket"}
+                            </Button>
+                          </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -245,6 +471,18 @@ function ReviewsContent() {
           </Card>
         </main>
       </SidebarInset>
+
+      <ReviewTicketSheet
+        review={selectedReview}
+        open={sheetOpen}
+        onOpenChange={setSheetOpen}
+        departments={departments}
+        departmentNameByCode={departmentNameByCode}
+        categoryNameByCode={categoryNameByCode}
+        onTicketCreated={() => {
+          void loadReviews()
+        }}
+      />
     </SidebarProvider>
   )
 }

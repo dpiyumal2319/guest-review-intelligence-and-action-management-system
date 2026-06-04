@@ -34,10 +34,17 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
 import { useDemoRole } from "@/hooks/use-demo-role"
-import { TICKET_PRIORITIES, TICKET_STATUSES, type Department, type IssueCategory, type ReviewSource, type Ticket, type TicketEvent } from "@/lib/api-types"
+import { TICKET_PRIORITIES, type Department, type IssueCategory, type ReviewSource, type Ticket, type TicketEvent } from "@/lib/api-types"
 import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
+const TICKET_STATUS_TRANSITIONS: Record<string, string[]> = {
+  open: ["open", "in_progress", "blocked", "resolved"],
+  in_progress: ["in_progress", "open", "blocked", "resolved"],
+  blocked: ["blocked", "open", "in_progress", "resolved"],
+  resolved: ["resolved", "open", "in_progress", "blocked", "verified"],
+  verified: ["verified"],
+}
 
 function formatDate(value: string | null) {
   if (!value) return "—"
@@ -74,7 +81,16 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
 }
 
 function eventTypeLabel(eventType: string): string {
-  return eventType.replaceAll("_", " ")
+  const labels: Record<string, string> = {
+    created: "created",
+    status_change: "status changed",
+    priority_change: "priority changed",
+    department_change: "department reassigned",
+    assignment_change: "assignee updated",
+    note_added: "note added",
+    due_date_change: "due date updated",
+  }
+  return labels[eventType] ?? eventType.replaceAll("_", " ")
 }
 
 function ticketSourceLabel(ticket: Ticket, categoryNameByCode: Record<string, string>): string {
@@ -136,6 +152,17 @@ function TicketDetailSheet({
   const sortedEvents = [...ticket.events].sort(
     (a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
   )
+  const availableStatuses = TICKET_STATUS_TRANSITIONS[ticket.status] ?? [ticket.status]
+  const noteLabel = status === "resolved"
+    ? "Resolution note"
+    : status === "verified"
+      ? "Verification note"
+      : "Workflow note"
+  const notePlaceholder = status === "resolved"
+    ? "Describe the corrective action that resolved the issue."
+    : status === "verified"
+      ? "Record what was checked before marking the ticket verified."
+      : "Add context for the next owner or reviewer."
 
   async function saveTicketUpdates() {
     if (!ticket || !canManageTickets) return
@@ -189,7 +216,7 @@ function TicketDetailSheet({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TICKET_STATUSES.map((item) => (
+                    {availableStatuses.map((item) => (
                       <SelectItem key={item} value={item}>{item.replaceAll("_", " ")}</SelectItem>
                     ))}
                   </SelectContent>
@@ -234,12 +261,13 @@ function TicketDetailSheet({
                 <Input className="h-8 text-xs" value={assigneeEmail} onChange={(e) => setAssigneeEmail(e.target.value)} disabled={!canManageTickets} />
               </div>
               <div className="flex flex-col gap-1.5 sm:col-span-2">
-                <Label className="text-xs">Note</Label>
+                <Label className="text-xs">{noteLabel}</Label>
                 <textarea
                   className="min-h-20 rounded-md border bg-background px-3 py-2 text-xs shadow-xs outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
                   disabled={!canManageTickets}
+                  placeholder={notePlaceholder}
                 />
               </div>
             </div>
