@@ -1189,6 +1189,10 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
             json={"department_code": "housekeeping", "priority": "medium", "notes": "Initial review."},
         )
         ticket_id = create_response.json()["id"]
+        premature_verify_response = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"status": "verified"},
+        )
         update_response = client.patch(
             f"/tickets/{ticket_id}",
             json={
@@ -1199,6 +1203,10 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
                 "due_date": "2026-05-30T00:00:00+00:00",
                 "notes": "Resolution completed.",
             },
+        )
+        clear_assignment_response = client.patch(
+            f"/tickets/{ticket_id}",
+            json={"assignee_name": None, "assignee_email": None, "due_date": None},
         )
         verify_response = client.patch(
             f"/tickets/{ticket_id}",
@@ -1211,6 +1219,8 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
     assert default_priority_response.status_code == 201
     expected_priority = "urgent" if high_risk_review["analysis"]["reputation_risk_label"] == "critical" else "high"
     assert default_priority_response.json()["priority"] == expected_priority
+    assert premature_verify_response.status_code == 422
+    assert premature_verify_response.json()["detail"] == "Cannot transition ticket from open to verified"
     assert update_response.status_code == 200
     updated = update_response.json()
     assert updated["status"] == "resolved"
@@ -1220,7 +1230,22 @@ def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monke
     update_event_types = {event["event_type"] for event in updated["events"]}
     assert {"status_change", "priority_change", "department_change", "assignment_change", "due_date_change", "note_added"} <= update_event_types
 
+    assert clear_assignment_response.status_code == 200
+    cleared = clear_assignment_response.json()
+    assert cleared["assignee_name"] is None
+    assert cleared["assignee_email"] is None
+    assert cleared["due_date"] is None
+    assert any(
+        event["event_type"] == "assignment_change" and event["old_value"] == "Ops Manager" and event["new_value"] is None
+        for event in cleared["events"]
+    )
+    assert any(
+        event["event_type"] == "due_date_change" and event["new_value"] is None
+        for event in cleared["events"]
+    )
+
     assert verify_response.status_code == 200
     verified = verify_response.json()
     assert verified["status"] == "verified"
     assert any(event["event_type"] == "status_change" and event["new_value"] == "verified" for event in verified["events"])
+    assert any(event["event_type"] == "note_added" and event["note"] == "Management verified." for event in verified["events"])
