@@ -33,7 +33,7 @@ Reanalysis updates the latest active `review_analyses` row and synchronizes summ
 
 ## Sentiment
 
-Current prototype sentiment uses a small runtime in `apps/api/app/sentiment.py` that prefers a local transformer pipeline and falls back to deterministic local scoring when the optional transformer dependencies or local model artifact are unavailable.
+Current prototype sentiment uses `apps/api/app/sentiment.py` with the Hugging Face `nlptown/bert-base-multilingual-uncased-sentiment` text-classification pipeline. The runtime requires the local model artifact and fails clearly when it is unavailable.
 
 Inputs:
 
@@ -45,16 +45,16 @@ Signals:
 - local transformer prediction when available;
 - positive lexical terms;
 - negative lexical terms;
-- normalized rating contribution in the deterministic fallback path.
+- Hugging Face label and confidence.
 
 Outputs:
 
 - `sentiment_label`: `positive`, `mixed`, or `negative`;
 - `sentiment_score`: bounded from `-1.0` to `1.0`;
 - `sentiment_confidence`;
-- explanation factors containing the strategy used plus transformer or deterministic scoring details.
+- explanation factors containing the Hugging Face strategy and label-mapping details.
 
-The stored fallback note is explicit whenever the deterministic path runs, including whether the local transformer runtime or model artifact was unavailable.
+The model output is mapped as `1-2 stars -> negative`, `3 stars -> mixed`, and `4-5 stars -> positive`.
 
 ## Issue-Category Classification
 

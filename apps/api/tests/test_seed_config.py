@@ -5,10 +5,12 @@ from pathlib import Path
 from alembic import command
 from alembic.config import Config
 from fastapi.testclient import TestClient
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from app import sentiment as sentiment_module
+from app.ml import issue_classifier as issue_classifier_module
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import normalized_content_hash, run_mock_connector_by_key, run_payload_ingestion, run_seed_ingestion
@@ -33,6 +35,65 @@ from app.seed import seed_reference_config
 from app import semantic_similarity as semantic_similarity_module
 from app.semantic_similarity import analyze_semantic_similarity, get_semantic_similarity_analyzer
 from app.sentiment import get_sentiment_analyzer
+from app.ml.issue_classifier import get_issue_category_classifier
+
+
+@pytest.fixture(autouse=True)
+def fake_model_runtimes(monkeypatch):
+    class FakeSentimentPipeline:
+        def __init__(self) -> None:
+            self.model = type(
+                "FakeModel",
+                (),
+                {"config": type("FakeConfig", (), {"_commit_hash": "sentiment-test-revision"})()},
+            )()
+
+        def __call__(self, text: str, truncation: bool = True) -> list[dict[str, float | str]]:
+            assert truncation is True
+            normalized = text.lower()
+            if any(term in normalized for term in ("dirty", "slow", "broken", "not clean", "cleaned", "bathroom", "difficult", "noise", "audible")):
+                return [{"label": "2 stars", "score": 0.88}]
+            if "helpful" in normalized or "excellent" in normalized:
+                return [{"label": "5 stars", "score": 0.93}]
+            return [{"label": "3 stars", "score": 0.67}]
+
+    class FakeZeroShotPipeline:
+        def __init__(self) -> None:
+            self.model = type(
+                "FakeModel",
+                (),
+                {"config": type("FakeConfig", (), {"_commit_hash": "issue-test-revision"})()},
+            )()
+
+        def __call__(self, text: str, candidate_labels: list[str], multi_label: bool = False, truncation: bool = True) -> dict:
+            assert multi_label is False
+            assert truncation is True
+            normalized = text.lower()
+            ranking = [
+                ("Cleanliness", 0.93 if any(term in normalized for term in ("dirty", "clean", "cleaned", "bathroom", "sink")) else 0.05),
+                ("Booking and Check-in", 0.91 if "check-in" in normalized or "booking" in normalized or "queue" in normalized else 0.05),
+                ("Service Delay", 0.89 if "slow" in normalized or "delay" in normalized or "queue" in normalized else 0.05),
+                ("Staff Behavior", 0.88 if "staff" in normalized or "rude" in normalized or "helpful" in normalized else 0.05),
+                ("Room Condition", 0.87 if "broken" in normalized or "shower" in normalized or "maintenance" in normalized else 0.05),
+                ("Food and Beverage", 0.86 if "food" in normalized or "breakfast" in normalized or "restaurant" in normalized else 0.05),
+                ("Noise and Events", 0.84 if "noise" in normalized or "music" in normalized or "event" in normalized else 0.05),
+                ("Pricing and Value", 0.83 if "price" in normalized or "value" in normalized or "billing" in normalized else 0.05),
+                ("Amenities and Facilities", 0.82 if "pool" in normalized or "wifi" in normalized or "wi-fi" in normalized else 0.05),
+                ("Positive General", 0.90 if "excellent" in normalized or "great" in normalized or "helpful" in normalized else 0.05),
+                ("Other or Uncategorized", 0.10),
+            ]
+            ranked = sorted(ranking, key=lambda item: item[1], reverse=True)
+            labels = [label for label, _ in ranked if label in candidate_labels]
+            scores = [score for label, score in ranked if label in candidate_labels]
+            return {"labels": labels, "scores": scores}
+
+    monkeypatch.setattr(sentiment_module, "_load_transformer_pipeline", lambda **_: FakeSentimentPipeline())
+    monkeypatch.setattr(issue_classifier_module, "_load_transformer_pipeline", lambda **_: FakeZeroShotPipeline())
+    get_sentiment_analyzer.cache_clear()
+    get_issue_category_classifier.cache_clear()
+    yield
+    get_sentiment_analyzer.cache_clear()
+    get_issue_category_classifier.cache_clear()
 
 
 def test_reputation_risk_scoring_covers_label_thresholds() -> None:
@@ -97,7 +158,7 @@ def migrate(database_url: str) -> None:
 
 
 def _ingest_single_review(session: Session, *, external_review_id: str) -> NormalizedReview:
-    run_payload_ingestion(
+    run = run_payload_ingestion(
         session,
         source_code="google_business_profile",
         connector_key="test_sentiment_runtime",
@@ -119,6 +180,7 @@ def _ingest_single_review(session: Session, *, external_review_id: str) -> Norma
             }
         ],
     )
+    assert run.status == "completed", run.errors
     review = session.scalar(
         select(NormalizedReview).where(NormalizedReview.external_review_id == external_review_id)
     )
@@ -168,13 +230,14 @@ def _ingest_semantic_reviews(session: Session, *, connector_key: str) -> list[No
     return list(session.scalars(select(NormalizedReview).order_by(NormalizedReview.id)))
 
 
-def test_review_analysis_uses_deterministic_sentiment_fallback_with_metadata(tmp_path: Path, monkeypatch) -> None:
+def test_review_analysis_fails_clearly_when_sentiment_model_is_unavailable(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'sentiment-fallback.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)
-    def unavailable_pipeline(**_):
-        raise ImportError("transformers unavailable")
-
-    monkeypatch.setattr(sentiment_module, "_load_transformer_pipeline", unavailable_pipeline)
+    monkeypatch.setattr(
+        sentiment_module,
+        "_load_transformer_pipeline",
+        lambda **_: (_ for _ in ()).throw(ImportError("transformers unavailable")),
+    )
     get_sentiment_analyzer.cache_clear()
     migrate(database_url)
 
@@ -182,14 +245,29 @@ def test_review_analysis_uses_deterministic_sentiment_fallback_with_metadata(tmp
     try:
         with Session(engine) as session:
             seed_reference_config(session)
-            review = _ingest_single_review(session, external_review_id="sentiment-fallback-001")
+            run = run_payload_ingestion(
+                session,
+                source_code="google_business_profile",
+                connector_key="test_sentiment_runtime_failure",
+                payloads=[
+                    {
+                        "source_code": "google_business_profile",
+                        "external_review_id": "sentiment-fallback-001",
+                        "reviewer_name": "Guest Runtime",
+                        "review_date": "2026-05-20T10:00:00+00:00",
+                        "rating": 4.0,
+                        "language": "en",
+                        "title": "Helpful team",
+                        "body": "Helpful staff but the queue was slow.",
+                    }
+                ],
+            )
 
-            assert review.analysis.model_name == "local-deterministic-review-analysis"
-            assert review.analysis.model_version == "2026.07.demo-fallback"
-            assert review.analysis.analysis_version == "analysis-v2"
-            assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "deterministic_fallback"
-            assert "transformer sentiment runtime was unavailable" in review.analysis.explanation_factors["model"]["fallback_note"]
-            assert review.analysis.explanation_factors["model"]["sentiment_confidence"] == float(review.analysis.sentiment_confidence)
+            assert run.status == "failed"
+            assert run.error_count == 1
+            assert "sentiment runtime unavailable" in run.errors[0]
+            assert "nlptown/bert-base-multilingual-uncased-sentiment" in run.errors[0]
+            assert session.query(ReviewAnalysis).count() == 0
     finally:
         get_sentiment_analyzer.cache_clear()
 
@@ -209,7 +287,7 @@ def test_review_analysis_uses_local_transformer_sentiment_when_available(tmp_pat
         def __call__(self, text: str, truncation: bool = True) -> list[dict[str, float | str]]:
             assert truncation is True
             assert text
-            return [{"label": "POSITIVE", "score": 0.91}]
+            return [{"label": "5 stars", "score": 0.91}]
 
     monkeypatch.setattr(sentiment_module, "_load_transformer_pipeline", lambda **_: FakePipeline())
     get_sentiment_analyzer.cache_clear()
@@ -221,13 +299,13 @@ def test_review_analysis_uses_local_transformer_sentiment_when_available(tmp_pat
             seed_reference_config(session)
             review = _ingest_single_review(session, external_review_id="sentiment-transformer-001")
 
-            assert review.analysis.model_name == "local-transformer-sentiment-analysis"
+            assert review.analysis.model_name == "huggingface-transformers-sentiment-analysis"
             assert review.analysis.model_version == "commit-sha-123"
             assert review.analysis.analysis_version == "analysis-v2"
             assert review.analysis.sentiment_label == "positive"
-            assert float(review.analysis.sentiment_score) == 0.82
+            assert float(review.analysis.sentiment_score) == 1.0
             assert float(review.analysis.sentiment_confidence) == 0.91
-            assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "local_transformer_pipeline"
+            assert review.analysis.explanation_factors["model"]["sentiment_strategy"] == "huggingface_text_classification_pipeline"
             assert review.analysis.explanation_factors["model"]["fallback_note"] is None
     finally:
         get_sentiment_analyzer.cache_clear()
@@ -292,19 +370,19 @@ def test_seed_ingestion_is_repeatable(tmp_path: Path, monkeypatch) -> None:
         assert analyzed_review is not None
         assert analyzed_review.analysis is not None
         assert analyzed_review.analysis.is_active is True
-        assert analyzed_review.analysis.model_name == "local-deterministic-review-analysis"
-        assert analyzed_review.analysis.model_version == "2026.07.demo-fallback"
+        assert analyzed_review.analysis.model_name == "huggingface-transformers-sentiment-analysis"
+        assert analyzed_review.analysis.model_version == "sentiment-test-revision"
         assert analyzed_review.analysis.analysis_version == "analysis-v2"
         assert analyzed_review.analysis.issue_category_code == "cleanliness"
         assert analyzed_review.analysis.department_code == "housekeeping"
         assert analyzed_review.analysis.reputation_risk_label in {"high", "critical"}
         assert analyzed_review.analysis.explanation_factors["reputation_risk"]["weights"]["rating"] > 0
-        assert "fallback_note" in analyzed_review.analysis.explanation_factors["model"]
+        assert analyzed_review.analysis.explanation_factors["model"]["fallback_note"] is None
         primary_prediction = analyzed_review.analysis.issue_category_predictions[0]
         assert primary_prediction.category_code == "cleanliness"
         assert primary_prediction.confidence > 0
-        assert primary_prediction.model_name == "keyword-baseline-issue-classifier"
-        assert primary_prediction.model_version == "2026.07.demo-fallback"
+        assert primary_prediction.model_name == "huggingface-transformers-zero-shot-classification"
+        assert primary_prediction.model_version == "issue-test-revision"
         assert primary_prediction.department_code == "housekeeping"
         assert primary_prediction.analyzed_at == analyzed_review.analysis.analyzed_at
 
@@ -746,14 +824,19 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
     assert all("source_type" not in review for review in default_reviews)
     assert all(review["analysis"] is not None for review in default_reviews)
     assert all(review["analysis"]["reputation_risk_score"] >= 0 for review in default_reviews)
-    assert all(review["analysis"]["model_version"] == "2026.07.demo-fallback" for review in default_reviews)
+    assert all("model_name" not in review["analysis"] for review in default_reviews)
+    assert all("model_version" not in review["analysis"] for review in default_reviews)
+    assert all("analysis_version" not in review["analysis"] for review in default_reviews)
+    assert all("model" not in review["analysis"]["explanation_factors"] for review in default_reviews)
     assert all("reputation_risk" in review["analysis"]["explanation_factors"] for review in default_reviews)
     assert all(review["analysis"]["issue_category_predictions"] for review in default_reviews)
     assert all(
-        {"category_code", "confidence", "model_name", "model_version", "analyzed_at"}
+        {"category_code", "confidence", "analyzed_at"}
         <= set(review["analysis"]["issue_category_predictions"][0])
         for review in default_reviews
     )
+    assert all("model_name" not in review["analysis"]["issue_category_predictions"][0] for review in default_reviews)
+    assert all("model_version" not in review["analysis"]["issue_category_predictions"][0] for review in default_reviews)
 
     assert source_filtered_response.status_code == 200
     assert {review["source_code"] for review in source_filtered_response.json()["reviews"]} == {"google_business_profile"}
@@ -811,6 +894,45 @@ def test_api_endpoints_expose_only_review_platform_sources_and_filters(tmp_path:
     assert removed_seed_response.status_code == 404
     assert removed_reddit_response.status_code == 404
     assert removed_apify_response.status_code == 404
+
+
+def test_connector_api_returns_503_when_required_issue_model_is_unavailable(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'api-analysis-failure.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+
+    fixture_path = tmp_path / "google_business_profile-fixture.json"
+    fixture_path.write_text(json.dumps(list(CONNECTORS["google_business_profile"].records), indent=2), encoding="utf-8")
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    monkeypatch.setattr(
+        issue_classifier_module,
+        "_load_transformer_pipeline",
+        lambda **_: (_ for _ in ()).throw(FileNotFoundError("missing local bart model")),
+    )
+    get_issue_category_classifier.cache_clear()
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        connector_response = client.post(
+            "/ingestion/connectors/google_business_profile",
+            json={"fixture_path": str(fixture_path)},
+        )
+    finally:
+        app.dependency_overrides.clear()
+        get_issue_category_classifier.cache_clear()
+
+    assert connector_response.status_code == 503
+    assert "issue-category runtime unavailable" in connector_response.json()["detail"]
+    assert "facebook/bart-large-mnli" in connector_response.json()["detail"]
 
 
 def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, monkeypatch) -> None:

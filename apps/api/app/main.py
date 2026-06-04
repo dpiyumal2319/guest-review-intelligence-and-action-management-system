@@ -7,6 +7,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.analysis import reanalyze_reviews
+from app.analysis_runtime import AnalysisRuntimeUnavailableError
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key
@@ -36,6 +37,7 @@ from app.schemas import (
     OverviewKpiResponse,
     ReanalysisResponse,
     RecurringIssueTicketCreateRequest,
+    ReviewResponse,
     ReviewsResponse,
     SemanticAnalysisResponse,
     TicketCreateRequest,
@@ -107,7 +109,10 @@ async def import_verified_connector(
 ) -> IngestionRun:
     if connector_key not in CONNECTORS:
         raise HTTPException(status_code=404, detail=f"Unknown connector '{connector_key}'")
-    return run_mock_connector_by_key(session, connector_key, fixture_path=request.fixture_path if request else None)
+    run = run_mock_connector_by_key(session, connector_key, fixture_path=request.fixture_path if request else None)
+    if run.status == "failed":
+        raise HTTPException(status_code=503, detail=run.errors[0] if run.errors else "Analysis failed during connector import.")
+    return run
 
 
 @app.get("/ingestion/runs", tags=["ingestion"], response_model=IngestionRunsResponse)
@@ -216,7 +221,13 @@ async def reviews(
         )
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
-    return ReviewsResponse(reviews=imported_reviews)
+    review_payloads = []
+    for review in imported_reviews:
+        payload = ReviewResponse.model_validate(review).model_dump()
+        if payload["analysis"] is not None:
+            payload["analysis"]["explanation_factors"].pop("model", None)
+        review_payloads.append(payload)
+    return ReviewsResponse(reviews=review_payloads)
 
 
 @app.get("/analysis/semantic-clusters", tags=["analysis"], response_model=SemanticAnalysisResponse)
@@ -274,7 +285,11 @@ async def reanalyze_imported_reviews(
     source_code: str | None = Query(default=None),
     session: Session = Depends(get_session),
 ) -> ReanalysisResponse:
-    return ReanalysisResponse(analyzed_count=reanalyze_reviews(session, source_code=source_code, source_type="verified_review"))
+    try:
+        analyzed_count = reanalyze_reviews(session, source_code=source_code, source_type="verified_review")
+    except AnalysisRuntimeUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return ReanalysisResponse(analyzed_count=analyzed_count)
 
 
 _VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verified"}

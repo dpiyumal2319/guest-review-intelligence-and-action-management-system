@@ -51,7 +51,7 @@ The same connector endpoint also accepts an optional JSON body with `fixture_pat
 
 ## Automatic review analysis
 
-Every ingestion path runs local analysis after a normalized review is created or updated. Sentiment analysis first attempts a local transformer pipeline using `transformers` when the NLP runtime and a local model artifact are available; otherwise it falls back to `local-deterministic-review-analysis` version `2026.07.demo-fallback`.
+Every ingestion path runs local analysis after a normalized review is created or updated. Sentiment analysis requires the Hugging Face `nlptown/bert-base-multilingual-uncased-sentiment` text-classification pipeline, and issue-category analysis requires the Hugging Face `facebook/bart-large-mnli` zero-shot-classification pipeline against the seeded hotel taxonomy.
 
 Semantic similarity first attempts a local `sentence-transformers` model, defaulting to `sentence-transformers/all-MiniLM-L6-v2`, and then falls back to TF-IDF cosine similarity if local model artifacts are unavailable.
 
@@ -65,11 +65,14 @@ python3 -m pip install -r requirements-nlp.txt
 The runtime uses `local_files_only=True`, so demos remain offline-safe after model artifacts are provisioned. To use the transformer paths, pre-download or mount the configured Hugging Face model caches for:
 
 ```text
-SENTIMENT_TRANSFORMER_MODEL_ID=distilbert/distilbert-base-uncased-finetuned-sst-2-english
+SENTIMENT_TRANSFORMER_MODEL_ID=nlptown/bert-base-multilingual-uncased-sentiment
+ISSUE_CATEGORY_MODEL_ID=facebook/bart-large-mnli
 SEMANTIC_SIMILARITY_MODEL_ID=sentence-transformers/all-MiniLM-L6-v2
 ```
 
-The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Stored explanation metadata records which sentiment path ran, the active model name/version, confidence, analysis version, and any fallback note. Reputation Risk is transparent and weighted from rating, sentiment, issue category, urgency terms, recurrence counts, and duplicate signals when those fields are present.
+The runtime uses `local_files_only=True`, so these model artifacts must be pre-provisioned or mounted into the environment. If either required review-analysis model is missing, ingestion and reanalysis fail clearly instead of falling back to rules.
+
+The analyzer persists the latest active `review_analyses` row per review and synchronizes the review summary columns for API compatibility. Stored explanation metadata records the active model names and versions, confidence, analysis version, and scoring factors for technical audit. Staff-facing review responses omit that model metadata in normal operation.
 
 ## Run with Docker
 

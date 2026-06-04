@@ -102,8 +102,8 @@ Reddit and Apify are intentionally separate paths because they have different so
 
 The NLP layer is local and reproducible:
 
-- sentiment prefers a local transformer pipeline when a local model artifact is available and otherwise uses a deterministic local lexicon/rating fallback;
-- issue-category classification uses a trained TF-IDF + Logistic Regression artifact when present, with keyword baseline fallback;
+- sentiment uses the required Hugging Face `nlptown/bert-base-multilingual-uncased-sentiment` text-classification pipeline with the product label mapping `1-2 -> negative`, `3 -> mixed`, `4-5 -> positive`;
+- issue-category classification uses the required Hugging Face `facebook/bart-large-mnli` zero-shot-classification pipeline against the seeded hotel taxonomy;
 - Reputation Risk is transparent and weighted from rating, sentiment, category, urgency terms, recurrence, and duplicate signals;
 - semantic similarity uses local TF-IDF cosine similarity, with token similarity fallback if scikit-learn is unavailable;
 - analysis stores model name, model version, analysis version, confidence, timestamp, and explanation factors.

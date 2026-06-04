@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.analysis_runtime import AnalysisRuntimeUnavailableError
 from app.seed_data import ISSUE_CATEGORIES
 
 
@@ -107,60 +108,63 @@ class KeywordBaselineClassifier:
 
 
 class IssueCategoryClassifierRuntime:
-    def __init__(self, model_path: Path | None = None) -> None:
-        self.model_path = model_path or default_model_path()
-        self.model = None
-        self.model_name = "keyword-baseline-issue-classifier"
-        self.model_version = "2026.07.demo-fallback"
-        self.fallback = KeywordBaselineClassifier()
-        if self.model_path.exists():
-            with self.model_path.open("rb") as model_file:
-                self.model = pickle.load(model_file)
-            self.model_name = "tfidf-logistic-regression-issue-classifier"
-            self.model_version = os.getenv(
-                "ISSUE_CLASSIFIER_MODEL_VERSION",
-                f"artifact-mtime-{int(self.model_path.stat().st_mtime)}",
+    def __init__(self) -> None:
+        self.model_id = os.getenv("ISSUE_CATEGORY_MODEL_ID", "facebook/bart-large-mnli")
+        self.model_revision = os.getenv("ISSUE_CATEGORY_MODEL_REVISION")
+        self.model_name = "huggingface-transformers-zero-shot-classification"
+        try:
+            self.pipeline = _load_transformer_pipeline(
+                model_id=self.model_id,
+                revision=self.model_revision,
             )
+        except Exception as exc:  # pragma: no cover - covered through monkeypatched tests
+            raise AnalysisRuntimeUnavailableError(
+                "issue-category",
+                (
+                    "Install `transformers`, provision the "
+                    f"`{self.model_id}` artifact locally, and keep Hugging Face local files enabled. "
+                    f"Original error: {type(exc).__name__}: {exc}"
+                ),
+            ) from exc
+        self.model_version = self.model_revision or _pipeline_version(self.pipeline) or self.model_id
+        self._labels = [category["name"] for category in ISSUE_CATEGORIES]
+        self._label_to_code = {category["name"]: category["code"] for category in ISSUE_CATEGORIES}
 
-    def predict_ranked(self, text: str, *, top_k: int = 3, min_confidence: float = 0.12) -> list[IssueCategoryPredictionResult]:
-        if self.model is None:
-            return self.fallback.predict_ranked(text, top_k=top_k)
+    def predict_ranked(self, text: str, *, top_k: int = 3, min_confidence: float = 0.0) -> list[IssueCategoryPredictionResult]:
+        if not text.strip():
+            raise AnalysisRuntimeUnavailableError("issue-category", "Review text is empty, so the issue-category model cannot run.")
 
-        if hasattr(self.model, "predict_proba") and hasattr(self.model, "classes_"):
-            probabilities = self.model.predict_proba([text])[0]
-            ranked = sorted(
-                zip(self.model.classes_, probabilities, strict=False),
-                key=lambda item: float(item[1]),
-                reverse=True,
-            )
-            filtered_ranked = [
-                (category_code, confidence)
-                for category_code, confidence in ranked
-                if float(confidence) >= min_confidence
-            ][:top_k]
-            predictions = [
+        result = self.pipeline(
+            text,
+            candidate_labels=self._labels,
+            multi_label=False,
+            truncation=True,
+        )
+        labels = list(result.get("labels", []))
+        scores = list(result.get("scores", []))
+        predictions: list[IssueCategoryPredictionResult] = []
+        for label, score in zip(labels, scores, strict=False):
+            confidence = round(float(score), 3)
+            if confidence < min_confidence or len(predictions) >= top_k:
+                continue
+            category_code = self._label_to_code.get(str(label))
+            if category_code is None:
+                continue
+            predictions.append(
                 IssueCategoryPredictionResult(
-                    category_code=str(category_code),
-                    confidence=round(float(confidence), 3),
-                    rank=rank,
+                    category_code=category_code,
+                    confidence=confidence,
+                    rank=len(predictions) + 1,
                     model_name=self.model_name,
                     model_version=self.model_version,
                 )
-                for rank, (category_code, confidence) in enumerate(filtered_ranked, start=1)
-            ]
-            if predictions:
-                return predictions
-
-        primary = str(self.model.predict([text])[0])
-        return [
-            IssueCategoryPredictionResult(
-                category_code=primary,
-                confidence=0.75,
-                rank=1,
-                model_name=self.model_name,
-                model_version=self.model_version,
             )
-        ]
+        if not predictions:
+            raise AnalysisRuntimeUnavailableError(
+                "issue-category",
+                f"`{self.model_id}` returned no usable issue-category predictions for the hotel taxonomy.",
+            )
+        return predictions
 
 
 def default_model_path() -> Path:
@@ -168,6 +172,27 @@ def default_model_path() -> Path:
     if configured_path:
         return Path(configured_path)
     return Path(__file__).resolve().parents[2] / "artifacts" / "ml" / "issue_classifier.pkl"
+
+
+def _load_transformer_pipeline(*, model_id: str, revision: str | None):
+    from transformers import pipeline
+
+    return pipeline(
+        "zero-shot-classification",
+        model=model_id,
+        revision=revision,
+        local_files_only=True,
+    )
+
+
+def _pipeline_version(pipeline_obj) -> str | None:
+    model = getattr(pipeline_obj, "model", None)
+    config = getattr(model, "config", None)
+    for attribute in ("_commit_hash", "name_or_path", "_name_or_path"):
+        value = getattr(config, attribute, None) if config is not None else None
+        if value:
+            return str(value)
+    return None
 
 
 @lru_cache(maxsize=1)
