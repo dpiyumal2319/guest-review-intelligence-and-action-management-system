@@ -1,7 +1,7 @@
 "use client"
 
 import { SearchIcon, XIcon } from "lucide-react"
-import { ACTION_STATUSES, type Department, type IssueCategory, type ReviewSource, SENTIMENT_LABELS, REPUTATION_RISK_LABELS } from "@/lib/api-types"
+import { ACTION_STATUSES, type Department, type IssueCategory, type ReviewSource, REPUTATION_RISK_LABELS } from "@/lib/api-types"
 import { type DashboardFilters } from "@/hooks/use-dashboard-filters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -81,16 +81,16 @@ export function DashboardFilterBar({
 
       {sources.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Source</Label>
+          <Label className="text-xs">Review platform</Label>
           <Select
             value={toSelectValue(filters.source_code)}
             onValueChange={(v) => onFilterChange("source_code", fromSelectValue(v))}
           >
             <SelectTrigger className="h-8 w-44 text-xs">
-              <SelectValue placeholder="All sources" />
+              <SelectValue placeholder="All platforms" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>All sources</SelectItem>
+              <SelectItem value={NONE}>All platforms</SelectItem>
               {sources.map((s) => (
                 <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>
               ))}
@@ -98,24 +98,6 @@ export function DashboardFilterBar({
           </Select>
         </div>
       )}
-
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Sentiment</Label>
-        <Select
-          value={toSelectValue(filters.sentiment_label)}
-          onValueChange={(v) => onFilterChange("sentiment_label", fromSelectValue(v))}
-        >
-          <SelectTrigger className="h-8 w-36 text-xs">
-            <SelectValue placeholder="Any sentiment" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Any sentiment</SelectItem>
-            {SENTIMENT_LABELS.map((l) => (
-              <SelectItem key={l} value={l}>{l}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
 
       {categories.length > 0 && (
         <div className="flex flex-col gap-1.5">

@@ -49,6 +49,21 @@ function actionStatusVariant(status: string): "default" | "secondary" | "destruc
   return "secondary"
 }
 
+function formatCodeLabel(value: string) {
+  return value.replaceAll("_", " ")
+}
+
+function buildOperationalSummary(
+  review: Review,
+  categoryNameByCode: Record<string, string>,
+  departmentNameByCode: Record<string, string>
+) {
+  const categoryName = categoryNameByCode[review.issue_category_code] ?? formatCodeLabel(review.issue_category_code)
+  const departmentName = departmentNameByCode[review.department_code] ?? formatCodeLabel(review.department_code)
+
+  return `Route to ${departmentName} for ${categoryName.toLowerCase()} follow-up. Reputation Risk is ${review.reputation_risk}.`
+}
+
 function ReviewsContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
   const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
@@ -111,7 +126,7 @@ function ReviewsContent() {
             <div>
               <h1 className="text-2xl font-semibold tracking-tight">Reviews</h1>
               <p className="text-sm text-muted-foreground">
-                Normalized guest reviews with full filter support. Verified sources only by default.
+                Review-platform feedback queue with operational routing and Reputation Risk context.
               </p>
               {activeRole && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -163,15 +178,15 @@ function ReviewsContent() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
-                        <TableHead>Source</TableHead>
+                        <TableHead>Platform</TableHead>
                         <TableHead>Rating</TableHead>
                         <TableHead>Sentiment</TableHead>
                         <TableHead>Reputation Risk</TableHead>
                         <TableHead>Category</TableHead>
                         <TableHead>Department</TableHead>
                         <TableHead>Action status</TableHead>
-                        <TableHead>Guest</TableHead>
                         <TableHead className="min-w-64">Review</TableHead>
+                        <TableHead className="min-w-64">Operational note</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -182,9 +197,6 @@ function ReviewsContent() {
                           </TableCell>
                           <TableCell className="text-xs">
                             <div className="font-medium">{review.source_name}</div>
-                            {review.is_verified_channel && (
-                              <Badge variant="outline" className="mt-1 text-xs">verified</Badge>
-                            )}
                           </TableCell>
                           <TableCell className="text-xs">
                             {review.rating != null ? review.rating.toFixed(1) : "—"}
@@ -207,20 +219,21 @@ function ReviewsContent() {
                           </TableCell>
                           <TableCell>
                             <Badge variant={actionStatusVariant(review.action_status)} className="text-xs">
-                              {review.action_status.replaceAll("_", " ")}
+                              {formatCodeLabel(review.action_status)}
                             </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            <div>{review.display_reviewer_name ?? "—"}</div>
-                            {review.has_display_redactions && (
-                              <Badge variant="outline" className="mt-1 text-xs">redacted</Badge>
-                            )}
                           </TableCell>
                           <TableCell className="max-w-xs text-xs text-muted-foreground">
                             {review.display_title && (
                               <p className="font-medium text-foreground">{review.display_title}</p>
                             )}
+                            <p className="mt-1">{review.display_reviewer_name ?? "Guest"}</p>
                             <p className="line-clamp-2">{review.display_body}</p>
+                            {review.has_display_redactions && (
+                              <Badge variant="outline" className="mt-2 text-xs">redacted</Badge>
+                            )}
+                          </TableCell>
+                          <TableCell className="max-w-xs text-xs text-muted-foreground">
+                            {buildOperationalSummary(review, categoryNameByCode, departmentNameByCode)}
                           </TableCell>
                         </TableRow>
                       ))}

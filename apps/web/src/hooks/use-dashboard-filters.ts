@@ -7,7 +7,6 @@ export type DashboardFilters = {
   source_code: string
   issue_category_code: string
   department_code: string
-  sentiment_label: string
   reputation_risk: string
   action_status: string
   search: string
@@ -19,7 +18,6 @@ const DEFAULTS: DashboardFilters = {
   source_code: "",
   issue_category_code: "",
   department_code: "",
-  sentiment_label: "",
   reputation_risk: "",
   action_status: "",
   search: "",
@@ -35,7 +33,6 @@ export function useDashboardFilters() {
     source_code: searchParams.get("source_code") ?? "",
     issue_category_code: searchParams.get("issue_category_code") ?? "",
     department_code: searchParams.get("department_code") ?? "",
-    sentiment_label: searchParams.get("sentiment_label") ?? "",
     reputation_risk: searchParams.get("reputation_risk") ?? "",
     action_status: searchParams.get("action_status") ?? "",
     search: searchParams.get("search") ?? "",
@@ -64,7 +61,6 @@ export function useDashboardFilters() {
     if (filters.source_code) params.set("source_code", filters.source_code)
     if (filters.issue_category_code) params.set("issue_category_code", filters.issue_category_code)
     if (filters.department_code) params.set("department_code", filters.department_code)
-    if (filters.sentiment_label) params.set("sentiment_label", filters.sentiment_label)
     if (filters.reputation_risk) params.set("reputation_risk", filters.reputation_risk)
     if (filters.action_status) params.set("action_status", filters.action_status)
     if (filters.search) params.set("search", filters.search)
