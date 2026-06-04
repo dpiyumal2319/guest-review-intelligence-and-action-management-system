@@ -21,7 +21,6 @@ import {
   ClipboardListIcon,
   LayoutDashboardIcon,
   MessageSquareTextIcon,
-  RefreshCwIcon,
   SearchIcon,
   Settings2Icon,
   SirenIcon,
@@ -53,11 +52,6 @@ const data = {
       title: "Tickets",
       url: "/tickets",
       icon: <ClipboardListIcon />,
-    },
-    {
-      title: "Ingestion",
-      url: "/ingestion",
-      icon: <RefreshCwIcon />,
     },
   ],
   navSecondary: [

@@ -170,6 +170,23 @@ export type IssueSummary = {
   filters_applied: Record<string, string | null>
 }
 
+export type OverviewCount = {
+  code: string
+  count: number
+}
+
+export type OverviewKpi = {
+  total_reviews: number
+  average_rating: number | null
+  average_reputation_risk_score: number
+  sentiment_mix: Record<string, number>
+  reputation_risk_mix: Record<string, number>
+  action_status_mix: Record<string, number>
+  top_departments: OverviewCount[]
+  top_categories: OverviewCount[]
+  filters_applied: Record<string, string | null>
+}
+
 export type SemanticDuplicatePair = {
   review_id: number
   matched_review_id: number

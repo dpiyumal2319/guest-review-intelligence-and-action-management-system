@@ -1,7 +1,6 @@
 "use client"
 
-import type * as React from "react"
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import {
   Bar,
   BarChart,
@@ -10,9 +9,9 @@ import {
 } from "recharts"
 
 import { AppSidebar } from "@/components/app-sidebar"
+import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
@@ -23,20 +22,24 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import {
   ChartConfig,
   ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart"
-import { useDemoRole } from "@/hooks/use-demo-role"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { useDemoRole } from "@/hooks/use-demo-role"
+import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import type {
+  Department,
+  IssueCategory,
+  IssueSummary,
+  OverviewKpi,
+  Review,
+  ReviewSource,
+  SemanticAnalysis,
+} from "@/lib/api-types"
+import type React from "react"
 
 const sentimentConfig = {
   reviews: {
@@ -46,176 +49,11 @@ const sentimentConfig = {
 } satisfies ChartConfig
 
 const issueConfig = {
-  count: {
+  reviews: {
     label: "Reviews",
     color: "var(--chart-2)",
   },
 } satisfies ChartConfig
-
-const queues = [
-  {
-    title: "Reviews",
-    id: "reviews",
-    body: "Searchable normalized review queue with source, rating, sentiment, category, Reputation Risk, and action status filters.",
-    status: "Shell ready",
-  },
-  {
-    title: "Issues",
-    id: "issues",
-    body: "Recurring issue categories and semantic clusters will surface operational patterns before ticket creation.",
-    status: "Awaiting pipeline",
-  },
-  {
-    title: "Tickets",
-    id: "tickets",
-    body: "Department-owned corrective actions will track priority, status, notes, resolution, and verification.",
-    status: "Workflow next",
-  },
-  {
-    title: "Ingestion",
-    id: "ingestion",
-    body: "Manual connector runs for Google Business Profile, Booking.com, and Tripadvisor review platforms.",
-    status: "API hook next",
-  },
-]
-
-type Review = {
-  id: number
-  source_code: string
-  source_name: string
-  is_verified_channel: boolean
-  external_review_id: string
-  reviewer_name: string | null
-  review_date: string | null
-  rating: number | null
-  title: string | null
-  body: string
-  content_hash: string
-  is_content_duplicate: boolean
-  duplicate_of_review_id: number | null
-  sentiment_label: string
-  sentiment_score: number
-  issue_category_code: string
-  reputation_risk: string
-  department_code: string
-  action_status: string
-  analysis: ReviewAnalysis | null
-}
-
-type ReviewAnalysis = {
-  id: number
-  sentiment_label: string
-  sentiment_score: number
-  sentiment_confidence: number
-  issue_category_code: string
-  reputation_risk_score: number
-  reputation_risk_label: string
-  department_code: string
-  analyzed_at: string
-  is_active: boolean
-  issue_category_predictions: IssueCategoryPrediction[]
-  explanation_factors: {
-    signals?: {
-      recurrence_count_7d?: number
-      duplicate_signal?: boolean
-      urgency_terms?: string[]
-    }
-  }
-}
-
-type IssueCategoryPrediction = {
-  id: number
-  category_code: string
-  confidence: number
-  rank: number
-  is_primary: boolean
-  department_code: string
-  analyzed_at: string
-}
-
-type IssueCategory = {
-  code: string
-  name: string
-  is_positive_signal: boolean
-}
-
-type Department = {
-  code: string
-  name: string
-}
-
-type IngestionRun = {
-  id: number
-  connector_key: string
-  source_code: string
-  status: string
-  started_at: string
-  completed_at: string | null
-  records_seen: number
-  records_created: number
-  records_updated: number
-  records_skipped: number
-  records_duplicate_flagged: number
-  error_count: number
-  errors: string[]
-}
-
-type IngestionSourceStatus = {
-  source_code: string
-  source_name: string
-  connector_key: string | null
-  is_verified_channel: boolean
-  latest_run: IngestionRun | null
-  errors: string[]
-}
-
-type SemanticDuplicatePair = {
-  review_id: number
-  matched_review_id: number
-  similarity: number
-  category_code: string
-  department_code: string
-}
-
-type SemanticIssueCluster = {
-  cluster_id: string
-  size: number
-  representative_review_id: number
-  representative_text: string
-  category_code: string
-  department_code: string
-  source_mix: Record<string, number>
-  review_ids: number[]
-  average_similarity: number
-}
-
-type SemanticAnalysis = {
-  embedding_strategy: string
-  embedding_model_name: string
-  embedding_model_version: string
-  embedding_fallback_note: string
-  similarity_threshold: number
-  min_cluster_size: number
-  near_duplicate_pairs: SemanticDuplicatePair[]
-  clusters: SemanticIssueCluster[]
-}
-
-type OverviewCount = {
-  code: string
-  count: number
-}
-
-type OverviewKpi = {
-  total_reviews: number
-  average_rating: number | null
-  average_reputation_risk_score: number
-  sentiment_mix: Record<string, number>
-  reputation_risk_mix: Record<string, number>
-  action_status_mix: Record<string, number>
-  top_departments: OverviewCount[]
-  top_categories: OverviewCount[]
-  filters_applied: Record<string, string | null>
-}
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
@@ -226,213 +64,179 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    year: "numeric",
   }).format(new Date(value))
 }
 
-export default function Page() {
+function formatCodeLabel(value: string) {
+  return value.replaceAll("_", " ")
+}
+
+function sentimentVariant(label: string): "default" | "secondary" | "destructive" | "outline" {
+  if (label === "positive") return "default"
+  if (label === "negative") return "destructive"
+  return "secondary"
+}
+
+function reputationRiskVariant(label: string): "default" | "secondary" | "destructive" | "outline" {
+  if (label === "critical" || label === "high") return "destructive"
+  if (label === "medium") return "secondary"
+  return "outline"
+}
+
+function buildOperationalSummary(
+  review: Review,
+  categoryNameByCode: Record<string, string>,
+  departmentNameByCode: Record<string, string>
+) {
+  const categoryName = categoryNameByCode[review.issue_category_code] ?? formatCodeLabel(review.issue_category_code)
+  const departmentName = departmentNameByCode[review.department_code] ?? formatCodeLabel(review.department_code)
+  const statusLabel = formatCodeLabel(review.action_status)
+
+  return `Route to ${departmentName} for ${categoryName.toLowerCase()} follow-up. Reputation Risk is ${review.reputation_risk}. Review status is ${statusLabel}.`
+}
+
+function OverviewContent() {
+  const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
   const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel, workflowLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
-  const [runs, setRuns] = useState<IngestionRun[]>([])
-  const [sourceStatuses, setSourceStatuses] = useState<IngestionSourceStatus[]>([])
-  const [issueCategories, setIssueCategories] = useState<IssueCategory[]>([])
-  const [departments, setDepartments] = useState<Department[]>([])
+  const [sources, setSources] = useState<ReviewSource[]>([])
+  const [issueSummary, setIssueSummary] = useState<IssueSummary | null>(null)
   const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null)
-  const [issueCategoryFilter, setIssueCategoryFilter] = useState("all")
-  const [departmentFilter, setDepartmentFilter] = useState("all")
+  const [categories, setCategories] = useState<IssueCategory[]>([])
+  const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [importingConnector, setImportingConnector] = useState<string | null>(null)
-  const [isReanalyzing, setIsReanalyzing] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const latestRun = runs[0]
-  const verifiedSourceStatuses = useMemo(
-    () => sourceStatuses.filter((source) => source.is_verified_channel && source.connector_key),
-    [sourceStatuses]
-  )
-  const issueCategoryNameByCode = useMemo(
-    () => Object.fromEntries(issueCategories.map((category) => [category.code, category.name])),
-    [issueCategories]
+  const loadConfig = useCallback(async () => {
+    const res = await fetch(`${apiBaseUrl}/config`)
+    if (!res.ok) {
+      throw new Error("Failed to load filter configuration")
+    }
+    const data = await res.json()
+    setSources(data.review_sources)
+    setCategories(data.issue_categories)
+    setDepartments(data.departments)
+  }, [])
+
+  const loadOverview = useCallback(async () => {
+    setIsLoading(true)
+    setError(null)
+    try {
+      const params = buildApiParams()
+      if (!params.get("department_code") && effectiveDepartmentCode) {
+        params.set("department_code", effectiveDepartmentCode)
+      }
+
+      const [reviewsRes, issueSummaryRes, semanticRes, kpiRes] = await Promise.all([
+        fetch(`${apiBaseUrl}/reviews?${params}`),
+        fetch(`${apiBaseUrl}/issues/summary?${params}`),
+        fetch(`${apiBaseUrl}/analysis/semantic-clusters?${params}`),
+        fetch(`${apiBaseUrl}/overview/kpis?${params}`),
+      ])
+
+      if (!reviewsRes.ok || !issueSummaryRes.ok || !semanticRes.ok || !kpiRes.ok) {
+        throw new Error("Failed to load overview data")
+      }
+
+      const [reviewsData, issueSummaryData, semanticData, kpiData] = await Promise.all([
+        reviewsRes.json(),
+        issueSummaryRes.json(),
+        semanticRes.json(),
+        kpiRes.json(),
+      ])
+
+      setReviews(reviewsData.reviews)
+      setIssueSummary(issueSummaryData)
+      setSemanticAnalysis(semanticData)
+      setOverviewKpi(kpiData)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load overview data")
+    } finally {
+      setIsLoading(false)
+    }
+  }, [buildApiParams, effectiveDepartmentCode])
+
+  useEffect(() => {
+    loadConfig().catch((loadError) => {
+      setError(loadError instanceof Error ? loadError.message : "Failed to load filter configuration")
+    })
+  }, [loadConfig])
+
+  useEffect(() => {
+    loadOverview()
+  }, [loadOverview])
+
+  const categoryNameByCode = useMemo(
+    () => Object.fromEntries(categories.map((category) => [category.code, category.name])),
+    [categories]
   )
   const departmentNameByCode = useMemo(
     () => Object.fromEntries(departments.map((department) => [department.code, department.name])),
     [departments]
   )
-  const activeAnalyses = useMemo(
-    () => reviews.map((review) => review.analysis).filter((analysis): analysis is ReviewAnalysis => analysis !== null),
-    [reviews]
+  const sourceNameByCode = useMemo(
+    () => Object.fromEntries(sources.map((source) => [source.code, source.name])),
+    [sources]
   )
-  const importedMetrics = useMemo(() => {
-    const kpiSentimentNegative = overviewKpi?.sentiment_mix?.negative ?? 0
-    const kpiTotal = overviewKpi?.total_reviews ?? 0
-    const kpiReputationRiskHigh = (overviewKpi?.reputation_risk_mix?.high ?? 0) + (overviewKpi?.reputation_risk_mix?.critical ?? 0)
-    const kpiTopDepartment = overviewKpi?.top_departments?.[0]
-    return [
-      {
-        label: "Imported records",
-        value: kpiTotal.toString(),
-        detail: latestRun ? `Review platforms · last run ${latestRun.status}` : "Review platforms",
-      },
-      {
-        label: "Negative sentiment",
-        value: kpiTotal ? `${Math.round((kpiSentimentNegative / kpiTotal) * 100)}%` : "0%",
-        detail: `${kpiSentimentNegative} of ${kpiTotal} records`,
-      },
-      {
-        label: "High Reputation Risk",
-        value: kpiReputationRiskHigh.toString(),
-        detail: `average Reputation Risk score ${overviewKpi?.average_reputation_risk_score ?? 0}`,
-      },
-      {
-        label: "Department focus",
-        value: kpiTopDepartment ? (departmentNameByCode[kpiTopDepartment.code] ?? kpiTopDepartment.code.replaceAll("_", " ")) : "N/A",
-        detail: kpiTopDepartment ? `${kpiTopDepartment.count} assigned reviews` : "no analysis results yet",
-      },
-      {
-        label: "Average rating",
-        value: overviewKpi?.average_rating != null ? overviewKpi.average_rating.toFixed(2) : "N/A",
-        detail: overviewKpi ? "Google Business Profile, Booking.com, and Tripadvisor" : "run a connector import to compute KPIs",
-      },
-    ]
-  }, [departmentNameByCode, latestRun, overviewKpi])
+  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
+  const priorityReviews = reviews.slice(0, 8)
+  const recurringPatterns = semanticAnalysis?.clusters.slice(0, 4) ?? []
   const sentimentData = useMemo(
     () =>
       ["positive", "mixed", "negative"].map((sentiment) => ({
         sentiment,
-        reviews: activeAnalyses.filter((analysis) => analysis.sentiment_label === sentiment).length,
+        reviews: overviewKpi?.sentiment_mix?.[sentiment] ?? 0,
       })),
-    [activeAnalyses]
+    [overviewKpi]
   )
-  const issueData = useMemo(() => {
-    const counts = activeAnalyses.reduce<Record<string, number>>((totals, analysis) => {
-      for (const prediction of analysis.issue_category_predictions.filter((prediction) => prediction.is_primary)) {
-        totals[prediction.category_code] = (totals[prediction.category_code] ?? 0) + 1
-      }
-      return totals
-    }, {})
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 6)
-      .map(([category, count]) => ({ category: issueCategoryNameByCode[category] ?? category.replaceAll("_", " "), count }))
-  }, [activeAnalyses, issueCategoryNameByCode])
-  const issueRows = useMemo(() => {
-    const counts = activeAnalyses.reduce<Record<string, { count: number; confidenceTotal: number; departments: Set<string> }>>(
-      (totals, analysis) => {
-        const primaryPrediction = analysis.issue_category_predictions.find((prediction) => prediction.is_primary)
-        if (!primaryPrediction) {
-          return totals
-        }
-        totals[primaryPrediction.category_code] ??= {
-          count: 0,
-          confidenceTotal: 0,
-          departments: new Set<string>(),
-        }
-        totals[primaryPrediction.category_code].count += 1
-        totals[primaryPrediction.category_code].confidenceTotal += primaryPrediction.confidence
-        totals[primaryPrediction.category_code].departments.add(primaryPrediction.department_code)
-        return totals
+  const issueData = useMemo(
+    () =>
+      (issueSummary?.items ?? [])
+        .slice(0, 6)
+        .map((item) => ({
+          category: categoryNameByCode[item.category_code] ?? formatCodeLabel(item.category_code),
+          reviews: item.review_count,
+        })),
+    [categoryNameByCode, issueSummary]
+  )
+  const summaryCards = useMemo(() => {
+    const totalReviews = overviewKpi?.total_reviews ?? 0
+    const negativeReviews = overviewKpi?.sentiment_mix?.negative ?? 0
+    const highRiskReviews = (overviewKpi?.reputation_risk_mix?.high ?? 0) + (overviewKpi?.reputation_risk_mix?.critical ?? 0)
+    const topDepartment = overviewKpi?.top_departments?.[0]
+
+    return [
+      {
+        label: "Reviews in scope",
+        value: totalReviews.toString(),
+        detail: totalReviews === 0 ? "No reviews match the current filters." : "Filtered verified-review workload.",
       },
-      {}
-    )
-    return Object.entries(counts)
-      .sort((a, b) => b[1].count - a[1].count)
-      .map(([categoryCode, values]) => ({
-        categoryCode,
-        categoryName: issueCategoryNameByCode[categoryCode] ?? categoryCode.replaceAll("_", " "),
-        count: values.count,
-        averageConfidence: values.confidenceTotal / values.count,
-        departments: Array.from(values.departments),
-      }))
-  }, [activeAnalyses, issueCategoryNameByCode])
-  const semanticClusters = semanticAnalysis?.clusters ?? []
-  const nearDuplicatePairCount = semanticAnalysis?.near_duplicate_pairs.length ?? 0
-  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
-
-  const loadIngestionData = useCallback(async () => {
-    setError(null)
-    const reviewsUrl = new URL(`${apiBaseUrl}/reviews`)
-    const semanticUrl = new URL(`${apiBaseUrl}/analysis/semantic-clusters`)
-    const overviewUrl = new URL(`${apiBaseUrl}/overview/kpis`)
-    if (issueCategoryFilter !== "all") {
-      reviewsUrl.searchParams.set("issue_category_code", issueCategoryFilter)
-      semanticUrl.searchParams.set("issue_category_code", issueCategoryFilter)
-      overviewUrl.searchParams.set("issue_category_code", issueCategoryFilter)
-    }
-    if (departmentFilter !== "all") {
-      reviewsUrl.searchParams.set("department_code", departmentFilter)
-      semanticUrl.searchParams.set("department_code", departmentFilter)
-      overviewUrl.searchParams.set("department_code", departmentFilter)
-    } else if (effectiveDepartmentCode) {
-      reviewsUrl.searchParams.set("department_code", effectiveDepartmentCode)
-      semanticUrl.searchParams.set("department_code", effectiveDepartmentCode)
-      overviewUrl.searchParams.set("department_code", effectiveDepartmentCode)
-    }
-    const [reviewsResponse, semanticResponse, overviewResponse, runsResponse, sourceStatusResponse, configResponse] = await Promise.all([
-      fetch(reviewsUrl),
-      fetch(semanticUrl),
-      fetch(overviewUrl),
-      fetch(`${apiBaseUrl}/ingestion/runs`),
-      fetch(`${apiBaseUrl}/ingestion/source-status`),
-      fetch(`${apiBaseUrl}/config`),
-    ])
-    if (!reviewsResponse.ok || !semanticResponse.ok || !overviewResponse.ok || !runsResponse.ok || !sourceStatusResponse.ok || !configResponse.ok) {
-      throw new Error("Unable to load review ingestion data")
-    }
-    const reviewsPayload = await reviewsResponse.json()
-    const semanticPayload = await semanticResponse.json()
-    const overviewPayload = await overviewResponse.json()
-    const runsPayload = await runsResponse.json()
-    const sourceStatusPayload = await sourceStatusResponse.json()
-    const configPayload = await configResponse.json()
-    setReviews(reviewsPayload.reviews)
-    setSemanticAnalysis(semanticPayload)
-    setOverviewKpi(overviewPayload)
-    setRuns(runsPayload.runs)
-    setSourceStatuses(sourceStatusPayload.sources)
-    setIssueCategories(configPayload.issue_categories)
-    setDepartments(configPayload.departments)
-  }, [departmentFilter, effectiveDepartmentCode, issueCategoryFilter])
-
-  useEffect(() => {
-    setIsLoading(true)
-    loadIngestionData()
-      .catch((loadError) => setError(loadError instanceof Error ? loadError.message : "Unable to load data"))
-      .finally(() => setIsLoading(false))
-  }, [loadIngestionData])
-
-  async function triggerConnectorImport(connectorKey: string) {
-    setImportingConnector(connectorKey)
-    setError(null)
-    try {
-      const response = await fetch(`${apiBaseUrl}/ingestion/connectors/${connectorKey}`, { method: "POST" })
-      if (!response.ok) {
-        throw new Error(`${connectorKey} import failed`)
-      }
-      await loadIngestionData()
-    } catch (importError) {
-      setError(importError instanceof Error ? importError.message : `${connectorKey} import failed`)
-    } finally {
-      setImportingConnector(null)
-    }
-  }
-
-  async function triggerReanalysis() {
-    setIsReanalyzing(true)
-    setError(null)
-    try {
-      const response = await fetch(`${apiBaseUrl}/analysis/reanalyze`, { method: "POST" })
-      if (!response.ok) {
-        throw new Error("Reanalysis failed")
-      }
-      await loadIngestionData()
-    } catch (analysisError) {
-      setError(analysisError instanceof Error ? analysisError.message : "Reanalysis failed")
-    } finally {
-      setIsReanalyzing(false)
-    }
-  }
+      {
+        label: "Negative sentiment",
+        value: negativeReviews.toString(),
+        detail: "Reviews that may require service recovery.",
+      },
+      {
+        label: "High Reputation Risk",
+        value: highRiskReviews.toString(),
+        detail: "High and critical reviews that need attention first.",
+      },
+      {
+        label: "Top department queue",
+        value: topDepartment
+          ? (departmentNameByCode[topDepartment.code] ?? formatCodeLabel(topDepartment.code))
+          : "N/A",
+        detail: topDepartment ? `${topDepartment.count} reviews currently routed here.` : "No department pressure signal yet.",
+      },
+      {
+        label: "Average rating",
+        value: overviewKpi?.average_rating != null ? overviewKpi.average_rating.toFixed(2) : "N/A",
+        detail: "Across Google Business Profile, Booking.com, and Tripadvisor.",
+      },
+    ]
+  }, [departmentNameByCode, overviewKpi])
 
   return (
     <SidebarProvider
@@ -453,19 +257,17 @@ export default function Page() {
                 Kingsbury case study
               </Badge>
               <h2 className="max-w-3xl text-3xl font-semibold tracking-tight">
-                Guest review intelligence and action management
+                Review operations overview
               </h2>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-                A focused dashboard shell for reviewing verified guest feedback,
-                spotting recurring service issues, and turning priority findings
-                into department-owned action tickets.
+                Track guest feedback by review platform, focus on the highest Reputation Risk work, and route follow-up to the right department.
               </p>
               {activeRole && (
                 <div className="mt-4 flex flex-wrap gap-2">
                   <Badge variant="outline" className="text-xs">{activeRole.name}</Badge>
                   <Badge variant="secondary" className="text-xs">{scopeLabel}</Badge>
                   <Badge variant="outline" className="text-xs">{workflowLabel}</Badge>
-                  {effectiveDepartmentCode && departmentFilter === "all" && scopedDepartmentName && (
+                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
                     <Badge variant="outline" className="text-xs">
                       Defaulting to {scopedDepartmentName}
                     </Badge>
@@ -475,17 +277,37 @@ export default function Page() {
             </div>
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Source policy</CardTitle>
+                <CardTitle className="text-base">Review platforms in scope</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm text-muted-foreground">
-                <p>MVP KPIs use Google Business Profile, Booking.com, and Tripadvisor review-platform connectors.</p>
-                <p>Connector runs keep source identity and ingestion audit history for each platform.</p>
+                <p>Overview and queues are limited to verified guest-review platforms used in the demo.</p>
+                <div className="flex flex-wrap gap-2">
+                  {sources.map((source) => (
+                    <Badge key={source.code} variant="outline">
+                      {source.name}
+                    </Badge>
+                  ))}
+                </div>
               </CardContent>
             </Card>
           </section>
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {importedMetrics.map((metric) => (
+          <DashboardFilterBar
+            filters={filters}
+            onFilterChange={setFilter}
+            onClear={clearFilters}
+            hasActiveFilters={hasActiveFilters}
+            sources={sources}
+            categories={categories}
+            departments={departments}
+          />
+
+          {error ? (
+            <p className="text-sm text-destructive">{error}</p>
+          ) : null}
+
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+            {summaryCards.map((metric) => (
               <Card key={metric.label}>
                 <CardHeader className="pb-2">
                   <CardTitle className="text-sm font-medium text-muted-foreground">
@@ -493,7 +315,7 @@ export default function Page() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-2xl font-semibold">{metric.value}</div>
+                  <div className="text-2xl font-semibold">{isLoading ? "…" : metric.value}</div>
                   <p className="mt-1 text-xs text-muted-foreground">{metric.detail}</p>
                 </CardContent>
               </Card>
@@ -503,7 +325,7 @@ export default function Page() {
           <section className="grid gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Sentiment analysis</CardTitle>
+                <CardTitle>Sentiment mix</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartContainer config={sentimentConfig} className="h-72 w-full">
@@ -519,7 +341,7 @@ export default function Page() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Issue categories</CardTitle>
+                <CardTitle>Top operational categories</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartContainer config={issueConfig} className="h-72 w-full">
@@ -527,319 +349,133 @@ export default function Page() {
                     <CartesianGrid vertical={false} />
                     <XAxis dataKey="category" tickLine={false} axisLine={false} />
                     <ChartTooltip content={<ChartTooltipContent />} />
-                    <Bar dataKey="count" fill="var(--color-count)" radius={6} />
+                    <Bar dataKey="reviews" fill="var(--color-reviews)" radius={6} />
                   </BarChart>
                 </ChartContainer>
               </CardContent>
             </Card>
           </section>
 
-          <Card id="issues">
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Issue category predictions</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Primary multi-label predictions grouped by operational category and routed department.
-                  </p>
-                </div>
-                <Badge variant="outline">{issueRows.length} active categories</Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {issueRows.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Run an import or refresh analysis to populate issue predictions.</p>
-              ) : (
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                  {issueRows.map((issue) => (
-                    <div key={issue.categoryCode} className="rounded-lg border p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">{issue.categoryName}</p>
-                          <p className="text-xs text-muted-foreground">{issue.count} reviews matched</p>
-                        </div>
-                        <Badge variant="secondary">{Math.round(issue.averageConfidence * 100)}%</Badge>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {issue.departments.map((departmentCode) => (
-                          <Badge key={departmentCode} variant="outline">
-                            {departmentNameByCode[departmentCode] ?? departmentCode.replaceAll("_", " ")}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Semantic issue clusters</CardTitle>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    Local embedding similarity groups near-duplicate reviews for visibility without merging records.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Badge variant="outline">{semanticClusters.length} clusters</Badge>
-                  <Badge variant="secondary">{nearDuplicatePairCount} near-duplicate pairs</Badge>
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent>
-              {semanticClusters.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No semantic clusters above the current similarity threshold.
-                </p>
-              ) : (
-                <div className="grid gap-3 lg:grid-cols-2">
-                  {semanticClusters.map((cluster) => (
-                    <div key={cluster.cluster_id} className="rounded-lg border p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <p className="font-medium">
-                            {issueCategoryNameByCode[cluster.category_code] ?? cluster.category_code.replaceAll("_", " ")}
-                          </p>
-                          <p className="text-xs text-muted-foreground">
-                            {cluster.size} reviews · representative #{cluster.representative_review_id}
-                          </p>
-                        </div>
-                        <Badge variant="secondary">{Math.round(cluster.average_similarity * 100)}% similar</Badge>
-                      </div>
-                      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">{cluster.representative_text}</p>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <Badge variant="outline">
-                          {departmentNameByCode[cluster.department_code] ?? cluster.department_code.replaceAll("_", " ")}
-                        </Badge>
-                        {Object.entries(cluster.source_mix).map(([sourceCode, count]) => (
-                          <Badge key={sourceCode} variant="outline">
-                            {sourceCode.replaceAll("_", " ")}: {count}
-                          </Badge>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <section className="grid gap-4 xl:grid-cols-4">
-            {queues.map((queue) => (
-              <Card key={queue.title}>
-                <CardHeader>
-                  <div className="flex items-center justify-between gap-3">
-                    <CardTitle>{queue.title}</CardTitle>
-                    <Badge variant="secondary">{queue.status}</Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-sm leading-6 text-muted-foreground">
-                  {queue.body}
-                </CardContent>
-              </Card>
-            ))}
-          </section>
-
-          <section id="ingestion" className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+          <section className="grid gap-4 xl:grid-cols-[0.95fr_1.05fr]">
             <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
-                  <CardTitle>Verified source imports</CardTitle>
-                  <div className="flex flex-wrap gap-2">
-                    <Button onClick={triggerReanalysis} disabled={isReanalyzing} variant="outline">
-                      {isReanalyzing ? "Reanalyzing" : "Refresh analysis"}
-                    </Button>
+                  <div>
+                    <CardTitle>Recurring service patterns</CardTitle>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Repeated guest complaints that suggest a broader operational issue.
+                    </p>
                   </div>
+                  <Badge variant="outline">
+                    {isLoading ? "…" : `${semanticAnalysis?.clusters.length ?? 0} patterns`}
+                  </Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4 text-sm">
-                {error ? <p className="text-destructive">{error}</p> : null}
+              <CardContent>
                 {isLoading ? (
-                  <p className="text-muted-foreground">Loading ingestion status.</p>
-                ) : verifiedSourceStatuses.length > 0 ? (
-                  <div className="space-y-3">
-                    {verifiedSourceStatuses.map((source) => {
-                      const run = source.latest_run
-                      const connectorKey = source.connector_key ?? ""
-                      const hasErrors = source.errors.length > 0
-                      return (
-                        <div key={source.source_code} className="rounded-md border p-3">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div>
-                              <p className="font-medium">{source.source_name}</p>
-                              <p className="text-xs text-muted-foreground">{connectorKey}</p>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <Badge variant={run?.status === "completed" ? "secondary" : hasErrors ? "destructive" : "outline"}>
-                                {run?.status ?? "not run"}
-                              </Badge>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => triggerConnectorImport(connectorKey)}
-                                disabled={importingConnector === connectorKey}
-                              >
-                                {importingConnector === connectorKey ? "Importing" : "Run"}
-                              </Button>
-                            </div>
-                          </div>
-                          {run ? (
-                            <div className="mt-3 grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                              <p>Completed: {formatDate(run.completed_at)}</p>
-                              <p>
-                                {run.records_seen} seen, {run.records_created} created, {run.records_updated} updated,{" "}
-                                {run.records_skipped} skipped, {run.records_duplicate_flagged} duplicate flagged
-                              </p>
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-xs text-muted-foreground">No import run recorded for this source.</p>
-                          )}
-                          {hasErrors ? (
-                            <div className="mt-3 space-y-1 text-xs text-destructive">
-                              {source.errors.map((sourceError) => (
-                                <p key={sourceError}>{sourceError}</p>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
+                  <p className="text-sm text-muted-foreground">Loading recurring patterns…</p>
+                ) : recurringPatterns.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No recurring patterns match the current filters.</p>
                 ) : (
-                  <p className="text-muted-foreground">No ingestion runs yet.</p>
+                  <div className="space-y-3">
+                    {recurringPatterns.map((cluster) => (
+                      <div key={cluster.cluster_id} className="rounded-lg border p-4">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="font-medium">
+                              {categoryNameByCode[cluster.category_code] ?? formatCodeLabel(cluster.category_code)}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {cluster.size} reviews routed to{" "}
+                              {departmentNameByCode[cluster.department_code] ?? formatCodeLabel(cluster.department_code)}
+                            </p>
+                          </div>
+                          <Badge variant="secondary">{cluster.size} related reviews</Badge>
+                        </div>
+                        <p className="mt-3 text-sm text-muted-foreground">{cluster.representative_text}</p>
+                        <p className="mt-3 text-xs text-muted-foreground">
+                          Seen across{" "}
+                          {Object.entries(cluster.source_mix)
+                            .map(([sourceCode, count]) => `${sourceNameByCode[sourceCode] ?? sourceCode}: ${count}`)
+                            .join(", ")}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </CardContent>
             </Card>
 
-            <Card id="reviews">
+            <Card>
               <CardHeader>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
-                    <CardTitle>Imported records</CardTitle>
+                    <CardTitle>Priority review queue</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Review records imported from the configured platform connectors.
+                      Recent guest reviews with operational routing and action status.
                     </p>
                   </div>
-                  <div className="flex flex-wrap gap-2">
-                    <Select value={issueCategoryFilter} onValueChange={(value) => setIssueCategoryFilter(value ?? "all")}>
-                      <SelectTrigger size="sm" className="min-w-44">
-                        <SelectValue placeholder="Issue category" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All issue categories</SelectItem>
-                        {issueCategories.map((category) => (
-                          <SelectItem key={category.code} value={category.code}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <Select value={departmentFilter} onValueChange={(value) => setDepartmentFilter(value ?? "all")}>
-                      <SelectTrigger size="sm" className="min-w-40">
-                        <SelectValue placeholder="Department" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All departments</SelectItem>
-                        {departments.map((department) => (
-                          <SelectItem key={department.code} value={department.code}>
-                            {department.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <Badge variant="outline">
+                    {isLoading ? "…" : `${reviews.length} reviews`}
+                  </Badge>
                 </div>
               </CardHeader>
               <CardContent>
-                {reviews.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    Run a review-platform connector import to populate normalized records.
-                  </p>
+                {isLoading ? (
+                  <p className="text-sm text-muted-foreground">Loading review queue…</p>
+                ) : priorityReviews.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">No reviews match the current filters.</p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Review</TableHead>
-                        <TableHead>Source</TableHead>
-                        <TableHead>Rating</TableHead>
-                        <TableHead>Sentiment</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Department</TableHead>
-                        <TableHead>Reputation Risk</TableHead>
-                        <TableHead>Analysis</TableHead>
-                        <TableHead>Dedupe</TableHead>
-                        <TableHead>Status</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reviews.map((review) => (
-                        <TableRow key={review.id}>
-                          <TableCell className="min-w-80 whitespace-normal">
-                            <div className="font-medium">{review.title ?? review.external_review_id}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {review.reviewer_name ?? "Anonymous"} · {formatDate(review.review_date)}
-                            </div>
-                            <p className="mt-1 max-h-10 overflow-hidden text-sm text-muted-foreground">{review.body}</p>
-                          </TableCell>
-                          <TableCell>
-                            <div className="font-medium">{review.source_name}</div>
-                            <Badge variant="secondary">Review platform</Badge>
-                          </TableCell>
-                          <TableCell>{review.rating ?? "N/A"}</TableCell>
-                          <TableCell>
-                            <div className="font-medium">{review.analysis?.sentiment_label ?? review.sentiment_label}</div>
-                            <div className="text-xs text-muted-foreground">
-                              score {review.analysis?.sentiment_score.toFixed(2) ?? review.sentiment_score.toFixed(2)}
-                            </div>
-                          </TableCell>
-                          <TableCell className="min-w-48">
-                            <div className="flex flex-wrap gap-1">
-                              {(review.analysis?.issue_category_predictions ?? []).slice(0, 3).map((prediction) => (
-                                <Badge key={prediction.id} variant={prediction.is_primary ? "secondary" : "outline"}>
-                                  {issueCategoryNameByCode[prediction.category_code] ?? prediction.category_code.replaceAll("_", " ")}{" "}
-                                  {Math.round(prediction.confidence * 100)}%
-                                </Badge>
-                              ))}
-                              {review.analysis?.issue_category_predictions.length ? null : review.issue_category_code}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {departmentNameByCode[review.analysis?.department_code ?? review.department_code] ??
-                              (review.analysis?.department_code ?? review.department_code).replaceAll("_", " ")}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={["high", "critical"].includes(review.analysis?.reputation_risk_label ?? review.reputation_risk) ? "destructive" : "outline"}>
-                              {review.analysis?.reputation_risk_label ?? review.reputation_risk}
-                            </Badge>
-                            <div className="mt-1 text-xs text-muted-foreground">
-                              score {review.analysis?.reputation_risk_score ?? "N/A"}
-                            </div>
-                          </TableCell>
-                          <TableCell className="min-w-48">
-                            <div className="font-medium">
-                              {review.analysis ? new Date(review.analysis.analyzed_at).toLocaleString() : "not analyzed"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              top confidence {review.analysis?.issue_category_predictions[0]?.confidence?.toFixed(2) ?? "N/A"}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              primary category {review.analysis?.issue_category_predictions[0]?.category_code ?? review.issue_category_code}
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              recurrence {review.analysis?.explanation_factors.signals?.recurrence_count_7d ?? 0}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {review.is_content_duplicate ? <Badge variant="outline">Content duplicate</Badge> : "Unique"}
-                          </TableCell>
-                          <TableCell>{review.action_status}</TableCell>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Review</TableHead>
+                          <TableHead>Platform</TableHead>
+                          <TableHead>Sentiment</TableHead>
+                          <TableHead>Reputation Risk</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Department</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Operational note</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {priorityReviews.map((review) => (
+                          <TableRow key={review.id}>
+                            <TableCell className="min-w-72">
+                              <div className="font-medium">{review.display_title ?? review.display_external_review_id}</div>
+                              <div className="text-xs text-muted-foreground">
+                                {review.display_reviewer_name ?? "Guest"} · {formatDate(review.review_date)}
+                              </div>
+                              <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{review.display_body}</p>
+                            </TableCell>
+                            <TableCell className="text-xs">{review.source_name}</TableCell>
+                            <TableCell>
+                              <Badge variant={sentimentVariant(review.sentiment_label)} className="text-xs">
+                                {review.sentiment_label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={reputationRiskVariant(review.reputation_risk)} className="text-xs">
+                                {review.reputation_risk}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {categoryNameByCode[review.issue_category_code] ?? formatCodeLabel(review.issue_category_code)}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {departmentNameByCode[review.department_code] ?? formatCodeLabel(review.department_code)}
+                            </TableCell>
+                            <TableCell className="text-xs">{formatCodeLabel(review.action_status)}</TableCell>
+                            <TableCell className="min-w-72 text-xs text-muted-foreground">
+                              {buildOperationalSummary(review, categoryNameByCode, departmentNameByCode)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -847,5 +483,13 @@ export default function Page() {
         </main>
       </SidebarInset>
     </SidebarProvider>
+  )
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense>
+      <OverviewContent />
+    </Suspense>
   )
 }
