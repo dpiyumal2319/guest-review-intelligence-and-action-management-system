@@ -25,28 +25,6 @@ URGENCY_TERMS = {
     "unsafe",
     "urgent",
 }
-CATEGORY_RULES = {
-    "cleanliness": {"bathroom", "clean", "cleaned", "dirty", "floor", "hygiene", "linen", "sink"},
-    "room_condition": {
-        "air",
-        "conditioning",
-        "cool",
-        "drained",
-        "fittings",
-        "maintenance",
-        "plumbing",
-        "room",
-        "shower",
-        "worn",
-    },
-    "food_beverage": {"bar", "breakfast", "buffet", "dining", "food", "restaurant", "room service"},
-    "service_delay": {"delay", "delayed", "hours", "long", "queue", "quickly", "slow", "stretched", "took"},
-    "staff_behavior": {"attitude", "courtesy", "helpful", "professional", "rude", "staff", "team"},
-    "noise_events": {"audible", "banquet", "event", "late at night", "music", "noise", "noisy", "sleep"},
-    "pricing_value": {"billing", "expensive", "overpriced", "price", "value"},
-    "booking_checkin": {"arrival", "booking", "check-in", "checkout", "desk", "prepaid", "reservation"},
-    "amenities_facilities": {"gym", "lift", "parking", "pool", "spa", "wi-fi", "wifi"},
-}
 CATEGORY_REPUTATION_RISK_WEIGHT = {
     "cleanliness": 18,
     "booking_checkin": 16,
@@ -132,11 +110,7 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
     text = " ".join(part for part in [review.title, review.body] if part)
     tokens = tokenize(text)
     sentiment_result = get_sentiment_analyzer().analyze(text, tokens, review.rating)
-    issue_category_predictions, category_factors = classify_issue_categories(
-        text,
-        tokens,
-        sentiment_result.sentiment_label,
-    )
+    issue_category_predictions, category_factors = classify_issue_categories(text)
     issue_category_code = issue_category_predictions[0].category_code
     department_code = primary_department_for_category(session, issue_category_code)
     urgency_score, urgency_matches = urgency_factor(text)
@@ -190,55 +164,21 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
     )
 
 
-def classify_issue_categories(
-    text: str,
-    tokens: set[str],
-    sentiment_label: str,
-) -> tuple[list[IssueCategoryPredictionResult], dict]:
+def classify_issue_categories(text: str) -> tuple[list[IssueCategoryPredictionResult], dict]:
     classifier = get_issue_category_classifier()
     predictions = classifier.predict_ranked(text, top_k=3)
-    if predictions:
-        return predictions, {
-            "predictions": [
-                {
-                    "category_code": prediction.category_code,
-                    "confidence": prediction.confidence,
-                    "rank": prediction.rank,
-                    "model_name": prediction.model_name,
-                    "model_version": prediction.model_version,
-                }
-                for prediction in predictions
-            ],
-            "mapping_source": "trained_classifier_artifact" if classifier.model is not None else "keyword_baseline_fallback",
-        }
-
-    category, factors = classify_issue_category(tokens, sentiment_label)
-    return [
-        IssueCategoryPredictionResult(
-            category_code=category,
-            confidence=0.55,
-            rank=1,
-            model_name="local-keyword-rule-issue-classifier",
-            model_version="2026.07.demo-fallback",
-        )
-    ], factors
-
-
-def classify_issue_category(tokens: set[str], sentiment_label: str) -> tuple[str, dict]:
-    scores = {
-        category: len({term for term in terms if term in tokens})
-        for category, terms in CATEGORY_RULES.items()
-    }
-    category, score = max(scores.items(), key=lambda item: (item[1], CATEGORY_REPUTATION_RISK_WEIGHT.get(item[0], 0)))
-    if sentiment_label == "positive" and score <= 2:
-        category = "positive_general"
-        score = 0
-    if score == 0:
-        category = "positive_general" if sentiment_label == "positive" else "other_uncategorized"
-    return category, {
-        "rule_scores": scores,
-        "selected_category": category,
-        "mapping_source": "local_keyword_rules",
+    return predictions, {
+        "predictions": [
+            {
+                "category_code": prediction.category_code,
+                "confidence": prediction.confidence,
+                "rank": prediction.rank,
+                "model_name": prediction.model_name,
+                "model_version": prediction.model_version,
+            }
+            for prediction in predictions
+        ],
+        "mapping_source": "huggingface_zero_shot_classification",
     }
 
 
@@ -449,5 +389,5 @@ def primary_department_for_category(session: Session, issue_category_code: str) 
 def tokenize(text: str) -> set[str]:
     lowered = text.lower()
     words = set(re.findall(r"[a-z][a-z-]+", lowered))
-    phrases = {phrase for phrase in {term for terms in CATEGORY_RULES.values() for term in terms} | URGENCY_TERMS if " " in phrase and phrase in lowered}
+    phrases = {phrase for phrase in URGENCY_TERMS if " " in phrase and phrase in lowered}
     return words | phrases

@@ -5,8 +5,6 @@ export type IssueCategoryPrediction = {
   rank: number
   is_primary: boolean
   department_code: string
-  model_name: string
-  model_version: string
   analyzed_at: string
 }
 
@@ -19,14 +17,10 @@ export type ReviewAnalysis = {
   reputation_risk_score: number
   reputation_risk_label: string
   department_code: string
-  model_name: string
-  model_version: string
-  analysis_version: string
   analyzed_at: string
   is_active: boolean
   issue_category_predictions: IssueCategoryPrediction[]
   explanation_factors: {
-    model?: { fallback_note?: string }
     signals?: {
       recurrence_count_7d?: number
       duplicate_signal?: boolean

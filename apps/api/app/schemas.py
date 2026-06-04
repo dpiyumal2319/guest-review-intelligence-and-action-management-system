@@ -126,9 +126,6 @@ class ReviewAnalysisResponse(BaseModel):
     reputation_risk_score: int
     reputation_risk_label: str
     department_code: str
-    model_name: str
-    model_version: str
-    analysis_version: str
     explanation_factors: dict
     analyzed_at: datetime
     is_active: bool
@@ -144,8 +141,6 @@ class IssueCategoryPredictionResponse(BaseModel):
     rank: int
     is_primary: bool
     department_code: str
-    model_name: str
-    model_version: str
     analyzed_at: datetime
 
 

@@ -111,16 +111,10 @@ type ReviewAnalysis = {
   reputation_risk_score: number
   reputation_risk_label: string
   department_code: string
-  model_name: string
-  model_version: string
-  analysis_version: string
   analyzed_at: string
   is_active: boolean
   issue_category_predictions: IssueCategoryPrediction[]
   explanation_factors: {
-    model?: {
-      fallback_note?: string
-    }
     signals?: {
       recurrence_count_7d?: number
       duplicate_signal?: boolean
@@ -136,8 +130,6 @@ type IssueCategoryPrediction = {
   rank: number
   is_primary: boolean
   department_code: string
-  model_name: string
-  model_version: string
   analyzed_at: string
 }
 
@@ -827,12 +819,14 @@ export default function Page() {
                             </div>
                           </TableCell>
                           <TableCell className="min-w-48">
-                            <div className="font-medium">{review.analysis?.analysis_version ?? "not analyzed"}</div>
-                            <div className="text-xs text-muted-foreground">
-                              {review.analysis?.model_version ?? "No model metadata"}
+                            <div className="font-medium">
+                              {review.analysis ? new Date(review.analysis.analyzed_at).toLocaleString() : "not analyzed"}
                             </div>
                             <div className="text-xs text-muted-foreground">
-                              issue model {review.analysis?.issue_category_predictions[0]?.model_version ?? "N/A"}
+                              top confidence {review.analysis?.issue_category_predictions[0]?.confidence?.toFixed(2) ?? "N/A"}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              primary category {review.analysis?.issue_category_predictions[0]?.category_code ?? review.issue_category_code}
                             </div>
                             <div className="text-xs text-muted-foreground">
                               recurrence {review.analysis?.explanation_factors.signals?.recurrence_count_7d ?? 0}
