@@ -144,7 +144,7 @@ function CategorySummaryTable({
 
 function IssuesContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
-  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
+  const { activeRole, canManageTickets, scopeLabel } = useDemoRole()
   const [issueSummary, setIssueSummary] = useState<IssueSummary | null>(null)
   const [sources, setSources] = useState<ReviewSource[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
@@ -167,9 +167,6 @@ function IssuesContent() {
     setSummaryError(null)
     try {
       const params = buildApiParams()
-      if (!params.get("department_code") && effectiveDepartmentCode) {
-        params.set("department_code", effectiveDepartmentCode)
-      }
       const res = await fetch(`${apiBaseUrl}/issues/summary?${params}`)
       if (!res.ok) throw new Error("Failed to load issue summary")
       const data = await res.json()
@@ -179,7 +176,7 @@ function IssuesContent() {
     } finally {
       setIsLoadingSummary(false)
     }
-  }, [buildApiParams, effectiveDepartmentCode])
+  }, [buildApiParams])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadIssueSummary() }, [loadIssueSummary])
@@ -187,7 +184,6 @@ function IssuesContent() {
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const sourceNameByCode = Object.fromEntries(sources.map((s) => [s.code, s.name]))
-  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
   const topGroups = issueSummary?.items.slice(0, 3) ?? []
 
   async function createGroupTicket(item: IssueSummaryItem) {
@@ -196,9 +192,6 @@ function IssuesContent() {
     setSummaryError(null)
     try {
       const params = buildApiParams()
-      if (!params.get("department_code") && effectiveDepartmentCode) {
-        params.set("department_code", effectiveDepartmentCode)
-      }
       const res = await fetch(`${apiBaseUrl}/issues/groups/${item.category_code}/${item.department_code}/tickets?${params}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -243,11 +236,6 @@ function IssuesContent() {
                   <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
                     {canManageTickets ? "Can create tickets" : "Read-only ticket workflow"}
                   </Badge>
-                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
-                    <Badge variant="outline" className="text-xs">
-                      Defaulting to {scopedDepartmentName}
-                    </Badge>
-                  )}
                 </div>
               )}
             </div>

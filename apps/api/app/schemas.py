@@ -179,6 +179,10 @@ class ReviewResponse(BaseModel):
 
 class ReviewsResponse(BaseModel):
     reviews: list[ReviewResponse]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
 
 
 class SemanticDuplicatePairResponse(BaseModel):

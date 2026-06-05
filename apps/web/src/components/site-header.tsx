@@ -26,36 +26,38 @@ export function SiteHeader() {
     setAssignedDepartmentCode,
     workflowLabel,
   } = useDemoRole()
+  const roleLabels = Object.fromEntries(roles.map((role) => [role.code, role.name]))
+  const departmentLabels = Object.fromEntries(departments.map((department) => [department.code, department.name]))
 
   return (
-    <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear group-has-data-[collapsible=icon]/sidebar-wrapper:h-(--header-height)">
-      <div className="flex w-full flex-wrap items-center gap-3 px-4 py-2 lg:gap-4 lg:px-6">
+    <header className="flex min-h-(--header-height) shrink-0 items-center gap-2 border-b transition-[width,height] ease-linear md:h-(--header-height) group-has-data-[collapsible=icon]/sidebar-wrapper:md:h-(--header-height)">
+      <div className="flex w-full min-w-0 flex-wrap items-center gap-3 px-4 py-2 md:h-full md:flex-nowrap md:py-0 lg:gap-4 lg:px-6">
         <SidebarTrigger className="-ml-1" />
         <Separator
           orientation="vertical"
           className="mx-2 h-4 data-vertical:self-auto"
         />
-        <div className="min-w-0 flex-1">
-          <h1 className="text-base font-medium">Guest Review Intelligence</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="text-[11px]">
-              {scopeLabel}
-            </Badge>
-            <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-[11px]">
-              {workflowLabel}
-            </Badge>
-          </div>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2 md:flex-nowrap">
+          <h1 className="truncate text-base font-medium">Guest Review Intelligence</h1>
+          <Badge variant="outline" className="shrink-0 text-[11px]">
+            {scopeLabel}
+          </Badge>
+          <Badge variant={canManageTickets ? "secondary" : "outline"} className="shrink-0 text-[11px]">
+            {workflowLabel}
+          </Badge>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 md:flex-nowrap">
           <Select
-            value={activeRoleCode || undefined}
+            value={activeRoleCode}
             onValueChange={(value) => {
               if (value) setActiveRoleCode(value)
             }}
             disabled={isLoading || roles.length === 0}
           >
             <SelectTrigger className="h-8 w-[220px] text-xs">
-              <SelectValue placeholder={isLoading ? "Loading roles…" : "Select demo role"} />
+              <SelectValue placeholder={isLoading ? "Loading roles…" : "Select demo role"}>
+                {(value) => roleLabels[value] ?? value}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {roles.map((role) => (
@@ -68,14 +70,16 @@ export function SiteHeader() {
 
           {activeRole?.code === "department_head" && (
             <Select
-              value={assignedDepartmentCode || undefined}
+              value={assignedDepartmentCode}
               onValueChange={(value) => {
                 if (value) setAssignedDepartmentCode(value)
               }}
               disabled={departments.length === 0}
             >
               <SelectTrigger className="h-8 w-[200px] text-xs">
-                <SelectValue placeholder="Assign department" />
+                <SelectValue placeholder="Assign department">
+                  {(value) => departmentLabels[value] ?? value}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {departments.map((department) => (

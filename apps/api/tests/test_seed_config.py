@@ -1121,6 +1121,7 @@ def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, 
             "/reviews",
             params={"search": "broken shower", "department_code": "housekeeping"},
         )
+        paginated_response = client.get("/reviews", params={"per_page": 1, "page": 2})
         no_match_response = client.get(
             "/reviews",
             params={"search": "broken shower", "department_code": "front_office"},
@@ -1142,6 +1143,13 @@ def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, 
 
     assert filtered_search_response.status_code == 200
     assert [review["external_review_id"] for review in filtered_search_response.json()["reviews"]] == ["private-guest-001"]
+    assert paginated_response.status_code == 200
+    paginated_payload = paginated_response.json()
+    assert paginated_payload["total"] == 2
+    assert paginated_payload["page"] == 2
+    assert paginated_payload["per_page"] == 1
+    assert paginated_payload["total_pages"] == 2
+    assert len(paginated_payload["reviews"]) == 1
     assert no_match_response.status_code == 200
     assert no_match_response.json()["reviews"] == []
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
@@ -34,7 +35,7 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
 import { useDemoRole } from "@/hooks/use-demo-role"
-import { TICKET_PRIORITIES, type Department, type IssueCategory, type Review, type ReviewSource, type Ticket } from "@/lib/api-types"
+import { TICKET_PRIORITIES, type Department, type IssueCategory, type Review, type ReviewSource, type ReviewsResponse, type Ticket } from "@/lib/api-types"
 import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
@@ -68,6 +69,10 @@ function actionStatusVariant(status: string): "default" | "secondary" | "destruc
 
 function formatCodeLabel(value: string) {
   return value.replaceAll("_", " ")
+}
+
+function titleCaseCode(value: string) {
+  return formatCodeLabel(value).replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function buildOperationalSummary(
@@ -122,6 +127,10 @@ function ReviewTicketSheet({
 
   const categoryName = categoryNameByCode[review.issue_category_code] ?? formatCodeLabel(review.issue_category_code)
   const departmentName = departmentNameByCode[review.department_code] ?? formatCodeLabel(review.department_code)
+  const priorityLabels = {
+    auto: "Auto from Reputation Risk",
+    ...Object.fromEntries(TICKET_PRIORITIES.map((item) => [item, titleCaseCode(item)])),
+  }
 
   async function submitTicket() {
     if (!review) return
@@ -194,7 +203,9 @@ function ReviewTicketSheet({
               <Label className="text-xs">Department</Label>
               <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => departmentNameByCode[value] ?? value}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((department) => (
@@ -210,7 +221,9 @@ function ReviewTicketSheet({
               <Label className="text-xs">Priority</Label>
               <Select value={priority} onValueChange={(value) => value && setPriority(value)}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue>
+                    {(value) => priorityLabels[value as keyof typeof priorityLabels] ?? value}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="auto">Auto from Reputation Risk</SelectItem>
@@ -266,9 +279,13 @@ function ReviewTicketSheet({
 }
 
 function ReviewsContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
-  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
+  const { activeRole, canManageTickets, scopeLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
+  const [totalReviews, setTotalReviews] = useState(0)
+  const [totalPages, setTotalPages] = useState(0)
   const [sources, setSources] = useState<ReviewSource[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
@@ -276,6 +293,8 @@ function ReviewsContent() {
   const [error, setError] = useState<string | null>(null)
   const [selectedReview, setSelectedReview] = useState<Review | null>(null)
   const [sheetOpen, setSheetOpen] = useState(false)
+  const currentPage = Math.max(1, Number(searchParams.get("page") ?? "1") || 1)
+  const perPage = Math.min(100, Math.max(1, Number(searchParams.get("per_page") ?? "25") || 25))
 
   const loadConfig = useCallback(async () => {
     const res = await fetch(`${apiBaseUrl}/config`)
@@ -290,27 +309,35 @@ function ReviewsContent() {
     setIsLoading(true)
     setError(null)
     try {
-      const params = buildApiParams()
-      if (!params.get("department_code") && effectiveDepartmentCode) {
-        params.set("department_code", effectiveDepartmentCode)
-      }
+      const params = buildApiParams({ page: String(currentPage), per_page: String(perPage) })
       const res = await fetch(`${apiBaseUrl}/reviews?${params}`)
       if (!res.ok) throw new Error("Failed to load reviews")
-      const data = await res.json()
+      const data: ReviewsResponse = await res.json()
       setReviews(data.reviews)
+      setTotalReviews(data.total)
+      setTotalPages(data.total_pages)
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load reviews")
     } finally {
       setIsLoading(false)
     }
-  }, [buildApiParams, effectiveDepartmentCode])
+  }, [buildApiParams, currentPage, perPage])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadReviews() }, [loadReviews])
 
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
-  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
+
+  function setPage(page: number) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (page <= 1) {
+      params.delete("page")
+    } else {
+      params.set("page", String(page))
+    }
+    router.push(`?${params.toString()}`, { scroll: false })
+  }
 
   function openTicketSheet(review: Review) {
     setSelectedReview(review)
@@ -347,16 +374,11 @@ function ReviewsContent() {
                   <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
                     {canManageTickets ? "Manual ticket creation enabled" : "Read-only review workflow"}
                   </Badge>
-                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
-                    <Badge variant="outline" className="text-xs">
-                      Defaulting to {scopedDepartmentName}
-                    </Badge>
-                  )}
                 </div>
               )}
             </div>
             {!isLoading && (
-              <Badge variant="outline">{reviews.length} {reviews.length === 1 ? "review" : "reviews"}</Badge>
+              <Badge variant="outline">{totalReviews} {totalReviews === 1 ? "review" : "reviews"}</Badge>
             )}
           </div>
 
@@ -373,7 +395,7 @@ function ReviewsContent() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">
-                {isLoading ? "Loading…" : error ? "Error" : `${reviews.length} reviews`}
+                {isLoading ? "Loading…" : error ? "Error" : `${totalReviews} reviews`}
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -381,90 +403,105 @@ function ReviewsContent() {
                 <p className="text-sm text-destructive">{error}</p>
               ) : isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading reviews…</p>
-              ) : reviews.length === 0 ? (
+              ) : totalReviews === 0 ? (
                 <p className="text-sm text-muted-foreground">No reviews match the current filters.</p>
               ) : (
-                <div className="overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Platform</TableHead>
-                        <TableHead>Rating</TableHead>
-                        <TableHead>Sentiment</TableHead>
-                        <TableHead>Reputation Risk</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Department</TableHead>
-                        <TableHead>Action status</TableHead>
-                        <TableHead className="min-w-64">Review</TableHead>
-                        <TableHead className="min-w-64">Operational note</TableHead>
-                        <TableHead className="text-right">Action</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {reviews.map((review) => (
-                        <TableRow key={review.id}>
-                          <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                            {formatDate(review.review_date)}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            <div className="font-medium">{review.source_name}</div>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {review.rating != null ? review.rating.toFixed(1) : "—"}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={sentimentVariant(review.sentiment_label)} className="text-xs">
-                              {review.sentiment_label}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={reputationRiskVariant(review.reputation_risk)} className="text-xs">
-                              {review.reputation_risk}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {categoryNameByCode[review.issue_category_code] ?? review.issue_category_code.replaceAll("_", " ")}
-                          </TableCell>
-                          <TableCell className="text-xs">
-                            {departmentNameByCode[review.department_code] ?? review.department_code.replaceAll("_", " ")}
-                          </TableCell>
-                          <TableCell>
-                            <Badge variant={actionStatusVariant(review.action_status)} className="text-xs">
-                              {formatCodeLabel(review.action_status)}
-                            </Badge>
-                          </TableCell>
-                          <TableCell className="max-w-xs text-xs text-muted-foreground">
-                            {review.display_title && (
-                              <p className="font-medium text-foreground">{review.display_title}</p>
-                            )}
-                            <p className="mt-1">{review.display_reviewer_name ?? "Guest"}</p>
-                            <p className="line-clamp-2">{review.display_body}</p>
-                            {review.has_display_redactions && (
-                              <Badge variant="outline" className="mt-2 text-xs">redacted</Badge>
-                            )}
-                          </TableCell>
-                          <TableCell className="max-w-xs text-xs text-muted-foreground">
-                            {buildOperationalSummary(review, categoryNameByCode, departmentNameByCode)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              disabled={!canManageTickets}
-                              onClick={() => openTicketSheet(review)}
-                            >
-                              {!canManageTickets
-                                ? "Read-only role"
-                                : review.action_status === "ticket_created"
-                                  ? "Create follow-up"
-                                  : "Create ticket"}
-                            </Button>
-                          </TableCell>
+                <div className="space-y-4">
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Platform</TableHead>
+                          <TableHead>Rating</TableHead>
+                          <TableHead>Guest mood</TableHead>
+                          <TableHead>Reputation Risk</TableHead>
+                          <TableHead>Category</TableHead>
+                          <TableHead>Department</TableHead>
+                          <TableHead>Action status</TableHead>
+                          <TableHead className="text-right">Action</TableHead>
+                          <TableHead className="min-w-72">Review</TableHead>
+                          <TableHead className="min-w-80">Operational note</TableHead>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                      </TableHeader>
+                      <TableBody>
+                        {reviews.map((review) => (
+                          <TableRow key={review.id}>
+                            <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                              {formatDate(review.review_date)}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              <div className="font-medium">{review.source_name}</div>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {review.rating != null ? review.rating.toFixed(1) : "—"}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={sentimentVariant(review.sentiment_label)} className="text-xs">
+                                {review.sentiment_label}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={reputationRiskVariant(review.reputation_risk)} className="text-xs">
+                                {review.reputation_risk}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {categoryNameByCode[review.issue_category_code] ?? review.issue_category_code.replaceAll("_", " ")}
+                            </TableCell>
+                            <TableCell className="text-xs">
+                              {departmentNameByCode[review.department_code] ?? review.department_code.replaceAll("_", " ")}
+                            </TableCell>
+                            <TableCell>
+                              <Badge variant={actionStatusVariant(review.action_status)} className="text-xs">
+                                {formatCodeLabel(review.action_status)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="whitespace-nowrap text-right">
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                disabled={!canManageTickets}
+                                onClick={() => openTicketSheet(review)}
+                              >
+                                {!canManageTickets
+                                  ? "Read-only role"
+                                  : review.action_status === "ticket_created"
+                                    ? "Create follow-up"
+                                    : "Create ticket"}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="max-w-sm text-xs text-muted-foreground">
+                              {review.display_title && (
+                                <p className="font-medium text-foreground">{review.display_title}</p>
+                              )}
+                              <p className="mt-1">{review.display_reviewer_name ?? "Guest"}</p>
+                              <p className="line-clamp-2">{review.display_body}</p>
+                              {review.has_display_redactions && (
+                                <Badge variant="outline" className="mt-2 text-xs">redacted</Badge>
+                              )}
+                            </TableCell>
+                            <TableCell className="max-w-md text-xs text-muted-foreground">
+                              {buildOperationalSummary(review, categoryNameByCode, departmentNameByCode)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-muted-foreground">
+                    <p>
+                      Page {currentPage} of {totalPages || 1}, showing {reviews.length} of {totalReviews} reviews
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage(currentPage - 1)}>
+                        Previous
+                      </Button>
+                      <Button variant="outline" size="sm" disabled={totalPages === 0 || currentPage >= totalPages} onClick={() => setPage(currentPage + 1)}>
+                        Next
+                      </Button>
+                    </div>
+                  </div>
                 </div>
               )}
             </CardContent>

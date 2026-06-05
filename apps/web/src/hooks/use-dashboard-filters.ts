@@ -3,6 +3,9 @@
 import { useCallback, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
+export const DEFAULT_DATE_FROM = "2025-06-05"
+export const DEFAULT_DATE_TO = "2026-06-05"
+
 export type DashboardFilters = {
   source_code: string
   issue_category_code: string
@@ -21,8 +24,16 @@ const DEFAULTS: DashboardFilters = {
   reputation_risk: "",
   action_status: "",
   search: "",
-  date_from: "",
-  date_to: "",
+  date_from: DEFAULT_DATE_FROM,
+  date_to: DEFAULT_DATE_TO,
+}
+
+function startOfDay(value: string) {
+  return `${value}T00:00:00`
+}
+
+function endOfDay(value: string) {
+  return `${value}T23:59:59`
 }
 
 export function useDashboardFilters() {
@@ -36,8 +47,8 @@ export function useDashboardFilters() {
     reputation_risk: searchParams.get("reputation_risk") ?? "",
     action_status: searchParams.get("action_status") ?? "",
     search: searchParams.get("search") ?? "",
-    date_from: searchParams.get("date_from") ?? "",
-    date_to: searchParams.get("date_to") ?? "",
+    date_from: searchParams.get("date_from") ?? DEFAULT_DATE_FROM,
+    date_to: searchParams.get("date_to") ?? DEFAULT_DATE_TO,
   }), [searchParams])
 
   const setFilter = useCallback((key: keyof DashboardFilters, value: string | boolean) => {
@@ -49,6 +60,7 @@ export function useDashboardFilters() {
     } else {
       params.set(key, stringValue)
     }
+    params.delete("page")
     router.push(`?${params.toString()}`, { scroll: false })
   }, [router, searchParams])
 
@@ -64,8 +76,8 @@ export function useDashboardFilters() {
     if (filters.reputation_risk) params.set("reputation_risk", filters.reputation_risk)
     if (filters.action_status) params.set("action_status", filters.action_status)
     if (filters.search) params.set("search", filters.search)
-    if (filters.date_from) params.set("date_from", filters.date_from)
-    if (filters.date_to) params.set("date_to", filters.date_to)
+    if (filters.date_from) params.set("date_from", startOfDay(filters.date_from))
+    if (filters.date_to) params.set("date_to", endOfDay(filters.date_to))
     if (extraParams) {
       for (const [key, value] of Object.entries(extraParams)) {
         params.set(key, value)

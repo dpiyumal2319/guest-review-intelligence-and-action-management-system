@@ -98,12 +98,13 @@ function buildOperationalSummary(
 
 function OverviewContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
-  const { activeRole, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel, workflowLabel } = useDemoRole()
+  const { activeRole, scopeLabel, workflowLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
   const [sources, setSources] = useState<ReviewSource[]>([])
   const [issueSummary, setIssueSummary] = useState<IssueSummary | null>(null)
   const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null)
+  const [datasetKpi, setDatasetKpi] = useState<OverviewKpi | null>(null)
   const [categories, setCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -125,38 +126,39 @@ function OverviewContent() {
     setError(null)
     try {
       const params = buildApiParams()
-      if (!params.get("department_code") && effectiveDepartmentCode) {
-        params.set("department_code", effectiveDepartmentCode)
-      }
 
-      const [reviewsRes, issueSummaryRes, semanticRes, kpiRes] = await Promise.all([
+      const datasetParams = new URLSearchParams()
+      const [reviewsRes, issueSummaryRes, semanticRes, kpiRes, datasetKpiRes] = await Promise.all([
         fetch(`${apiBaseUrl}/reviews?${params}`),
         fetch(`${apiBaseUrl}/issues/summary?${params}`),
         fetch(`${apiBaseUrl}/analysis/semantic-clusters?${params}`),
         fetch(`${apiBaseUrl}/overview/kpis?${params}`),
+        fetch(`${apiBaseUrl}/overview/kpis?${datasetParams}`),
       ])
 
-      if (!reviewsRes.ok || !issueSummaryRes.ok || !semanticRes.ok || !kpiRes.ok) {
+      if (!reviewsRes.ok || !issueSummaryRes.ok || !semanticRes.ok || !kpiRes.ok || !datasetKpiRes.ok) {
         throw new Error("Failed to load overview data")
       }
 
-      const [reviewsData, issueSummaryData, semanticData, kpiData] = await Promise.all([
+      const [reviewsData, issueSummaryData, semanticData, kpiData, datasetKpiData] = await Promise.all([
         reviewsRes.json(),
         issueSummaryRes.json(),
         semanticRes.json(),
         kpiRes.json(),
+        datasetKpiRes.json(),
       ])
 
       setReviews(reviewsData.reviews)
       setIssueSummary(issueSummaryData)
       setSemanticAnalysis(semanticData)
       setOverviewKpi(kpiData)
+      setDatasetKpi(datasetKpiData)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load overview data")
     } finally {
       setIsLoading(false)
     }
-  }, [buildApiParams, effectiveDepartmentCode])
+  }, [buildApiParams])
 
   useEffect(() => {
     loadConfig().catch((loadError) => {
@@ -180,7 +182,6 @@ function OverviewContent() {
     () => Object.fromEntries(sources.map((source) => [source.code, source.name])),
     [sources]
   )
-  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
   const priorityReviews = reviews.slice(0, 8)
   const recurringPatterns = semanticAnalysis?.clusters.slice(0, 4) ?? []
   const sentimentData = useMemo(
@@ -203,18 +204,24 @@ function OverviewContent() {
   )
   const summaryCards = useMemo(() => {
     const totalReviews = overviewKpi?.total_reviews ?? 0
+    const datasetTotalReviews = datasetKpi?.total_reviews ?? 0
     const negativeReviews = overviewKpi?.sentiment_mix?.negative ?? 0
     const highRiskReviews = (overviewKpi?.reputation_risk_mix?.high ?? 0) + (overviewKpi?.reputation_risk_mix?.critical ?? 0)
     const topDepartment = overviewKpi?.top_departments?.[0]
 
     return [
       {
-        label: "Reviews in scope",
+        label: "Verified reviews loaded",
+        value: datasetTotalReviews.toString(),
+        detail: "Full demo dataset across Google Business Profile, Booking.com, and Tripadvisor.",
+      },
+      {
+        label: "Reviews in current view",
         value: totalReviews.toString(),
         detail: totalReviews === 0 ? "No reviews match the current filters." : "Filtered verified-review workload.",
       },
       {
-        label: "Negative sentiment",
+        label: "Negative guest mood",
         value: negativeReviews.toString(),
         detail: "Reviews that may require service recovery.",
       },
@@ -236,7 +243,7 @@ function OverviewContent() {
         detail: "Across Google Business Profile, Booking.com, and Tripadvisor.",
       },
     ]
-  }, [departmentNameByCode, overviewKpi])
+  }, [datasetKpi, departmentNameByCode, overviewKpi])
 
   return (
     <SidebarProvider
@@ -267,11 +274,6 @@ function OverviewContent() {
                   <Badge variant="outline" className="text-xs">{activeRole.name}</Badge>
                   <Badge variant="secondary" className="text-xs">{scopeLabel}</Badge>
                   <Badge variant="outline" className="text-xs">{workflowLabel}</Badge>
-                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
-                    <Badge variant="outline" className="text-xs">
-                      Defaulting to {scopedDepartmentName}
-                    </Badge>
-                  )}
                 </div>
               )}
             </div>
@@ -306,7 +308,7 @@ function OverviewContent() {
             <p className="text-sm text-destructive">{error}</p>
           ) : null}
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
             {summaryCards.map((metric) => (
               <Card key={metric.label}>
                 <CardHeader className="pb-2">
@@ -325,7 +327,7 @@ function OverviewContent() {
           <section className="grid gap-4 xl:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Sentiment mix</CardTitle>
+                <CardTitle>Guest mood mix</CardTitle>
               </CardHeader>
               <CardContent>
                 <ChartContainer config={sentimentConfig} className="h-72 w-full">
@@ -432,7 +434,7 @@ function OverviewContent() {
                         <TableRow>
                           <TableHead>Review</TableHead>
                           <TableHead>Platform</TableHead>
-                          <TableHead>Sentiment</TableHead>
+                          <TableHead>Guest mood</TableHead>
                           <TableHead>Reputation Risk</TableHead>
                           <TableHead>Category</TableHead>
                           <TableHead>Department</TableHead>

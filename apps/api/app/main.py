@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.analysis import reanalyze_reviews
@@ -164,6 +164,8 @@ async def reviews(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_session),
 ) -> ReviewsResponse:
     if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
@@ -220,14 +222,29 @@ async def reviews(
             )
         )
 
-    imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc())))
+    total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    imported_reviews = list(
+        session.scalars(
+            query
+            .order_by(NormalizedReview.review_date.desc(), NormalizedReview.id.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+    )
     review_payloads = []
     for review in imported_reviews:
         payload = ReviewResponse.model_validate(review).model_dump()
         if payload["analysis"] is not None:
             payload["analysis"]["explanation_factors"].pop("model", None)
         review_payloads.append(payload)
-    return ReviewsResponse(reviews=review_payloads)
+    total_pages = (total + per_page - 1) // per_page if total else 0
+    return ReviewsResponse(
+        reviews=review_payloads,
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+    )
 
 
 @app.get("/analysis/semantic-clusters", tags=["analysis"], response_model=SemanticAnalysisResponse)

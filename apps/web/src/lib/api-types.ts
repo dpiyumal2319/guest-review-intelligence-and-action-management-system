@@ -60,6 +60,14 @@ export type Review = {
   analysis: ReviewAnalysis | null
 }
 
+export type ReviewsResponse = {
+  reviews: Review[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+}
+
 export type IssueCategory = {
   code: string
   name: string

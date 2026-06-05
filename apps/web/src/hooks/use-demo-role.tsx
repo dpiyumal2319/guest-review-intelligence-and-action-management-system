@@ -52,9 +52,9 @@ function preferredDepartmentCode(departments: Department[], storedDepartmentCode
 
 function scopeLabelForRole(role: DemoRole | null, departmentName: string | null): string {
   if (!role) return "Loading demo scope"
-  if (role.code === "admin") return "All departments"
-  if (role.code === "operations_manager") return "All operational departments"
-  if (role.code === "department_head") return departmentName ? `${departmentName} default scope` : "Assigned department scope"
+  if (role.code === "admin") return "All departments visible"
+  if (role.code === "operations_manager") return "All operational departments visible"
+  if (role.code === "department_head") return departmentName ? `${departmentName} role context` : "Department Head role context"
   return "Cross-functional read-only view"
 }
 

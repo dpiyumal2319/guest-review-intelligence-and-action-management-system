@@ -30,6 +30,9 @@ def main() -> None:
         f"{run.records_created} created, {run.records_updated} updated, "
         f"{run.records_skipped} skipped, {run.error_count} errors"
     )
+    if run.errors:
+        for error in run.errors:
+            print(f"error: {error}")
 
 
 if __name__ == "__main__":

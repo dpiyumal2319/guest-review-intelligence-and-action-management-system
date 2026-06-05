@@ -93,6 +93,14 @@ function eventTypeLabel(eventType: string): string {
   return labels[eventType] ?? eventType.replaceAll("_", " ")
 }
 
+function formatCodeLabel(value: string) {
+  return value.replaceAll("_", " ")
+}
+
+function titleCaseCode(value: string) {
+  return formatCodeLabel(value).replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
 function ticketSourceLabel(ticket: Ticket, categoryNameByCode: Record<string, string>): string {
   if (ticket.source_group_type === "category_department_recurrence" && ticket.source_category_code) {
     return `${categoryNameByCode[ticket.source_category_code] ?? ticket.source_category_code.replaceAll("_", " ")} recurrence`
@@ -163,6 +171,8 @@ function TicketDetailSheet({
     : status === "verified"
       ? "Record what was checked before marking the ticket verified."
       : "Add context for the next owner or reviewer."
+  const statusLabels = Object.fromEntries(availableStatuses.map((item) => [item, titleCaseCode(item)]))
+  const priorityLabels = Object.fromEntries(TICKET_PRIORITIES.map((item) => [item, titleCaseCode(item)]))
 
   async function saveTicketUpdates() {
     if (!ticket || !canManageTickets) return
@@ -213,7 +223,9 @@ function TicketDetailSheet({
                 <Label className="text-xs">Status</Label>
                 <Select value={status} onValueChange={(value) => value && setStatus(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
+                    <SelectValue>
+                      {(value) => statusLabels[value] ?? value}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {availableStatuses.map((item) => (
@@ -226,7 +238,9 @@ function TicketDetailSheet({
                 <Label className="text-xs">Priority</Label>
                 <Select value={priority} onValueChange={(value) => value && setPriority(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
+                    <SelectValue>
+                      {(value) => priorityLabels[value] ?? value}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {TICKET_PRIORITIES.map((item) => (
@@ -239,7 +253,9 @@ function TicketDetailSheet({
                 <Label className="text-xs">Department</Label>
                 <Select value={departmentCode} onValueChange={(value) => value && setDepartmentCode(value)} disabled={!canManageTickets}>
                   <SelectTrigger className="h-8 text-xs">
-                    <SelectValue />
+                    <SelectValue>
+                      {(value) => departmentNameByCode[value] ?? value}
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map((department) => (
@@ -371,7 +387,7 @@ function TicketDetailSheet({
 
 function TicketsContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
-  const { activeRole, canManageTickets, departments: scopedDepartments, effectiveDepartmentCode, scopeLabel } = useDemoRole()
+  const { activeRole, canManageTickets, scopeLabel } = useDemoRole()
   const [tickets, setTickets] = useState<Ticket[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [categories, setCategories] = useState<IssueCategory[]>([])
@@ -395,9 +411,6 @@ function TicketsContent() {
     setError(null)
     try {
       const params = buildApiParams()
-      if (!params.get("department_code") && effectiveDepartmentCode) {
-        params.set("department_code", effectiveDepartmentCode)
-      }
       const res = await fetch(`${apiBaseUrl}/tickets?${params}`)
       if (!res.ok) throw new Error("Failed to load tickets")
       const data = await res.json()
@@ -407,14 +420,13 @@ function TicketsContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [buildApiParams, effectiveDepartmentCode])
+  }, [buildApiParams])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadTickets() }, [loadTickets])
 
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const categoryNameByCode = Object.fromEntries(categories.map((c) => [c.code, c.name]))
-  const scopedDepartmentName = scopedDepartments.find((department) => department.code === effectiveDepartmentCode)?.name
 
   function handleRowClick(ticket: Ticket) {
     setSelectedTicket(ticket)
@@ -447,11 +459,6 @@ function TicketsContent() {
                   <Badge variant={canManageTickets ? "secondary" : "outline"} className="text-xs">
                     {canManageTickets ? "Ticket edits enabled" : "Read-only ticket access"}
                   </Badge>
-                  {effectiveDepartmentCode && !filters.department_code && scopedDepartmentName && (
-                    <Badge variant="outline" className="text-xs">
-                      Defaulting to {scopedDepartmentName}
-                    </Badge>
-                  )}
                 </div>
               )}
             </div>

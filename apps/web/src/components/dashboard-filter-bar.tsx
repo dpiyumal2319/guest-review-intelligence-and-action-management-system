@@ -34,6 +34,13 @@ function fromSelectValue(value: string | null): string {
   return value === NONE || value === null ? "" : value
 }
 
+function filterSelectValueLabel(emptyLabel: string, labels: Record<string, string> = {}) {
+  return (value: string | null) => {
+    if (value === NONE || value === null) return emptyLabel
+    return labels[value] ?? value
+  }
+}
+
 export function DashboardFilterBar({
   filters,
   onFilterChange,
@@ -43,6 +50,11 @@ export function DashboardFilterBar({
   categories = [],
   departments = [],
 }: Props) {
+  const sourceLabels = Object.fromEntries(sources.map((source) => [source.code, source.name]))
+  const categoryLabels = Object.fromEntries(categories.map((category) => [category.code, category.name]))
+  const departmentLabels = Object.fromEntries(departments.map((department) => [department.code, department.name]))
+  const statusLabels = Object.fromEntries(ACTION_STATUSES.map((status) => [status, status.replaceAll("_", " ")]))
+
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
       <div className="flex flex-col gap-1.5">
@@ -87,7 +99,7 @@ export function DashboardFilterBar({
             onValueChange={(v) => onFilterChange("source_code", fromSelectValue(v))}
           >
             <SelectTrigger className="h-8 w-44 text-xs">
-              <SelectValue placeholder="All platforms" />
+              <SelectValue>{filterSelectValueLabel("All platforms", sourceLabels)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>All platforms</SelectItem>
@@ -107,7 +119,7 @@ export function DashboardFilterBar({
             onValueChange={(v) => onFilterChange("issue_category_code", fromSelectValue(v))}
           >
             <SelectTrigger className="h-8 w-48 text-xs">
-              <SelectValue placeholder="Any category" />
+              <SelectValue>{filterSelectValueLabel("Any category", categoryLabels)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>Any category</SelectItem>
@@ -127,7 +139,7 @@ export function DashboardFilterBar({
             onValueChange={(v) => onFilterChange("department_code", fromSelectValue(v))}
           >
             <SelectTrigger className="h-8 w-44 text-xs">
-              <SelectValue placeholder="Any department" />
+              <SelectValue>{filterSelectValueLabel("Any department", departmentLabels)}</SelectValue>
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>Any department</SelectItem>
@@ -146,7 +158,7 @@ export function DashboardFilterBar({
           onValueChange={(v) => onFilterChange("reputation_risk", fromSelectValue(v))}
         >
           <SelectTrigger className="h-8 w-36 text-xs">
-            <SelectValue placeholder="Any risk" />
+            <SelectValue>{filterSelectValueLabel("Any risk")}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE}>Any risk</SelectItem>
@@ -164,7 +176,7 @@ export function DashboardFilterBar({
           onValueChange={(v) => onFilterChange("action_status", fromSelectValue(v))}
         >
           <SelectTrigger className="h-8 w-40 text-xs">
-            <SelectValue placeholder="Any status" />
+            <SelectValue>{filterSelectValueLabel("Any status", statusLabels)}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             <SelectItem value={NONE}>Any status</SelectItem>

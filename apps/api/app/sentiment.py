@@ -83,13 +83,23 @@ class LocalTransformerSentimentAnalyzer:
 
 
 def _load_transformer_pipeline(*, model_id: str, revision: str | None):
-    from transformers import pipeline
+    from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        model_id,
+        revision=revision,
+        local_files_only=True,
+    )
+    model = AutoModelForSequenceClassification.from_pretrained(
+        model_id,
+        revision=revision,
+        local_files_only=True,
+    )
 
     return pipeline(
         "sentiment-analysis",
-        model=model_id,
-        revision=revision,
-        local_files_only=True,
+        model=model,
+        tokenizer=tokenizer,
     )
 
 
