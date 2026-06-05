@@ -252,7 +252,7 @@ async def semantic_clusters(
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
-    similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
+    similarity_threshold: float | None = Query(default=None, ge=0.0, le=1.0),
     min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
     session: Session = Depends(get_session),
 ) -> SemanticAnalysisResponse:
@@ -814,7 +814,7 @@ async def create_semantic_cluster_ticket(
     source_code: str | None = Query(default=None),
     issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
-    similarity_threshold: float = Query(default=DEFAULT_SIMILARITY_THRESHOLD, ge=0.0, le=1.0),
+    similarity_threshold: float | None = Query(default=None, ge=0.0, le=1.0),
     min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
     session: Session = Depends(get_session),
 ) -> ActionTicket:
