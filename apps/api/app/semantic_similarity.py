@@ -17,6 +17,8 @@ TFIDF_EMBEDDING_MODEL_NAME = "local-tfidf-cosine-review-embeddings"
 TOKEN_OVERLAP_MODEL_NAME = "local-token-overlap-review-embeddings"
 FALLBACK_MODEL_VERSION = "2026.07.demo-fallback"
 DEFAULT_SIMILARITY_THRESHOLD = 0.78
+TFIDF_FALLBACK_SIMILARITY_THRESHOLD = 0.30
+TOKEN_OVERLAP_FALLBACK_SIMILARITY_THRESHOLD = 0.30
 DEFAULT_MIN_CLUSTER_SIZE = 2
 
 
@@ -143,11 +145,21 @@ class LocalSemanticSimilarityAnalyzer:
 def analyze_semantic_similarity(
     reviews: Iterable[NormalizedReview],
     *,
-    similarity_threshold: float = DEFAULT_SIMILARITY_THRESHOLD,
+    similarity_threshold: float | None = None,
     min_cluster_size: int = DEFAULT_MIN_CLUSTER_SIZE,
 ) -> SemanticAnalysisResult:
     records = [_semantic_record(review) for review in reviews if review.body.strip()]
     runtime = get_semantic_similarity_analyzer()
+
+    if similarity_threshold is None:
+        strategy = runtime.metadata().embedding_strategy
+        if strategy == "tfidf_cosine_fallback":
+            similarity_threshold = TFIDF_FALLBACK_SIMILARITY_THRESHOLD
+        elif strategy == "token_overlap_fallback":
+            similarity_threshold = TOKEN_OVERLAP_FALLBACK_SIMILARITY_THRESHOLD
+        else:
+            similarity_threshold = DEFAULT_SIMILARITY_THRESHOLD
+
     if len(records) < 2:
         return _empty_result(similarity_threshold, min_cluster_size, runtime.metadata())
 

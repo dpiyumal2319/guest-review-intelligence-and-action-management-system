@@ -474,7 +474,7 @@ def test_semantic_similarity_flags_near_duplicates_without_merging(tmp_path: Pat
             seed_reference_config(session)
 
             reviews = _ingest_semantic_reviews(session, connector_key="test_semantic_dedupe")
-            semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+            semantic_result = analyze_semantic_similarity(reviews)
 
             assert {review.is_content_duplicate for review in reviews} == {False}
             assert {review.duplicate_of_review_id for review in reviews} == {None}
@@ -521,7 +521,7 @@ def test_semantic_similarity_uses_sentence_transformer_when_available(tmp_path: 
         with Session(engine) as session:
             seed_reference_config(session)
             reviews = _ingest_semantic_reviews(session, connector_key="test_semantic_transformer")
-            semantic_result = analyze_semantic_similarity(reviews, similarity_threshold=0.30)
+            semantic_result = analyze_semantic_similarity(reviews)
 
             assert semantic_result.embedding_strategy == "local_sentence_transformer"
             assert semantic_result.embedding_model_name == "local-sentence-transformer-review-embeddings"
