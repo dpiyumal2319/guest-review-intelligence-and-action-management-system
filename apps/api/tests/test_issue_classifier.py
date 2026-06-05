@@ -1,4 +1,5 @@
 from pathlib import Path
+from datetime import UTC, datetime
 import json
 
 import pytest
@@ -160,8 +161,52 @@ def test_connector_fixture_generation_writes_provider_shapes_without_analysis(tm
 
     assert manifest["model"] == "dolphin-llama3:latest"
     assert manifest["total_reviews"] == 9
+    assert manifest["date_window_start"] == "2025-06-05T00:00:00+00:00"
+    assert manifest["date_window_end"] == "2026-06-05T23:59:59+00:00"
+    fixture_dates = [
+        datetime.fromisoformat(payload["createTime"].replace("Z", "+00:00"))
+        for payload in google
+    ] + [
+        datetime.fromisoformat(payload["created_at"])
+        for payload in booking
+    ] + [
+        datetime.fromisoformat(payload["published_date"])
+        for payload in tripadvisor
+    ]
+    assert min(fixture_dates) == datetime(2025, 6, 5, 0, 0, tzinfo=UTC)
+    assert max(fixture_dates) == datetime(2026, 6, 5, 23, 59, 59, tzinfo=UTC)
     for payloads in (google, booking, tripadvisor):
         assert not contains_analysis_fields(payloads)
         serialized = json.dumps(payloads)
         for field_name in ANALYSIS_FIELD_NAMES:
             assert field_name not in serialized
+
+
+def test_connector_fixture_generation_can_namespace_provider_ids(tmp_path: Path) -> None:
+    def fake_requester(prompt: str) -> str:
+        return json.dumps(
+            {
+                "title": "Namespaced fixture",
+                "text": "A realistic hotel review for checking namespaced fixture identities.",
+                "rating": 3,
+            }
+        )
+
+    result = generate_connector_fixtures(
+        output_dir=tmp_path / "fixtures",
+        total_reviews=3,
+        request_text=fake_requester,
+        id_namespace="llama",
+        seed=42,
+    )
+
+    google = json.loads(result.files["google_business_profile"].read_text(encoding="utf-8"))
+    booking = json.loads(result.files["booking_com"].read_text(encoding="utf-8"))
+    tripadvisor = json.loads(result.files["tripadvisor"].read_text(encoding="utf-8"))
+    manifest = json.loads(result.files["manifest"].read_text(encoding="utf-8"))
+
+    assert google[0]["reviewId"].startswith("llama-gbp-review-")
+    assert google[0]["name"].endswith(google[0]["reviewId"])
+    assert booking[0]["guest_review_id"].startswith("llama-booking-review-")
+    assert tripadvisor[0]["id"].startswith("llama-tripadvisor-review-")
+    assert manifest["id_namespace"] == "llama"

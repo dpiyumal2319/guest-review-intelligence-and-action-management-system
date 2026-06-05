@@ -16,6 +16,8 @@ from urllib import request
 DEFAULT_MODEL = "dolphin-llama3:latest"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_TOTAL_REVIEWS = 2000
+DEFAULT_DATE_WINDOW_START = datetime(2025, 6, 5, 0, 0, tzinfo=UTC)
+DEFAULT_DATE_WINDOW_END = datetime(2026, 6, 5, 23, 59, 59, tzinfo=UTC)
 DEFAULT_OUTPUT_DIR = Path("apps/api/data/generated-fixtures/connectors")
 PLATFORMS = ("google_business_profile", "booking_com", "tripadvisor")
 ANALYSIS_FIELD_NAMES = {
@@ -221,8 +223,17 @@ def build_review_draft(
     return ReviewDraft(text=normalize_text(draft.text), title=draft.title, rating=draft.rating)
 
 
-def review_datetime(index: int) -> datetime:
-    return datetime(2026, 1, 1, 10, 0, tzinfo=UTC) + timedelta(hours=index * 7)
+def review_datetime(
+    index: int,
+    *,
+    total_reviews: int = DEFAULT_TOTAL_REVIEWS,
+    date_window_start: datetime = DEFAULT_DATE_WINDOW_START,
+    date_window_end: datetime = DEFAULT_DATE_WINDOW_END,
+) -> datetime:
+    if total_reviews <= 1:
+        return date_window_start
+    offset = (date_window_end - date_window_start) * ((index - 1) / (total_reviews - 1))
+    return date_window_start + offset
 
 
 def reviewer_alias(index: int) -> str:
@@ -241,18 +252,45 @@ def reviewer_alias(index: int) -> str:
     return f"{names[index % len(names)]}{index:04d}"
 
 
-def maybe_reply(index: int, rating: int) -> dict[str, str] | None:
+def maybe_reply(
+    index: int,
+    rating: int,
+    *,
+    total_reviews: int,
+    date_window_start: datetime,
+    date_window_end: datetime,
+) -> dict[str, str] | None:
     if rating >= 4 or index % 3:
         return None
+    created = review_datetime(
+        index,
+        total_reviews=total_reviews,
+        date_window_start=date_window_start,
+        date_window_end=date_window_end,
+    )
     return {
         "comment": "Thank you for the detailed feedback. Our team is reviewing this with the relevant manager.",
-        "updateTime": (review_datetime(index) + timedelta(days=1)).isoformat().replace("+00:00", "Z"),
+        "updateTime": min(created + timedelta(days=1), date_window_end).isoformat().replace("+00:00", "Z"),
     }
 
 
-def google_payload(index: int, draft: ReviewDraft, rng: random.Random) -> dict[str, Any]:
+def google_payload(
+    index: int,
+    draft: ReviewDraft,
+    rng: random.Random,
+    *,
+    total_reviews: int,
+    date_window_start: datetime,
+    date_window_end: datetime,
+) -> dict[str, Any]:
     review_id = f"gbp-review-{index:06d}"
-    created = review_datetime(index)
+    created = review_datetime(
+        index,
+        total_reviews=total_reviews,
+        date_window_start=date_window_start,
+        date_window_end=date_window_end,
+    )
+    updated = min(created + timedelta(hours=rng.randint(0, 72)), date_window_end)
     payload: dict[str, Any] = {
         "name": f"accounts/1029384756/locations/8945123001/reviews/{review_id}",
         "reviewId": review_id,
@@ -264,17 +302,37 @@ def google_payload(index: int, draft: ReviewDraft, rng: random.Random) -> dict[s
         "starRating": STAR_RATING_NAMES[draft.rating],
         "comment": draft.text,
         "createTime": created.isoformat().replace("+00:00", "Z"),
-        "updateTime": (created + timedelta(hours=rng.randint(0, 72))).isoformat().replace("+00:00", "Z"),
+        "updateTime": updated.isoformat().replace("+00:00", "Z"),
         "likeCount": rng.randint(0, 18),
     }
-    reply = maybe_reply(index, draft.rating)
+    reply = maybe_reply(
+        index,
+        draft.rating,
+        total_reviews=total_reviews,
+        date_window_start=date_window_start,
+        date_window_end=date_window_end,
+    )
     if reply is not None:
         payload["reviewReply"] = reply
     return payload
 
 
-def booking_payload(index: int, draft: ReviewDraft, rng: random.Random) -> dict[str, Any]:
-    created = review_datetime(index)
+def booking_payload(
+    index: int,
+    draft: ReviewDraft,
+    rng: random.Random,
+    *,
+    total_reviews: int,
+    date_window_start: datetime,
+    date_window_end: datetime,
+) -> dict[str, Any]:
+    created = review_datetime(
+        index,
+        total_reviews=total_reviews,
+        date_window_start=date_window_start,
+        date_window_end=date_window_end,
+    )
+    updated = min(created + timedelta(hours=rng.randint(1, 48)), date_window_end)
     overall = round(draft.rating * 2.0, 1)
     variance = lambda: max(1.0, min(10.0, round(overall + rng.choice((-1.0, -0.5, 0.0, 0.5, 1.0)), 1)))
     negative = "" if draft.rating >= 4 else draft.text
@@ -303,15 +361,28 @@ def booking_payload(index: int, draft: ReviewDraft, rng: random.Random) -> dict[
             "language_code": "en",
         },
         "created_at": created.isoformat(),
-        "updated_at": (created + timedelta(hours=rng.randint(1, 48))).isoformat(),
+        "updated_at": updated.isoformat(),
         "review_status": "published",
         "helpful_votes": rng.randint(0, 24),
         "partner_response_status": "responded" if draft.rating <= 2 and index % 2 == 0 else "not_responded",
     }
 
 
-def tripadvisor_payload(index: int, draft: ReviewDraft, rng: random.Random) -> dict[str, Any]:
-    created = review_datetime(index)
+def tripadvisor_payload(
+    index: int,
+    draft: ReviewDraft,
+    rng: random.Random,
+    *,
+    total_reviews: int,
+    date_window_start: datetime,
+    date_window_end: datetime,
+) -> dict[str, Any]:
+    created = review_datetime(
+        index,
+        total_reviews=total_reviews,
+        date_window_start=date_window_start,
+        date_window_end=date_window_end,
+    )
     payload: dict[str, Any] = {
         "id": f"tripadvisor-review-{index:06d}",
         "location_id": "the-kingsbury-colombo-demo",
@@ -338,18 +409,79 @@ def tripadvisor_payload(index: int, draft: ReviewDraft, rng: random.Random) -> d
     if draft.rating <= 3 and index % 3 == 0:
         payload["management_response"] = {
             "text": "We appreciate the feedback and are reviewing the concern with our operations team.",
-            "published_date": (created + timedelta(days=1)).isoformat(),
+            "published_date": min(created + timedelta(days=1), date_window_end).isoformat(),
         }
     return payload
 
 
-def platform_payload(platform: str, index: int, draft: ReviewDraft, rng: random.Random) -> dict[str, Any]:
+def platform_payload(
+    platform: str,
+    index: int,
+    draft: ReviewDraft,
+    rng: random.Random,
+    *,
+    total_reviews: int,
+    date_window_start: datetime,
+    date_window_end: datetime,
+) -> dict[str, Any]:
     if platform == "google_business_profile":
-        return google_payload(index, draft, rng)
+        return google_payload(
+            index,
+            draft,
+            rng,
+            total_reviews=total_reviews,
+            date_window_start=date_window_start,
+            date_window_end=date_window_end,
+        )
     if platform == "booking_com":
-        return booking_payload(index, draft, rng)
+        return booking_payload(
+            index,
+            draft,
+            rng,
+            total_reviews=total_reviews,
+            date_window_start=date_window_start,
+            date_window_end=date_window_end,
+        )
     if platform == "tripadvisor":
-        return tripadvisor_payload(index, draft, rng)
+        return tripadvisor_payload(
+            index,
+            draft,
+            rng,
+            total_reviews=total_reviews,
+            date_window_start=date_window_start,
+            date_window_end=date_window_end,
+        )
+    raise ValueError(f"Unsupported platform {platform!r}")
+
+
+def prefixed_identifier(value: str, namespace: str) -> str:
+    if not namespace:
+        return value
+    prefix = f"{namespace}-"
+    return value if value.startswith(prefix) else f"{prefix}{value}"
+
+
+def namespace_payload_ids(platform: str, payload: dict[str, Any], namespace: str) -> None:
+    if not namespace:
+        return
+    if platform == "google_business_profile":
+        old_id = payload["reviewId"]
+        new_id = prefixed_identifier(old_id, namespace)
+        payload["reviewId"] = new_id
+        payload["name"] = str(payload["name"]).removesuffix(old_id) + new_id
+        return
+    if platform == "booking_com":
+        payload["guest_review_id"] = prefixed_identifier(payload["guest_review_id"], namespace)
+        payload["reservation_id"] = prefixed_identifier(payload["reservation_id"], namespace)
+        return
+    if platform == "tripadvisor":
+        old_id = payload["id"]
+        new_id = prefixed_identifier(old_id, namespace)
+        payload["id"] = new_id
+        match = re.search(r"tripadvisor-review-(\d+)$", old_id)
+        if match:
+            payload["url"] = str(payload["url"]).replace(f"-r{match.group(1)}-", f"-r{namespace}-{match.group(1)}-")
+        return
     raise ValueError(f"Unsupported platform {platform!r}")
 
 
@@ -389,8 +521,13 @@ def generate_connector_fixtures(
     ollama_url: str = DEFAULT_OLLAMA_URL,
     request_text: Callable[[str], str] | None = None,
     seed: int = 202607,
+    date_window_start: datetime = DEFAULT_DATE_WINDOW_START,
+    date_window_end: datetime = DEFAULT_DATE_WINDOW_END,
+    id_namespace: str = "",
     log: Callable[[str], None] | None = None,
 ) -> FixtureGenerationResult:
+    if date_window_end < date_window_start:
+        raise ValueError("date_window_end must be on or after date_window_start")
     rng = random.Random(seed)
     counts = platform_counts(total_reviews)
     files: dict[str, Path] = {}
@@ -410,7 +547,16 @@ def generate_connector_fixtures(
                 model=model,
                 ollama_url=ollama_url,
             )
-            payload = platform_payload(platform, global_index, draft, rng)
+            payload = platform_payload(
+                platform,
+                global_index,
+                draft,
+                rng,
+                total_reviews=total_reviews,
+                date_window_start=date_window_start,
+                date_window_end=date_window_end,
+            )
+            namespace_payload_ids(platform, payload, id_namespace)
             if contains_analysis_fields(payload):
                 raise ValueError(f"Generated {platform} payload contains precomputed analysis fields.")
             payloads.append(payload)
@@ -426,6 +572,9 @@ def generate_connector_fixtures(
                 "model": model,
                 "ollama_url": ollama_url,
                 "total_reviews": total_reviews,
+                "date_window_start": date_window_start.isoformat(),
+                "date_window_end": date_window_end.isoformat(),
+                "id_namespace": id_namespace or None,
                 "counts": counts,
                 "files": {platform: str(path) for platform, path in files.items()},
                 "product_runtime": "not used; generation is a local data-preparation step",
@@ -454,6 +603,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--ollama-url", default=DEFAULT_OLLAMA_URL)
     parser.add_argument("--seed", type=int, default=202607)
+    parser.add_argument("--date-window-start", default=DEFAULT_DATE_WINDOW_START.isoformat())
+    parser.add_argument("--date-window-end", default=DEFAULT_DATE_WINDOW_END.isoformat())
+    parser.add_argument("--id-namespace", default="")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress logs.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     return parser
@@ -468,6 +620,9 @@ def main(argv: list[str] | None = None) -> int:
         model=args.model,
         ollama_url=args.ollama_url,
         seed=args.seed,
+        date_window_start=datetime.fromisoformat(args.date_window_start),
+        date_window_end=datetime.fromisoformat(args.date_window_end),
+        id_namespace=args.id_namespace,
         log=None if args.quiet else lambda message: print(message, flush=True),
     )
     print(

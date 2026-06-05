@@ -1,0 +1,21 @@
+{
+  "counts": {
+    "booking_com": 333,
+    "google_business_profile": 334,
+    "tripadvisor": 333
+  },
+  "date_window_end": "2026-06-05T23:59:59+00:00",
+  "date_window_start": "2025-06-05T00:00:00+00:00",
+  "dates_redistributed_at": "2026-06-05T15:43:36.398464+00:00",
+  "files": {
+    "booking_com": "apps/api/data/generated-fixtures/connectors-llama/booking_com.json",
+    "google_business_profile": "apps/api/data/generated-fixtures/connectors-llama/google_business_profile.json",
+    "tripadvisor": "apps/api/data/generated-fixtures/connectors-llama/tripadvisor.json"
+  },
+  "generated_at": "2026-06-05T00:09:48.497518+00:00",
+  "id_namespace": "llama",
+  "model": "llama3.1:latest",
+  "ollama_url": "http://127.0.0.1:11434/api/generate",
+  "product_runtime": "not used; generation is a local data-preparation step",
+  "total_reviews": 1000
+}

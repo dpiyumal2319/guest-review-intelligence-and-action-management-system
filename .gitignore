@@ -23,4 +23,8 @@ reports/
 apps/api/artifacts/
 apps/api/reports/
 apps/api/data/labelled/
-apps/api/data/generated-fixtures/
+apps/api/data/generated-fixtures/*
+!apps/api/data/generated-fixtures/connectors/
+!apps/api/data/generated-fixtures/connectors/**
+!apps/api/data/generated-fixtures/connectors-llama/
+!apps/api/data/generated-fixtures/connectors-llama/**
