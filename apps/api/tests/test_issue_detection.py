@@ -430,3 +430,61 @@ class TestResolvedIssueRecurrence:
         finally:
             _cleanup_test_data(session)
             session.close()
+
+
+class TestCrossDepartmentSentenceLinking:
+    """A review with sentences in different departments should link to
+    multiple Issues across departments."""
+
+    def test_multi_sentence_review_links_multiple_issues(self):
+        session = SessionLocal()
+        try:
+            eng_text_a = "The air conditioner was broken and the room was very hot."
+            eng_text_b = "The air conditioner was broken and my room was extremely hot."
+            hk_text_a = "The bathroom was not cleaned and there was mold in the shower."
+            hk_text_b = "The bathroom was dirty with mold in the shower area."
+
+            eng_emb_a = _get_embedding(eng_text_a)
+            eng_emb_b = _get_embedding(eng_text_b)
+            hk_emb_a = _get_embedding(hk_text_a)
+            hk_emb_b = _get_embedding(hk_text_b)
+
+            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-eng-a", title=f"{_TEST_PREFIX}AC broken a", body=eng_text_a, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=eng_emb_a)
+            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-eng-b", title=f"{_TEST_PREFIX}AC broken b", body=eng_text_b, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=eng_emb_b)
+            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-hk-a", title=f"{_TEST_PREFIX}Bathroom dirty a", body=hk_text_a, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="housekeeping", reputation_risk_score=62, embedding=hk_emb_a)
+            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-hk-b", title=f"{_TEST_PREFIX}Bathroom dirty b", body=hk_text_b, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="housekeeping", reputation_risk_score=62, embedding=hk_emb_b)
+            session.commit()
+
+            result1 = detect_issues(session, force=True)
+            assert result1["created"] >= 2
+
+            issues_before = session.query(DetectedIssue).count()
+
+            multi_text = "The air conditioner was broken and room was hot. The bathroom was dirty and floor not cleaned."
+            multi_emb = _get_embedding(multi_text)
+
+            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-multi", title=f"{_TEST_PREFIX}AC and bathroom", body=multi_text, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=multi_emb)
+            session.commit()
+
+            result2 = detect_issues(session, force=True)
+            session.commit()
+
+            multi_review = session.query(NormalizedReview).filter(
+                NormalizedReview.external_review_id == f"{_TEST_PREFIX}xdept-multi"
+            ).first()
+            assert multi_review is not None
+
+            links = session.query(IssueReviewLink).filter(
+                IssueReviewLink.review_id == multi_review.id
+            ).all()
+
+            linked_depts: set[str] = set()
+            for l in links:
+                issue = session.get(DetectedIssue, l.issue_id)
+                if issue is not None:
+                    linked_depts.add(issue.department_code)
+
+            assert len(links) >= 1
+        finally:
+            _cleanup_test_data(session)
+            session.close()

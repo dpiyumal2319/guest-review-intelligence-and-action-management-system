@@ -112,8 +112,6 @@ def _get_unlinked_negative_reviews(session: Session) -> list[NormalizedReview]:
 
 
 def _build_sentence_vectors(review: NormalizedReview) -> list[tuple[str, str, list[float]]]:
-    """Split review into sentences, classify department, embed each.
-    Returns list of (sentence_text, department_code, embedding_vector)."""
     text = review.body or ""
     sentences = split_sentences(text)
     if not sentences:
@@ -157,11 +155,11 @@ def _match_review_against_issues(
     matched_issue_ids: set[int] = set()
     review_dept = review.analysis.department_code if review.analysis else "guest_relations"
 
-    for sentence_text, _sentence_dept, sentence_emb in sentence_vectors:
+    for sentence_text, sentence_dept, sentence_emb in sentence_vectors:
         for issue in issues:
             if issue.id in matched_issue_ids:
                 continue
-            if issue.department_code != review_dept:
+            if issue.department_code != sentence_dept and issue.department_code != review_dept:
                 continue
 
             similarity = centroid_similarity(issue.cluster_centroid, sentence_emb)
@@ -231,7 +229,6 @@ def _match_review_against_issues(
                         created_at=now,
                     )
                 )
-            break
 
     return linked_count
 
@@ -326,15 +323,21 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
     department_code = cluster["department_code"]
     now = datetime.now(UTC)
 
-    embeddings = [
-        r.analysis.embedding
-        for r in reviews
-        if r.analysis is not None and r.analysis.embedding is not None
-    ]
-    if not embeddings:
+    centroid_vectors: list[list[float]] = []
+    for review in reviews:
+        sentence_vectors = _build_sentence_vectors(review)
+        found = False
+        for _sentence, s_dept, s_emb in sentence_vectors:
+            if s_dept == department_code:
+                centroid_vectors.append(s_emb)
+                found = True
+        if not found and review.analysis is not None and review.analysis.embedding is not None:
+            centroid_vectors.append(review.analysis.embedding)
+
+    if not centroid_vectors:
         return None
 
-    centroid = compute_centroid(embeddings)
+    centroid = compute_centroid(centroid_vectors)
 
     review_ids = sorted(r.id for r in reviews)
     cluster_key = _build_cluster_key(department_code, review_ids)
@@ -397,8 +400,21 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
 
     for review in reviews:
         similarity = 0.0
-        if review.analysis is not None and review.analysis.embedding is not None:
-            similarity = centroid_similarity(centroid, review.analysis.embedding)
+        sentence_vectors = _build_sentence_vectors(review)
+        best_sim = 0.0
+        best_sentence = None
+        for st, s_dept, s_emb in sentence_vectors:
+            if s_dept == department_code:
+                sim = centroid_similarity(centroid, s_emb)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_sentence = st
+        if best_sim == 0.0 and review.analysis is not None and review.analysis.embedding is not None:
+            best_sim = centroid_similarity(centroid, review.analysis.embedding)
+            best_sentence = review.body[:500]
+        similarity = best_sim
+
+        evidence = best_sentence[:500] if best_sentence else _extract_evidence_snippet(review.body)
 
         link = IssueReviewLink(
             issue_id=issue.id,
@@ -406,7 +422,7 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
             similarity_score=round(similarity, 4),
             linked_at=now,
             is_triggering_evidence=True,
-            evidence_snippet=_extract_evidence_snippet(review.body),
+            evidence_snippet=evidence,
         )
         session.add(link)
 
@@ -527,7 +543,13 @@ def _recompute_issue_centroid(session: Session, issue: DetectedIssue) -> None:
     embeddings: list[list[float]] = []
     for link in links:
         review = session.get(NormalizedReview, link.review_id)
-        if review is not None and review.analysis is not None and review.analysis.embedding is not None:
+        if review is None:
+            continue
+        sentence_vectors = _build_sentence_vectors(review)
+        for _st, s_dept, s_emb in sentence_vectors:
+            if s_dept == issue.department_code:
+                embeddings.append(s_emb)
+        if review.analysis is not None and review.analysis.embedding is not None:
             embeddings.append(review.analysis.embedding)
 
     if embeddings:
@@ -630,23 +652,21 @@ def get_emerging_candidates(session: Session) -> list[dict]:
         for i in range(len(reviews)):
             if reviews[i].id in visited:
                 continue
-            if reviews[i].analysis is None or reviews[i].analysis.embedding is None:
-                continue
 
             component_reviews = [reviews[i]]
             visited.add(reviews[i].id)
 
+            a_vectors = _build_sentence_vectors(reviews[i])
+
             for j in range(i + 1, len(reviews)):
                 if reviews[j].id in visited:
                     continue
-                if reviews[j].analysis is None or reviews[j].analysis.embedding is None:
-                    continue
 
-                sim = centroid_similarity(
-                    reviews[i].analysis.embedding,
-                    reviews[j].analysis.embedding,
-                )
-                if sim >= SIMILARITY_THRESHOLD:
+                b_vectors = _build_sentence_vectors(reviews[j])
+
+                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors)
+
+                if max_sim >= SIMILARITY_THRESHOLD:
                     component_reviews.append(reviews[j])
                     visited.add(reviews[j].id)
 
@@ -659,16 +679,10 @@ def get_emerging_candidates(session: Session) -> list[dict]:
                 sims = []
                 for a in range(len(component_reviews)):
                     for b in range(a + 1, len(component_reviews)):
-                        if (
-                            component_reviews[a].analysis is not None
-                            and component_reviews[b].analysis is not None
-                            and component_reviews[a].analysis.embedding is not None
-                            and component_reviews[b].analysis.embedding is not None
-                        ):
-                            s = centroid_similarity(
-                                component_reviews[a].analysis.embedding,
-                                component_reviews[b].analysis.embedding,
-                            )
+                        a_vecs = _build_sentence_vectors(component_reviews[a])
+                        b_vecs = _build_sentence_vectors(component_reviews[b])
+                        s = _max_sentence_pair_similarity(a_vecs, b_vecs)
+                        if s > 0:
                             sims.append(s)
 
                 candidates.append({
