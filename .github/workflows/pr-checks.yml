@@ -55,10 +55,14 @@ jobs:
         run: npm run build:web
 
       - name: Run API migrations
-        run: npm run api:migrate
+        run: |
+          cd apps/api
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m alembic upgrade head
 
       - name: Seed API reference data
-        run: npm run api:seed
+        run: cd apps/api && .venv/bin/python -m app.seed
 
       - name: Run API tests
         run: npm run api:test
