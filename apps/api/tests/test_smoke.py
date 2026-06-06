@@ -23,13 +23,12 @@ from app.schemas import (
     ReviewsResponse,
 )
 from app.sentiment import ANALYSIS_VERSION
-from app.ml.department_classifier import DEPARTMENT_LABELS
+from app.ml.department_classifier import DEPARTMENT_LABELS, DEPARTMENT_LABEL_TO_CODE
 
 
 def test_models_import():
     assert len(DEPARTMENT_LABELS) == 6
-    assert "engineering" in DEPARTMENT_LABELS
-    assert "management" in DEPARTMENT_LABELS
+    assert "engineering" in DEPARTMENT_LABELS[3]
 
 
 def test_schemas_import():
@@ -51,5 +50,6 @@ def test_app_has_routes():
 
 
 def test_department_labels():
-    expected = {"housekeeping", "front_office", "food_beverage", "engineering", "management", "guest_relations"}
-    assert set(DEPARTMENT_LABELS) == expected
+    expected_codes = {"housekeeping", "front_office", "food_beverage", "engineering", "management", "guest_relations"}
+    assert set(DEPARTMENT_LABEL_TO_CODE.values()) == expected_codes
+    assert len(DEPARTMENT_LABELS) == 6

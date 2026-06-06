@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 import hashlib
 import os
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -17,17 +17,17 @@ from app.models import (
     ReviewAnalysis,
 )
 from app.semantic_similarity import (
-    compute_centroid,
     centroid_similarity,
+    compute_centroid,
     get_semantic_similarity_analyzer,
     split_sentences,
 )
+from app.ml.department_classifier import get_department_classifier
 
-SIMILARITY_THRESHOLD = 0.55
+SIMILARITY_THRESHOLD = 0.78
 RECURRENCE_WINDOW_DAYS = 30
 MIN_EVIDENCE_FOR_PROMOTION = 2
 SINGLE_CRITICAL_RISK_THRESHOLD = 75
-EMBEDDING_DIMS = 384
 
 
 def detect_issues(
@@ -62,11 +62,9 @@ def detect_issues(
     session.flush()
 
     for issue in existing_issues:
-        if issue.status in ("active", "recurred"):
-            if _check_threshold_met(session, issue):
-                if issue.status != "recurred":
-                    _update_issue_from_links(session, issue)
-                    updated += 1
+        if issue.status == "active":
+            _update_issue_from_links(session, issue)
+            updated += 1
 
     session.commit()
     return {"created": created, "updated": updated, "linked": linked}
@@ -81,9 +79,7 @@ def _get_unlinked_reviews(session: Session, *, force: bool = False) -> list[Norm
         ))
 
     linked_review_ids = set(
-        session.scalars(
-            select(IssueReviewLink.review_id)
-        )
+        session.scalars(select(IssueReviewLink.review_id))
     )
 
     return list(session.scalars(
@@ -115,106 +111,137 @@ def _get_unlinked_negative_reviews(session: Session) -> list[NormalizedReview]:
     ))
 
 
+def _build_sentence_vectors(review: NormalizedReview) -> list[tuple[str, str, list[float]]]:
+    """Split review into sentences, classify department, embed each.
+    Returns list of (sentence_text, department_code, embedding_vector)."""
+    text = review.body or ""
+    sentences = split_sentences(text)
+    if not sentences:
+        return []
+
+    dept_classifier = get_department_classifier()
+    embedding_runtime = get_semantic_similarity_analyzer()
+
+    sentence_depts = [dept_classifier.classify(s)[0].department_code for s in sentences]
+
+    sentence_embeddings: list[list[float]] = []
+    if embedding_runtime.is_available():
+        emb_result = embedding_runtime.embed_batch(sentences)
+        sentence_embeddings = emb_result.embeddings
+        if len(sentence_embeddings) < len(sentences):
+            sentence_embeddings = []
+    else:
+        sentence_embeddings = []
+
+    results: list[tuple[str, str, list[float]]] = []
+    for i, sentence in enumerate(sentences):
+        dept = sentence_depts[i] if i < len(sentence_depts) else "guest_relations"
+        emb = sentence_embeddings[i] if i < len(sentence_embeddings) else []
+        if emb:
+            results.append((sentence, dept, emb))
+    return results
+
+
 def _match_review_against_issues(
     session: Session,
     review: NormalizedReview,
     issues: list[DetectedIssue],
 ) -> int:
     linked_count = 0
-    if review.analysis is None or review.analysis.embedding is None:
+
+    sentence_vectors = _build_sentence_vectors(review)
+    if not sentence_vectors:
         return 0
 
-    review_embedding = review.analysis.embedding
-    review_dept = review.analysis.department_code
-
     now = datetime.now(UTC)
+    matched_issue_ids: set[int] = set()
+    review_dept = review.analysis.department_code if review.analysis else "guest_relations"
 
-    for issue in issues:
-        if issue.status == "resolved":
-            continue
-        if issue.department_code != review_dept:
-            continue
+    for sentence_text, _sentence_dept, sentence_emb in sentence_vectors:
+        for issue in issues:
+            if issue.id in matched_issue_ids:
+                continue
+            if issue.department_code != review_dept:
+                continue
 
-        similarity = centroid_similarity(issue.cluster_centroid, review_embedding)
-        if similarity < SIMILARITY_THRESHOLD:
-            continue
+            similarity = centroid_similarity(issue.cluster_centroid, sentence_emb)
+            if similarity < SIMILARITY_THRESHOLD:
+                continue
 
-        existing_link = session.scalar(
-            select(IssueReviewLink).where(
-                and_(
-                    IssueReviewLink.issue_id == issue.id,
-                    IssueReviewLink.review_id == review.id,
+            existing_link = session.scalar(
+                select(IssueReviewLink).where(
+                    and_(
+                        IssueReviewLink.issue_id == issue.id,
+                        IssueReviewLink.review_id == review.id,
+                    )
                 )
             )
-        )
-        if existing_link is not None:
-            continue
+            if existing_link is not None:
+                matched_issue_ids.add(issue.id)
+                continue
 
-        is_triggering = _is_triggering_evidence(session, review, issue)
-        evidence = _extract_evidence_snippet(review.body)
+            is_triggering = _is_triggering_evidence(review)
 
-        link = IssueReviewLink(
-            issue_id=issue.id,
-            review_id=review.id,
-            similarity_score=round(similarity, 4),
-            linked_at=now,
-            is_triggering_evidence=is_triggering,
-            evidence_snippet=evidence,
-        )
-        session.add(link)
-        linked_count += 1
-
-        session.add(
-            IssueEvent(
+            link = IssueReviewLink(
                 issue_id=issue.id,
-                event_type="linked_review",
-                actor="system",
-                old_value=None,
-                new_value=str(review.id),
-                note=f"Review #{review.id} linked with similarity {similarity:.3f}",
-                created_at=now,
+                review_id=review.id,
+                similarity_score=round(similarity, 4),
+                linked_at=now,
+                is_triggering_evidence=is_triggering,
+                evidence_snippet=sentence_text[:500],
             )
-        )
+            session.add(link)
+            matched_issue_ids.add(issue.id)
+            linked_count += 1
 
-        if is_triggering:
-            _recompute_issue_centroid(session, issue)
-            issue.recurrence_count = _count_triggering_reviews(session, issue)
-            issue.last_seen_at = now
-            issue.reputation_risk_score = max(
-                issue.reputation_risk_score,
-                review.analysis.reputation_risk_score,
-            )
-
-        if issue.status == "resolved":
-            issue.status = "recurred"
-            issue.recurred_at = now
             session.add(
                 IssueEvent(
                     issue_id=issue.id,
-                    event_type="recurred",
+                    event_type="linked_review",
                     actor="system",
-                    old_value="resolved",
-                    new_value="recurred",
-                    note=f"Reopened due to new matching review #{review.id}",
+                    old_value=None,
+                    new_value=str(review.id),
+                    note=f"Review #{review.id} sentence matched with similarity {similarity:.3f}",
                     created_at=now,
                 )
             )
 
+            if is_triggering:
+                _recompute_issue_centroid(session, issue)
+                issue.recurrence_count = _count_triggering_reviews(session, issue)
+                issue.last_seen_at = now
+                if review.analysis is not None:
+                    issue.reputation_risk_score = max(
+                        issue.reputation_risk_score,
+                        review.analysis.reputation_risk_score,
+                    )
+
+            was_resolved = issue.status == "resolved"
+            if was_resolved and is_triggering:
+                issue.status = "recurred"
+                issue.recurred_at = now
+                session.add(
+                    IssueEvent(
+                        issue_id=issue.id,
+                        event_type="recurred",
+                        actor="system",
+                        old_value="resolved",
+                        new_value="recurred",
+                        note=f"Reopened due to new matching review #{review.id}",
+                        created_at=now,
+                    )
+                )
+            break
+
     return linked_count
 
 
-def _is_triggering_evidence(
-    session: Session,
-    review: NormalizedReview,
-    issue: DetectedIssue,
-) -> bool:
+def _is_triggering_evidence(review: NormalizedReview) -> bool:
     if review.review_date is None:
         return False
-
     window_start = datetime.now(UTC) - timedelta(days=RECURRENCE_WINDOW_DAYS)
     if review.review_date < window_start:
         return False
-
     return True
 
 
@@ -228,9 +255,6 @@ def _find_emerging_clusters(
     session: Session,
     singletons: list[NormalizedReview],
 ) -> list[dict]:
-    if len(singletons) < 2:
-        return []
-
     groups_by_dept: dict[str, list[NormalizedReview]] = {}
     for review in singletons:
         if review.analysis is None or review.analysis.department_code is None:
@@ -241,47 +265,57 @@ def _find_emerging_clusters(
     clusters: list[dict] = []
 
     for dept, reviews in groups_by_dept.items():
-        if len(reviews) < 2:
-            continue
-
         visited: set[int] = set()
         for i in range(len(reviews)):
             if reviews[i].id in visited:
-                continue
-            if reviews[i].analysis is None or reviews[i].analysis.embedding is None:
                 continue
 
             component: list[NormalizedReview] = [reviews[i]]
             visited.add(reviews[i].id)
 
+            a_vectors = _build_sentence_vectors(reviews[i])
+
             for j in range(i + 1, len(reviews)):
                 if reviews[j].id in visited:
                     continue
-                if reviews[j].analysis is None or reviews[j].analysis.embedding is None:
-                    continue
 
-                sim = centroid_similarity(
-                    reviews[i].analysis.embedding,
-                    reviews[j].analysis.embedding,
-                )
-                if sim >= SIMILARITY_THRESHOLD:
+                b_vectors = _build_sentence_vectors(reviews[j])
+
+                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors)
+
+                if max_sim >= SIMILARITY_THRESHOLD:
                     component.append(reviews[j])
                     visited.add(reviews[j].id)
-
-            if len(component) >= MIN_EVIDENCE_FOR_PROMOTION or (
-                len(component) == 1
-                and component[0].analysis is not None
-                and component[0].analysis.reputation_risk_score >= SINGLE_CRITICAL_RISK_THRESHOLD
-            ):
-                pass
 
             if len(component) >= MIN_EVIDENCE_FOR_PROMOTION:
                 clusters.append({
                     "department_code": dept,
                     "reviews": component,
                 })
+            elif len(component) == 1 and component[0].analysis is not None:
+                risk = component[0].analysis.reputation_risk_score
+                if risk >= SINGLE_CRITICAL_RISK_THRESHOLD:
+                    clusters.append({
+                        "department_code": dept,
+                        "reviews": component,
+                    })
 
     return clusters
+
+
+def _max_sentence_pair_similarity(
+    a_vectors: list[tuple[str, str, list[float]]],
+    b_vectors: list[tuple[str, str, list[float]]],
+) -> float:
+    if not a_vectors or not b_vectors:
+        return 0.0
+    best = 0.0
+    for _, _a_dept, a_emb in a_vectors:
+        for _, _b_dept, b_emb in b_vectors:
+            sim = centroid_similarity(a_emb, b_emb)
+            if sim > best:
+                best = sim
+    return best
 
 
 def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
@@ -345,6 +379,10 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
     session.add(issue)
     session.flush()
 
+    note = f"Issue created from {len(reviews)} reviews in {department_code}"
+    if len(reviews) == 1:
+        note = f"Issue created from single critical review in {department_code} (risk >= {SINGLE_CRITICAL_RISK_THRESHOLD})"
+
     session.add(
         IssueEvent(
             issue_id=issue.id,
@@ -352,7 +390,7 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
             actor="system",
             old_value=None,
             new_value="active",
-            note=f"Issue created from {len(reviews)} reviews in {department_code}",
+            note=note,
             created_at=now,
         )
     )
@@ -468,9 +506,9 @@ def _fallback_title_from_sentences(sentences: list[str]) -> str:
 
 def _get_title_generator_info() -> tuple[str, str | None, float | None]:
     try:
-        from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, AutoConfig
+        from transformers import AutoConfig
         model_id = "google/flan-t5-base"
-        config = AutoConfig.from_pretrained(model_id, local_files_only=True)
+        AutoConfig.from_pretrained(model_id, local_files_only=True)
         return ("flan-t5", model_id, None)
     except Exception:
         return ("centroid-excerpt", None, None)
@@ -505,18 +543,6 @@ def _count_triggering_reviews(session: Session, issue: DetectedIssue) -> int:
             )
         )
     ) or 1
-
-
-def _check_threshold_met(session: Session, issue: DetectedIssue) -> bool:
-    count = session.scalar(
-        select(func.count(IssueReviewLink.id)).where(
-            and_(
-                IssueReviewLink.issue_id == issue.id,
-                IssueReviewLink.is_triggering_evidence.is_(True),
-            )
-        )
-    ) or 0
-    return count >= MIN_EVIDENCE_FOR_PROMOTION
 
 
 def _update_issue_from_links(session: Session, issue: DetectedIssue) -> None:

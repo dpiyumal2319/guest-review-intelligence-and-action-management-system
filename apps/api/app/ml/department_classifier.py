@@ -7,13 +7,22 @@ import os
 from app.analysis_runtime import AnalysisRuntimeUnavailableError
 
 DEPARTMENT_LABELS = [
-    "housekeeping",
-    "front_office",
-    "food_beverage",
-    "engineering",
-    "management",
-    "guest_relations",
+    "housekeeping room cleanliness bathroom cleaning linen hygiene",
+    "front office reception check-in check-out booking reservations arrival",
+    "food beverage restaurant dining breakfast bar room service cuisine",
+    "engineering maintenance repair air conditioning plumbing facility defects",
+    "management pricing value strategy policy hotel administration",
+    "guest relations service recovery follow-up complaint handling staff courtesy",
 ]
+
+DEPARTMENT_LABEL_TO_CODE: dict[str, str] = {
+    "housekeeping room cleanliness bathroom cleaning linen hygiene": "housekeeping",
+    "front office reception check-in check-out booking reservations arrival": "front_office",
+    "food beverage restaurant dining breakfast bar room service cuisine": "food_beverage",
+    "engineering maintenance repair air conditioning plumbing facility defects": "engineering",
+    "management pricing value strategy policy hotel administration": "management",
+    "guest relations service recovery follow-up complaint handling staff courtesy": "guest_relations",
+}
 
 DEFAULT_DEPARTMENT_MODEL_ID = "facebook/bart-large-mnli"
 DEPARTMENT_MODEL_NAME = "huggingface-transformers-zero-shot-classification"
@@ -81,9 +90,7 @@ class DepartmentClassifierRuntime:
             confidence = round(float(score), 3)
             if len(predictions) >= top_k:
                 break
-            department_code = str(label).strip()
-            if department_code not in DEPARTMENT_LABELS:
-                department_code = "guest_relations"
+            department_code = DEPARTMENT_LABEL_TO_CODE.get(str(label).strip(), "guest_relations")
             predictions.append(
                 DepartmentPredictionResult(
                     department_code=department_code,
