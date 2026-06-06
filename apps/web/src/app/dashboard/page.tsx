@@ -98,7 +98,7 @@ function DashboardContent() {
   const departmentNameByCode = Object.fromEntries(departments.map((d) => [d.code, d.name]))
   const sourceNameByCode = Object.fromEntries(sources.map((s) => [s.code, s.name]))
 
-  const priorityOrder = useMemo(() => ({ urgent: 4, high: 3, medium: 2, low: 1 }), [])
+  const priorityOrder: Record<string, number> = useMemo(() => ({ urgent: 4, high: 3, medium: 2, low: 1 }), [])
 
   return (
     <SidebarProvider
