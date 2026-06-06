@@ -22,6 +22,9 @@ type Props = {
   sources?: ReviewSource[]
   categories?: IssueCategory[]
   departments?: Department[]
+  showSearch?: boolean
+  showRiskGroup?: boolean
+  showActionStatusGroup?: boolean
 }
 
 const NONE = "__none__"
@@ -49,6 +52,9 @@ export function DashboardFilterBar({
   sources = [],
   categories = [],
   departments = [],
+  showSearch = false,
+  showRiskGroup = false,
+  showActionStatusGroup = false,
 }: Props) {
   const sourceLabels = Object.fromEntries(sources.map((source) => [source.code, source.name]))
   const categoryLabels = Object.fromEntries(categories.map((category) => [category.code, category.name]))
@@ -57,19 +63,21 @@ export function DashboardFilterBar({
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Search</Label>
-        <div className="relative">
-          <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            type="search"
-            className="h-8 w-56 pl-7 text-xs"
-            value={filters.search}
-            onChange={(e) => onFilterChange("search", e.target.value)}
-            placeholder="Review, title, guest, ID"
-          />
+      {showSearch && (
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs">Search</Label>
+          <div className="relative">
+            <SearchIcon className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="search"
+              className="h-8 w-56 pl-7 text-xs"
+              value={filters.search}
+              onChange={(e) => onFilterChange("search", e.target.value)}
+              placeholder="Review, title, guest, ID"
+            />
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <Label className="text-xs">Date from</Label>
@@ -133,7 +141,7 @@ export function DashboardFilterBar({
 
       {departments.length > 0 && (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Department</Label>
+          <Label className="text-xs">Owner department</Label>
           <Select
             value={toSelectValue(filters.department_code)}
             onValueChange={(v) => onFilterChange("department_code", fromSelectValue(v))}
@@ -163,14 +171,32 @@ export function DashboardFilterBar({
           <SelectContent>
             <SelectItem value={NONE}>Any risk</SelectItem>
             {REPUTATION_RISK_LABELS.map((l) => (
-              <SelectItem key={l} value={l}>{l}</SelectItem>
+              <SelectItem key={l} value={l}>{l} risk</SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
+      {showRiskGroup && (
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs">Risk group</Label>
+          <Select
+            value={toSelectValue(filters.risk_group)}
+            onValueChange={(v) => onFilterChange("risk_group", fromSelectValue(v))}
+          >
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue>{filterSelectValueLabel("Any group", { high_or_critical: "High or critical" })}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Any group</SelectItem>
+              <SelectItem value="high_or_critical">High or critical</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Action status</Label>
+        <Label className="text-xs">Review action state</Label>
         <Select
           value={toSelectValue(filters.action_status)}
           onValueChange={(v) => onFilterChange("action_status", fromSelectValue(v))}
@@ -186,6 +212,24 @@ export function DashboardFilterBar({
           </SelectContent>
         </Select>
       </div>
+
+      {showActionStatusGroup && (
+        <div className="flex flex-col gap-1.5">
+          <Label className="text-xs">Action focus</Label>
+          <Select
+            value={toSelectValue(filters.action_status_group)}
+            onValueChange={(v) => onFilterChange("action_status_group", fromSelectValue(v))}
+          >
+            <SelectTrigger className="h-8 w-40 text-xs">
+              <SelectValue>{filterSelectValueLabel("Any focus", { ticket_needed: "Ticket needed" })}</SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NONE}>Any focus</SelectItem>
+              <SelectItem value="ticket_needed">Ticket needed</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {hasActiveFilters && (
         <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={onClear}>

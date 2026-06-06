@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { SidebarTrigger } from "@/components/ui/sidebar"
+import { ModeToggle } from "@/components/mode-toggle"
 
 export function SiteHeader() {
   const {
@@ -90,6 +91,8 @@ export function SiteHeader() {
               </SelectContent>
             </Select>
           )}
+
+          <ModeToggle />
         </div>
       </div>
     </header>

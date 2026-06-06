@@ -199,6 +199,67 @@ export type OverviewKpi = {
   filters_applied: Record<string, string | null>
 }
 
+export type DashboardDrillThrough = {
+  path: string
+  filters: Record<string, string>
+}
+
+export type DashboardActionMetric = {
+  review_count: number
+  drill_through: DashboardDrillThrough
+}
+
+export type DashboardAgingRisk = {
+  review_count: number
+  threshold_days: number
+  oldest_review_date: string | null
+  drill_through: DashboardDrillThrough
+}
+
+export type DashboardOwnerPressureItem = {
+  department_code: string
+  unresolved_high_risk_reviews: number
+  recurring_issue_groups: number
+  reviews_drill_through: DashboardDrillThrough
+  issues_drill_through: DashboardDrillThrough
+  tickets_drill_through: DashboardDrillThrough
+}
+
+export type DashboardPlatformRiskItem = {
+  source_code: string
+  high_risk_reviews: number
+  ticket_needed_reviews: number
+  drill_through: DashboardDrillThrough
+}
+
+export type DashboardRecurringIssueItem = {
+  group_key: string
+  category_code: string
+  category_name: string
+  department_code: string
+  review_count: number
+  recent_review_count: number
+  average_reputation_risk_score: number
+  highest_reputation_risk: string
+  source_mix: Record<string, number>
+  latest_review_date: string | null
+  latest_review_title: string | null
+  latest_review_excerpt: string
+  linked_ticket_ids: number[]
+  reviews_drill_through: DashboardDrillThrough
+  issues_drill_through: DashboardDrillThrough
+}
+
+export type OverviewActionAnalytics = {
+  high_risk_reviews: DashboardActionMetric
+  action_leakage: DashboardActionMetric
+  aging_risk: DashboardAgingRisk
+  owner_pressure: DashboardOwnerPressureItem[]
+  platform_risk_spread: DashboardPlatformRiskItem[]
+  recurring_issues_without_tickets: DashboardRecurringIssueItem[]
+  filters_applied: Record<string, string | null>
+}
+
 export type SemanticDuplicatePair = {
   review_id: number
   matched_review_id: number

@@ -11,7 +11,9 @@ export type DashboardFilters = {
   issue_category_code: string
   department_code: string
   reputation_risk: string
+  risk_group: string
   action_status: string
+  action_status_group: string
   search: string
   date_from: string
   date_to: string
@@ -22,7 +24,9 @@ const DEFAULTS: DashboardFilters = {
   issue_category_code: "",
   department_code: "",
   reputation_risk: "",
+  risk_group: "",
   action_status: "",
+  action_status_group: "",
   search: "",
   date_from: DEFAULT_DATE_FROM,
   date_to: DEFAULT_DATE_TO,
@@ -45,7 +49,9 @@ export function useDashboardFilters() {
     issue_category_code: searchParams.get("issue_category_code") ?? "",
     department_code: searchParams.get("department_code") ?? "",
     reputation_risk: searchParams.get("reputation_risk") ?? "",
+    risk_group: searchParams.get("risk_group") ?? "",
     action_status: searchParams.get("action_status") ?? "",
+    action_status_group: searchParams.get("action_status_group") ?? "",
     search: searchParams.get("search") ?? "",
     date_from: searchParams.get("date_from") ?? DEFAULT_DATE_FROM,
     date_to: searchParams.get("date_to") ?? DEFAULT_DATE_TO,
@@ -74,7 +80,9 @@ export function useDashboardFilters() {
     if (filters.issue_category_code) params.set("issue_category_code", filters.issue_category_code)
     if (filters.department_code) params.set("department_code", filters.department_code)
     if (filters.reputation_risk) params.set("reputation_risk", filters.reputation_risk)
+    if (filters.risk_group) params.set("risk_group", filters.risk_group)
     if (filters.action_status) params.set("action_status", filters.action_status)
+    if (filters.action_status_group) params.set("action_status_group", filters.action_status_group)
     if (filters.search) params.set("search", filters.search)
     if (filters.date_from) params.set("date_from", startOfDay(filters.date_from))
     if (filters.date_to) params.set("date_to", endOfDay(filters.date_to))

@@ -475,6 +475,7 @@ function TicketsContent() {
             sources={sources}
             categories={categories}
             departments={departments}
+            showRiskGroup
           />
 
           <Card>
