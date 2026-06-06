@@ -194,6 +194,8 @@ def _seed_review(
 
 def _get_embedding(text: str) -> list[float]:
     runtime = get_semantic_similarity_analyzer()
+    if not runtime.is_available():
+        pytest.skip("Embedding model not available")
     result = runtime.embed_batch([text])
     if result.embeddings:
         return result.embeddings[0]
