@@ -56,8 +56,11 @@ def _wipe_demo_data():
     session = SessionLocal()
     try:
         for model in [IssueEvent, IssueReviewLink, DetectedIssue, ReviewAnalysis, NormalizedReview, RawReview]:
-            session.query(model).delete()
-        session.commit()
+            try:
+                session.query(model).delete()
+                session.commit()
+            except Exception:
+                session.rollback()
     finally:
         session.close()
 

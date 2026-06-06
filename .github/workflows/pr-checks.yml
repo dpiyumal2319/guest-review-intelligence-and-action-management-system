@@ -54,5 +54,11 @@ jobs:
       - name: Run web build
         run: npm run build:web
 
+      - name: Run API migrations
+        run: npm run api:migrate
+
+      - name: Seed API reference data
+        run: npm run api:seed
+
       - name: Run API tests
         run: npm run api:test
