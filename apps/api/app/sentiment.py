@@ -8,7 +8,7 @@ import re
 from app.analysis_runtime import AnalysisRuntimeUnavailableError
 
 
-ANALYSIS_VERSION = "analysis-v2"
+ANALYSIS_VERSION = "analysis-v3"
 DEFAULT_SENTIMENT_MODEL_ID = "nlptown/bert-base-multilingual-uncased-sentiment"
 SENTIMENT_MODEL_NAME = "huggingface-transformers-sentiment-analysis"
 STAR_TO_SENTIMENT = {
