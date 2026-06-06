@@ -1,8 +1,9 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
-import { AlertTriangleIcon, Building2Icon, ClipboardListIcon, TicketCheckIcon } from "lucide-react"
+import { AlertTriangleIcon, ClockIcon, ClipboardListIcon, TicketCheckIcon } from "lucide-react"
 
 import { AppSidebar } from "@/components/app-sidebar"
 import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
@@ -12,16 +13,18 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDemoRole } from "@/hooks/use-demo-role"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import { cn } from "@/lib/utils"
 import type {
+  DashboardDrillThrough,
+  DashboardOwnerPressureItem,
+  DashboardPlatformRiskItem,
+  DashboardRecurringIssueItem,
   Department,
   IssueCategory,
-  IssueSummary,
-  IssueSummaryItem,
   OverviewKpi,
+  OverviewActionAnalytics,
   Review,
   ReviewSource,
-  SemanticAnalysis,
-  SemanticIssueCluster,
 } from "@/lib/api-types"
 import type React from "react"
 
@@ -55,6 +58,49 @@ function formatCodeLabel(value: string) {
   return value.replaceAll("_", " ")
 }
 
+function buildHref(path: string, filters: Record<string, string | number | null | undefined>) {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(filters)) {
+    if (value == null || value === "") continue
+    params.set(key, String(value))
+  }
+  const query = params.toString()
+  return query ? `${path}?${query}` : path
+}
+
+function drillHref(drillThrough: DashboardDrillThrough | null | undefined) {
+  if (!drillThrough) return "#"
+  return buildHref(drillThrough.path, drillThrough.filters)
+}
+
+function reviewHref(review: Review) {
+  return buildHref("/reviews", {
+    search: review.external_review_id || review.display_external_review_id || review.id,
+  })
+}
+
+function ActionText({
+  href,
+  children,
+  className,
+}: {
+  href: string
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        "inline-flex min-h-7 items-center text-xs font-medium text-foreground underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        className
+      )}
+    >
+      {children}
+    </Link>
+  )
+}
+
 function sentimentVariant(label: string): "default" | "secondary" | "destructive" | "outline" {
   if (label === "positive") return "default"
   if (label === "negative") return "destructive"
@@ -72,22 +118,6 @@ function actionStatusVariant(label: string): "default" | "secondary" | "destruct
   if (label === "reviewed") return "secondary"
   if (label === "ticket_created") return "default"
   return "outline"
-}
-
-function ticketStateLabel(ticketIds: number[]) {
-  if (ticketIds.length === 0) {
-    return "Ticket needed"
-  }
-  if (ticketIds.length === 1) {
-    return "1 ticket linked"
-  }
-  return `${ticketIds.length} tickets linked`
-}
-
-function evidenceForItem(item: IssueSummaryItem, clusters: SemanticIssueCluster[]) {
-  return clusters.find(
-    (cluster) => cluster.category_code === item.category_code && cluster.department_code === item.department_code
-  )?.representative_text
 }
 
 function PlatformLogo({ sourceCode, sourceName }: { sourceCode: string; sourceName: string }) {
@@ -152,11 +182,15 @@ function UrgencyMetric({
   label,
   value,
   detail,
+  href,
+  actionLabel,
 }: {
   icon: React.ComponentType<{ className?: string }>
   label: string
   value: string
   detail: string
+  href?: string
+  actionLabel?: string
 }) {
   return (
     <Card size="sm">
@@ -171,6 +205,11 @@ function UrgencyMetric({
           <p className="text-sm font-medium">{label}</p>
           <p className="mt-1 text-xs leading-5 text-muted-foreground">{detail}</p>
         </div>
+        {href && actionLabel ? (
+          <ActionText href={href} className="mt-1">
+            {actionLabel}
+          </ActionText>
+        ) : null}
       </CardContent>
     </Card>
   )
@@ -202,14 +241,136 @@ function CompactSentiment({ mix, total }: { mix: Record<string, number>; total: 
   )
 }
 
+function PlatformRiskRows({
+  items,
+  sourceNameByCode,
+}: {
+  items: DashboardPlatformRiskItem[]
+  sourceNameByCode: Record<string, string>
+}) {
+  if (items.length === 0) {
+    return <p className="text-xs text-muted-foreground">No high-risk platform concentration in this view.</p>
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => {
+        const sourceName = sourceNameByCode[item.source_code] ?? formatCodeLabel(item.source_code)
+        return (
+          <Link
+            key={item.source_code}
+            href={drillHref(item.drill_through)}
+            className="grid grid-cols-[1fr_auto] items-center gap-3 rounded-md border px-3 py-2 text-xs transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <PlatformLogo sourceCode={item.source_code} sourceName={sourceName} />
+            <span className="text-right tabular-nums">
+              <span className="font-semibold">{item.ticket_needed_reviews}</span>
+              <span className="text-muted-foreground"> / {item.high_risk_reviews} need tickets</span>
+            </span>
+          </Link>
+        )
+      })}
+    </div>
+  )
+}
+
+function OwnerPressureRows({
+  items,
+  departmentNameByCode,
+}: {
+  items: DashboardOwnerPressureItem[]
+  departmentNameByCode: Record<string, string>
+}) {
+  if (items.length === 0) {
+    return <p className="text-sm text-muted-foreground">No unresolved owner pressure in this view.</p>
+  }
+
+  return (
+    <div className="divide-y">
+      {items.map((item) => (
+        <Link
+          key={item.department_code}
+          href={drillHref(item.reviews_drill_through)}
+          className="grid gap-3 py-4 first:pt-0 last:pb-0 transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:grid-cols-[1fr_auto]"
+        >
+          <div className="min-w-0">
+            <p className="font-medium">
+              {departmentNameByCode[item.department_code] ?? formatCodeLabel(item.department_code)}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              High-risk reviews and recurring groups still need operational follow-through.
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-right text-xs md:min-w-44">
+            <div>
+              <p className="font-semibold tabular-nums">{item.unresolved_high_risk_reviews}</p>
+              <p className="text-muted-foreground">unresolved</p>
+            </div>
+            <div>
+              <p className="font-semibold tabular-nums">{item.recurring_issue_groups}</p>
+              <p className="text-muted-foreground">recurring</p>
+            </div>
+          </div>
+        </Link>
+      ))}
+    </div>
+  )
+}
+
+function RecurringIssueCard({
+  item,
+  departmentName,
+  sourceNameByCode,
+}: {
+  item: DashboardRecurringIssueItem
+  departmentName: string
+  sourceNameByCode: Record<string, string>
+}) {
+  return (
+    <article className="rounded-lg border p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="font-medium">{item.category_name}</p>
+            <Badge variant={reputationRiskVariant(item.highest_reputation_risk)} className="text-xs">
+              {item.highest_reputation_risk} risk
+            </Badge>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">{departmentName} owner</p>
+        </div>
+        <Badge variant="destructive" className="text-xs">
+          Ticket needed
+        </Badge>
+      </div>
+      <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+        {item.latest_review_excerpt}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap gap-2">
+          <Badge variant="outline" className="text-xs">{item.review_count} reviews</Badge>
+          <Badge variant="outline" className="text-xs">{item.recent_review_count} recent</Badge>
+          <Badge variant="secondary" className="text-xs">{formatDate(item.latest_review_date)}</Badge>
+        </div>
+        <PlatformSpread sourceMix={item.source_mix} sourceNameByCode={sourceNameByCode} />
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-3">
+        <ActionText href={drillHref(item.issues_drill_through)}>Inspect issue</ActionText>
+        <span className="text-xs text-muted-foreground">or</span>
+        <ActionText href={drillHref(item.reviews_drill_through)} className="text-muted-foreground hover:text-foreground">
+          view reviews
+        </ActionText>
+      </div>
+    </article>
+  )
+}
+
 function OverviewContent() {
   const { filters, setFilter, clearFilters, buildApiParams, hasActiveFilters } = useDashboardFilters()
   const { activeRole, scopeLabel, workflowLabel } = useDemoRole()
   const [reviews, setReviews] = useState<Review[]>([])
   const [sources, setSources] = useState<ReviewSource[]>([])
-  const [issueSummary, setIssueSummary] = useState<IssueSummary | null>(null)
-  const [semanticAnalysis, setSemanticAnalysis] = useState<SemanticAnalysis | null>(null)
   const [overviewKpi, setOverviewKpi] = useState<OverviewKpi | null>(null)
+  const [actionAnalytics, setActionAnalytics] = useState<OverviewActionAnalytics | null>(null)
   const [categories, setCategories] = useState<IssueCategory[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -233,28 +394,25 @@ function OverviewContent() {
       const params = buildApiParams()
       const priorityParams = buildApiParams({ order_by: "operational_priority", per_page: "8" })
 
-      const [reviewsRes, issueSummaryRes, semanticRes, kpiRes] = await Promise.all([
+      const [reviewsRes, kpiRes, actionAnalyticsRes] = await Promise.all([
         fetch(`${apiBaseUrl}/reviews?${priorityParams}`),
-        fetch(`${apiBaseUrl}/issues/summary?${params}`),
-        fetch(`${apiBaseUrl}/analysis/semantic-clusters?${params}`),
         fetch(`${apiBaseUrl}/overview/kpis?${params}`),
+        fetch(`${apiBaseUrl}/overview/action-analytics?${params}`),
       ])
 
-      if (!reviewsRes.ok || !issueSummaryRes.ok || !semanticRes.ok || !kpiRes.ok) {
+      if (!reviewsRes.ok || !kpiRes.ok || !actionAnalyticsRes.ok) {
         throw new Error("Failed to load overview data")
       }
 
-      const [reviewsData, issueSummaryData, semanticData, kpiData] = await Promise.all([
+      const [reviewsData, kpiData, actionAnalyticsData] = await Promise.all([
         reviewsRes.json(),
-        issueSummaryRes.json(),
-        semanticRes.json(),
         kpiRes.json(),
+        actionAnalyticsRes.json(),
       ])
 
       setReviews(reviewsData.reviews)
-      setIssueSummary(issueSummaryData)
-      setSemanticAnalysis(semanticData)
       setOverviewKpi(kpiData)
+      setActionAnalytics(actionAnalyticsData)
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Failed to load overview data")
     } finally {
@@ -286,13 +444,12 @@ function OverviewContent() {
   )
 
   const highRiskReviews =
+    actionAnalytics?.high_risk_reviews.review_count ??
     (overviewKpi?.reputation_risk_mix?.high ?? 0) + (overviewKpi?.reputation_risk_mix?.critical ?? 0)
   const ticketNeededReviews =
+    actionAnalytics?.action_leakage.review_count ??
     (overviewKpi?.action_status_mix?.new ?? 0) + (overviewKpi?.action_status_mix?.reviewed ?? 0)
-  const issuePressure = issueSummary?.items.slice(0, 5) ?? []
-  const recurringRows = issuePressure.slice(0, 4)
-  const highestRiskIssue = issuePressure[0]
-  const topDepartment = overviewKpi?.top_departments?.[0]
+  const recurringRows = actionAnalytics?.recurring_issues_without_tickets ?? []
   const totalReviews = overviewKpi?.total_reviews ?? 0
 
   const urgencyMetrics = [
@@ -301,28 +458,32 @@ function OverviewContent() {
       label: "High Reputation Risk",
       value: isLoading ? "..." : highRiskReviews.toString(),
       detail: "High and critical reviews in the current operational view.",
+      href: actionAnalytics ? drillHref(actionAnalytics.high_risk_reviews.drill_through) : undefined,
+      actionLabel: "View risk reviews",
     },
     {
       icon: TicketCheckIcon,
       label: "Ticket-needed reviews",
       value: isLoading ? "..." : ticketNeededReviews.toString(),
-      detail: "New or reviewed guest feedback that has not become a corrective-action ticket.",
+      detail: "High-risk guest feedback that has not become a corrective-action ticket.",
+      href: actionAnalytics ? drillHref(actionAnalytics.action_leakage.drill_through) : undefined,
+      actionLabel: "Open worklist",
     },
     {
-      icon: Building2Icon,
-      label: "Primary owner pressure",
-      value: isLoading
-        ? "..."
-        : topDepartment
-          ? (departmentNameByCode[topDepartment.code] ?? formatCodeLabel(topDepartment.code))
-          : "None",
-      detail: topDepartment ? `${topDepartment.count} reviews currently route to this department.` : "No department signal yet.",
+      icon: ClockIcon,
+      label: "Aging risk",
+      value: isLoading ? "..." : (actionAnalytics?.aging_risk.review_count ?? 0).toString(),
+      detail: actionAnalytics
+        ? `Ticket-needed high-risk reviews older than ${actionAnalytics.aging_risk.threshold_days} days.`
+        : "Ticket-needed high-risk reviews older than the action threshold.",
+      href: actionAnalytics ? drillHref(actionAnalytics.aging_risk.drill_through) : undefined,
+      actionLabel: "Review aging items",
     },
     {
       icon: ClipboardListIcon,
-      label: "Recurring issue groups",
-      value: isLoading ? "..." : (issueSummary?.items.length ?? 0).toString(),
-      detail: "Category and department groups that can become owned action work.",
+      label: "Unticketed recurring issues",
+      value: isLoading ? "..." : (actionAnalytics?.recurring_issues_without_tickets.length ?? 0).toString(),
+      detail: "Repeated complaint groups that have not become owned corrective action.",
     },
   ]
 
@@ -397,51 +558,22 @@ function OverviewContent() {
                   <div>
                     <CardTitle>Complaint pressure by owner</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Repeated issue groups ranked by recent volume and Reputation Risk.
+                      Departments with high-risk review leakage or recurring unticketed issue groups.
                     </p>
                   </div>
-                  <Badge variant="outline">{isLoading ? "..." : `${issuePressure.length} groups`}</Badge>
+                  <Badge variant="outline">{isLoading ? "..." : `${actionAnalytics?.owner_pressure.length ?? 0} owners`}</Badge>
                 </div>
               </CardHeader>
               <CardContent>
                 {isLoading ? (
                   <p className="text-sm text-muted-foreground">Loading owner pressure...</p>
-                ) : issuePressure.length === 0 ? (
+                ) : !actionAnalytics || actionAnalytics.owner_pressure.length === 0 ? (
                   <p className="text-sm text-muted-foreground">No complaint pressure matches the current filters.</p>
                 ) : (
-                  <div className="divide-y">
-                    {issuePressure.map((item) => (
-                      <div key={item.group_key} className="grid gap-3 py-4 first:pt-0 last:pb-0 md:grid-cols-[1fr_auto]">
-                        <div className="min-w-0">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="font-medium">
-                              {categoryNameByCode[item.category_code] ?? item.category_name}
-                            </p>
-                            <Badge variant={reputationRiskVariant(item.highest_reputation_risk)} className="text-xs">
-                              {item.highest_reputation_risk} risk
-                            </Badge>
-                          </div>
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {departmentNameByCode[item.department_code] ?? formatCodeLabel(item.department_code)} owner, latest evidence {formatDate(item.latest_review_date)}
-                          </p>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3 text-right text-xs md:min-w-56">
-                          <div>
-                            <p className="font-semibold tabular-nums">{item.recent_review_count}</p>
-                            <p className="text-muted-foreground">recent</p>
-                          </div>
-                          <div>
-                            <p className="font-semibold tabular-nums">{item.review_count}</p>
-                            <p className="text-muted-foreground">total</p>
-                          </div>
-                          <div>
-                            <p className="font-semibold tabular-nums">{item.average_reputation_risk_score}</p>
-                            <p className="text-muted-foreground">risk avg</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
+                  <OwnerPressureRows
+                    items={actionAnalytics.owner_pressure}
+                    departmentNameByCode={departmentNameByCode}
+                  />
                 )}
               </CardContent>
             </Card>
@@ -452,7 +584,7 @@ function OverviewContent() {
                   <div>
                     <CardTitle>Risk mix</CardTitle>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      Compact signal for mood, risk score, and the highest issue group.
+                      Sentiment, risk score, platform concentration, and aging unresolved reviews.
                     </p>
                   </div>
                   <Badge variant="outline">{isLoading ? "..." : `${totalReviews} reviews`}</Badge>
@@ -468,18 +600,25 @@ function OverviewContent() {
                     </p>
                   </div>
                   <div className="rounded-lg bg-muted/50 p-3">
-                    <p className="text-xs text-muted-foreground">Highest pressure group</p>
-                    <p className="mt-1 truncate text-sm font-medium">
-                      {highestRiskIssue
-                        ? `${categoryNameByCode[highestRiskIssue.category_code] ?? highestRiskIssue.category_name}`
-                        : "No group yet"}
-                    </p>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      {highestRiskIssue
-                        ? departmentNameByCode[highestRiskIssue.department_code] ?? formatCodeLabel(highestRiskIssue.department_code)
-                        : "No department owner"}
+                    <p className="text-xs text-muted-foreground">Aging high-risk reviews</p>
+                    <p className="mt-1 text-2xl font-semibold tabular-nums">
+                      {isLoading ? "..." : actionAnalytics?.aging_risk.review_count ?? 0}
                     </p>
                   </div>
+                </div>
+                <div className="grid gap-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-sm font-medium">High-risk platform spread</p>
+                    {actionAnalytics?.platform_risk_spread.length ? (
+                      <ActionText href={drillHref(actionAnalytics.high_risk_reviews.drill_through)}>
+                        View all
+                      </ActionText>
+                    ) : null}
+                  </div>
+                  <PlatformRiskRows
+                    items={actionAnalytics?.platform_risk_spread ?? []}
+                    sourceNameByCode={sourceNameByCode}
+                  />
                 </div>
               </CardContent>
             </Card>
@@ -495,7 +634,7 @@ function OverviewContent() {
                       Scannable groups with owner, evidence, platform spread, and ticket state.
                     </p>
                   </div>
-                  <Badge variant="outline">{isLoading ? "..." : `${semanticAnalysis?.clusters.length ?? 0} semantic`}</Badge>
+                  <Badge variant="outline">{isLoading ? "..." : `${recurringRows.length} groups`}</Badge>
                 </div>
               </CardHeader>
               <CardContent>
@@ -505,39 +644,14 @@ function OverviewContent() {
                   <p className="text-sm text-muted-foreground">No recurring issue actions match the current filters.</p>
                 ) : (
                   <div className="space-y-4">
-                    {recurringRows.map((item) => {
-                      const evidence = evidenceForItem(item, semanticAnalysis?.clusters ?? [])
-                      return (
-                        <div key={item.group_key} className="rounded-lg border p-4">
-                          <div className="flex flex-wrap items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="font-medium">
-                                {categoryNameByCode[item.category_code] ?? item.category_name}
-                              </p>
-                              <p className="mt-1 text-xs text-muted-foreground">
-                                {departmentNameByCode[item.department_code] ?? formatCodeLabel(item.department_code)} owner
-                              </p>
-                            </div>
-                            <Badge variant={item.linked_ticket_ids.length > 0 ? "default" : "destructive"} className="text-xs">
-                              {ticketStateLabel(item.linked_ticket_ids)}
-                            </Badge>
-                          </div>
-                          <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
-                            {evidence ?? "Open the Issues page to inspect representative review evidence for this group."}
-                          </p>
-                          <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="outline" className="text-xs">{item.review_count} reviews</Badge>
-                              <Badge variant={reputationRiskVariant(item.highest_reputation_risk)} className="text-xs">
-                                {item.highest_reputation_risk} risk
-                              </Badge>
-                              <Badge variant="secondary" className="text-xs">{formatDate(item.latest_review_date)}</Badge>
-                            </div>
-                            <PlatformSpread sourceMix={item.source_mix} sourceNameByCode={sourceNameByCode} />
-                          </div>
-                        </div>
-                      )
-                    })}
+                    {recurringRows.map((item) => (
+                      <RecurringIssueCard
+                        key={item.group_key}
+                        item={item}
+                        departmentName={departmentNameByCode[item.department_code] ?? formatCodeLabel(item.department_code)}
+                        sourceNameByCode={sourceNameByCode}
+                      />
+                    ))}
                   </div>
                 )}
               </CardContent>
@@ -578,7 +692,12 @@ function OverviewContent() {
                               </Badge>
                             </div>
                             <h2 className="mt-3 truncate text-sm font-medium">
-                              {review.display_title ?? review.display_external_review_id}
+                              <Link
+                                href={reviewHref(review)}
+                                className="underline-offset-4 hover:underline focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+                              >
+                                {review.display_title ?? review.display_external_review_id}
+                              </Link>
                             </h2>
                             <p className="mt-1 text-xs text-muted-foreground">
                               {review.display_reviewer_name ?? "Guest"} · {formatDate(review.review_date)}
@@ -586,6 +705,9 @@ function OverviewContent() {
                             <p className="mt-2 line-clamp-2 text-sm leading-6 text-muted-foreground">
                               {review.display_body}
                             </p>
+                            <ActionText href={reviewHref(review)} className="mt-2">
+                              View full review
+                            </ActionText>
                           </div>
                           <div className="grid content-start gap-3 text-xs">
                             <PlatformLogo sourceCode={review.source_code} sourceName={review.source_name} />

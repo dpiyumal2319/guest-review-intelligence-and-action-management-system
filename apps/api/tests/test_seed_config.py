@@ -1256,6 +1256,275 @@ def test_review_api_can_order_by_operational_priority(tmp_path: Path, monkeypatc
     assert invalid_response.status_code == 422
 
 
+def test_dashboard_action_analytics_and_group_filters(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'dashboard-action-analytics.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_payload_ingestion(
+            session,
+            source_code="google_business_profile",
+            connector_key="dashboard-analytics-google",
+            payloads=[
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "fo-high-new-001",
+                    "reviewer_name": "Guest One",
+                    "review_date": "2026-05-25T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Front desk delay",
+                    "body": "Check-in was slow and the queue barely moved.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.61,
+                    "issue_category_code": "booking_checkin",
+                    "reputation_risk": "high",
+                    "department_code": "front_office",
+                },
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "housekeeping-ticketed-001",
+                    "reviewer_name": "Guest Two",
+                    "review_date": "2026-05-20T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Dirty bathroom",
+                    "body": "The bathroom was dirty and housekeeping missed it.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.70,
+                    "issue_category_code": "cleanliness",
+                    "reputation_risk": "high",
+                    "department_code": "housekeeping",
+                },
+            ],
+        )
+        run_payload_ingestion(
+            session,
+            source_code="booking_com",
+            connector_key="dashboard-analytics-booking",
+            payloads=[
+                {
+                    "source_code": "booking_com",
+                    "external_review_id": "fo-critical-reviewed-001",
+                    "reviewer_name": "Guest Three",
+                    "review_date": "2026-05-24T10:00:00+00:00",
+                    "rating": 1.0,
+                    "language": "en",
+                    "title": "Arrival was chaotic",
+                    "body": "The arrival queue was chaotic and staff were overwhelmed.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.88,
+                    "issue_category_code": "booking_checkin",
+                    "reputation_risk": "critical",
+                    "department_code": "front_office",
+                },
+                {
+                    "source_code": "booking_com",
+                    "external_review_id": "engineering-critical-new-001",
+                    "reviewer_name": "Guest Four",
+                    "review_date": "2026-05-10T10:00:00+00:00",
+                    "rating": 1.0,
+                    "language": "en",
+                    "title": "Broken air conditioning",
+                    "body": "The room air conditioning was broken and never fixed.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.91,
+                    "issue_category_code": "room_condition",
+                    "reputation_risk": "critical",
+                    "department_code": "engineering",
+                },
+                {
+                    "source_code": "booking_com",
+                    "external_review_id": "positive-low-001",
+                    "reviewer_name": "Guest Five",
+                    "review_date": "2026-05-26T10:00:00+00:00",
+                    "rating": 5.0,
+                    "language": "en",
+                    "title": "Great service",
+                    "body": "Everything was smooth and the team was kind.",
+                    "sentiment_label": "positive",
+                    "sentiment_score": 0.82,
+                    "issue_category_code": "positive_general",
+                    "reputation_risk": "low",
+                    "department_code": "guest_relations",
+                },
+            ],
+        )
+        run_payload_ingestion(
+            session,
+            source_code="tripadvisor",
+            connector_key="dashboard-analytics-tripadvisor",
+            payloads=[
+                {
+                    "source_code": "tripadvisor",
+                    "external_review_id": "service-delay-high-new-001",
+                    "reviewer_name": "Guest Six",
+                    "review_date": "2026-05-18T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Requests took too long",
+                    "body": "Room service requests took too long and nobody followed up.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.67,
+                    "issue_category_code": "service_delay",
+                    "reputation_risk": "high",
+                    "department_code": "guest_relations",
+                },
+            ],
+        )
+
+        intended_fields = {
+            "fo-high-new-001": ("booking_checkin", "front_office", "high"),
+            "housekeeping-ticketed-001": ("cleanliness", "housekeeping", "high"),
+            "fo-critical-reviewed-001": ("booking_checkin", "front_office", "critical"),
+            "engineering-critical-new-001": ("room_condition", "engineering", "critical"),
+            "positive-low-001": ("positive_general", "guest_relations", "low"),
+            "service-delay-high-new-001": ("service_delay", "guest_relations", "high"),
+        }
+        for external_review_id, (category_code, department_code, risk_label) in intended_fields.items():
+            review = session.scalar(
+                select(NormalizedReview).where(NormalizedReview.external_review_id == external_review_id)
+            )
+            assert review is not None
+            review.issue_category_code = category_code
+            review.department_code = department_code
+            review.reputation_risk = risk_label
+            if review.analysis is not None:
+                review.analysis.issue_category_code = category_code
+                review.analysis.department_code = department_code
+                review.analysis.reputation_risk_label = risk_label
+
+        ticketed_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "housekeeping-ticketed-001")
+        )
+        assert ticketed_review is not None
+        ticketed_review.action_status = "ticket_created"
+        now = datetime.now(UTC)
+        ticket = ActionTicket(
+            review_id=ticketed_review.id,
+            department_code=ticketed_review.department_code,
+            source_group_type=None,
+            source_group_key=None,
+            source_group_label=None,
+            source_category_code=None,
+            source_cluster_id=None,
+            source_review_ids=None,
+            priority="high",
+            status="open",
+            assignee_name=None,
+            assignee_email=None,
+            due_date=None,
+            notes="Created from high-risk review.",
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(ticket)
+        session.flush()
+        session.add(
+            TicketEvent(
+                ticket_id=ticket.id,
+                event_type="created",
+                old_value=None,
+                new_value="open",
+                note="Created from high-risk review.",
+                occurred_at=now,
+            )
+        )
+        reviewed_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "fo-critical-reviewed-001")
+        )
+        assert reviewed_review is not None
+        reviewed_review.action_status = "reviewed"
+        session.commit()
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        high_risk_reviews_response = client.get("/reviews", params={"risk_group": "high_or_critical"})
+        ticket_needed_reviews_response = client.get(
+            "/reviews",
+            params={"risk_group": "high_or_critical", "action_status_group": "ticket_needed"},
+        )
+        front_office_issues_response = client.get(
+            "/issues/summary",
+            params={"department_code": "front_office", "risk_group": "high_or_critical"},
+        )
+        action_analytics_response = client.get("/overview/action-analytics")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert high_risk_reviews_response.status_code == 200
+    assert {
+        review["external_review_id"] for review in high_risk_reviews_response.json()["reviews"]
+    } == {
+        "fo-high-new-001",
+        "housekeeping-ticketed-001",
+        "fo-critical-reviewed-001",
+        "engineering-critical-new-001",
+        "service-delay-high-new-001",
+    }
+
+    assert ticket_needed_reviews_response.status_code == 200
+    assert {
+        review["external_review_id"] for review in ticket_needed_reviews_response.json()["reviews"]
+    } == {
+        "fo-high-new-001",
+        "fo-critical-reviewed-001",
+        "engineering-critical-new-001",
+        "service-delay-high-new-001",
+    }
+
+    assert front_office_issues_response.status_code == 200
+    front_office_items = front_office_issues_response.json()["items"]
+    assert any(item["group_key"] == "booking_checkin:front_office" for item in front_office_items)
+
+    assert action_analytics_response.status_code == 200
+    payload = action_analytics_response.json()
+    assert payload["high_risk_reviews"]["review_count"] == 5
+    assert payload["high_risk_reviews"]["drill_through"] == {
+        "path": "/reviews",
+        "filters": {"risk_group": "high_or_critical"},
+    }
+    assert payload["action_leakage"]["review_count"] == 4
+    assert payload["action_leakage"]["drill_through"]["filters"] == {
+        "risk_group": "high_or_critical",
+        "action_status_group": "ticket_needed",
+    }
+    assert payload["aging_risk"]["review_count"] == 1
+    assert payload["aging_risk"]["threshold_days"] == 7
+    assert payload["aging_risk"]["oldest_review_date"].startswith("2026-05-10")
+
+    assert payload["owner_pressure"][0]["department_code"] == "front_office"
+    assert payload["owner_pressure"][0]["unresolved_high_risk_reviews"] == 2
+    assert payload["owner_pressure"][0]["recurring_issue_groups"] == 1
+    assert payload["owner_pressure"][0]["issues_drill_through"]["filters"] == {
+        "department_code": "front_office",
+        "risk_group": "high_or_critical",
+    }
+
+    assert payload["platform_risk_spread"][0]["source_code"] == "booking_com"
+    assert payload["platform_risk_spread"][0]["high_risk_reviews"] == 2
+    assert payload["platform_risk_spread"][0]["ticket_needed_reviews"] == 2
+
+    assert len(payload["recurring_issues_without_tickets"]) == 1
+    recurring_issue = payload["recurring_issues_without_tickets"][0]
+    assert recurring_issue["group_key"] == "booking_checkin:front_office"
+    assert recurring_issue["review_count"] == 2
+    assert recurring_issue["linked_ticket_ids"] == []
+    assert recurring_issue["issues_drill_through"]["filters"] == {
+        "issue_category_code": "booking_checkin",
+        "department_code": "front_office",
+    }
+
+
 def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'ticket-update.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)

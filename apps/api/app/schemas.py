@@ -247,6 +247,67 @@ class OverviewKpiResponse(BaseModel):
     filters_applied: dict[str, str | None]
 
 
+class DashboardDrillThroughResponse(BaseModel):
+    path: str
+    filters: dict[str, str | None]
+
+
+class DashboardActionMetricResponse(BaseModel):
+    review_count: int
+    drill_through: DashboardDrillThroughResponse
+
+
+class DashboardAgingRiskResponse(BaseModel):
+    review_count: int
+    threshold_days: int
+    oldest_review_date: datetime | None
+    drill_through: DashboardDrillThroughResponse
+
+
+class DashboardOwnerPressureItemResponse(BaseModel):
+    department_code: str
+    unresolved_high_risk_reviews: int
+    recurring_issue_groups: int
+    reviews_drill_through: DashboardDrillThroughResponse
+    issues_drill_through: DashboardDrillThroughResponse
+    tickets_drill_through: DashboardDrillThroughResponse
+
+
+class DashboardPlatformRiskItemResponse(BaseModel):
+    source_code: str
+    high_risk_reviews: int
+    ticket_needed_reviews: int
+    drill_through: DashboardDrillThroughResponse
+
+
+class DashboardRecurringIssueItemResponse(BaseModel):
+    group_key: str
+    category_code: str
+    category_name: str
+    department_code: str
+    review_count: int
+    recent_review_count: int
+    average_reputation_risk_score: float
+    highest_reputation_risk: str
+    source_mix: dict[str, int]
+    latest_review_date: datetime | None
+    latest_review_title: str | None
+    latest_review_excerpt: str
+    linked_ticket_ids: list[int] = []
+    reviews_drill_through: DashboardDrillThroughResponse
+    issues_drill_through: DashboardDrillThroughResponse
+
+
+class OverviewActionAnalyticsResponse(BaseModel):
+    high_risk_reviews: DashboardActionMetricResponse
+    action_leakage: DashboardActionMetricResponse
+    aging_risk: DashboardAgingRiskResponse
+    owner_pressure: list[DashboardOwnerPressureItemResponse]
+    platform_risk_spread: list[DashboardPlatformRiskItemResponse]
+    recurring_issues_without_tickets: list[DashboardRecurringIssueItemResponse]
+    filters_applied: dict[str, str | None]
+
+
 class TicketCreateRequest(BaseModel):
     department_code: str
     priority: str | None = Field(default=None, description="low, medium, high, or urgent; defaults from Reputation Risk")

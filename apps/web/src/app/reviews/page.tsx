@@ -390,6 +390,9 @@ function ReviewsContent() {
             sources={sources}
             categories={categories}
             departments={departments}
+            showSearch
+            showRiskGroup
+            showActionStatusGroup
           />
 
           <Card>

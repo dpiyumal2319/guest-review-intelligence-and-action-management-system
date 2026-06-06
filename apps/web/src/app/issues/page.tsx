@@ -254,6 +254,7 @@ function IssuesContent() {
             sources={sources}
             categories={categories}
             departments={departments}
+            showRiskGroup
           />
 
           <section className="grid gap-4 md:grid-cols-3">
