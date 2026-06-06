@@ -55,6 +55,7 @@ DEPARTMENTS = [
         "name": "Front Office",
         "description": "Reception, check-in, check-out, booking changes, and guest arrival experience.",
         "service_level_hours": 24,
+        "risk_weight": 12,
         "sort_order": 10,
     },
     {
@@ -62,6 +63,7 @@ DEPARTMENTS = [
         "name": "Housekeeping",
         "description": "Room cleanliness, linen, amenities replenishment, and floor-level service recovery.",
         "service_level_hours": 24,
+        "risk_weight": 14,
         "sort_order": 20,
     },
     {
@@ -69,6 +71,7 @@ DEPARTMENTS = [
         "name": "Food and Beverage",
         "description": "Restaurants, bars, in-room dining, breakfast, banquets, and event catering.",
         "service_level_hours": 24,
+        "risk_weight": 12,
         "sort_order": 30,
     },
     {
@@ -76,6 +79,7 @@ DEPARTMENTS = [
         "name": "Engineering",
         "description": "Room condition, air conditioning, plumbing, lifts, power, and facility defects.",
         "service_level_hours": 48,
+        "risk_weight": 16,
         "sort_order": 40,
     },
     {
@@ -83,58 +87,17 @@ DEPARTMENTS = [
         "name": "Guest Relations",
         "description": "Service recovery, follow-up, escalations, and cross-department guest experience trends.",
         "service_level_hours": 24,
+        "risk_weight": 12,
         "sort_order": 50,
     },
     {
-        "code": "sales_revenue",
-        "name": "Sales and Revenue",
-        "description": "Pricing, value perception, booking channels, and package expectations.",
+        "code": "management",
+        "name": "Management",
+        "description": "Pricing, value perception, strategy, and cross-department management coordination.",
         "service_level_hours": 72,
+        "risk_weight": 18,
         "sort_order": 60,
     },
-]
-
-ISSUE_CATEGORIES = [
-    {"code": "cleanliness", "name": "Cleanliness", "description": "Room, bathroom, public-area, linen, or hygiene complaints.", "is_positive_signal": False, "sort_order": 10},
-    {"code": "room_condition", "name": "Room Condition", "description": "Maintenance, fixtures, air conditioning, hot water, noise insulation, or room wear.", "is_positive_signal": False, "sort_order": 20},
-    {"code": "food_beverage", "name": "Food and Beverage", "description": "Food quality, breakfast, restaurants, bars, banquets, or room service.", "is_positive_signal": False, "sort_order": 30},
-    {"code": "service_delay", "name": "Service Delay", "description": "Slow response, queueing, delayed requests, or unresolved service handoffs.", "is_positive_signal": False, "sort_order": 40},
-    {"code": "staff_behavior", "name": "Staff Behavior", "description": "Courtesy, professionalism, helpfulness, communication, or staff attitude.", "is_positive_signal": False, "sort_order": 50},
-    {"code": "noise_events", "name": "Noise and Events", "description": "Noise disturbance, events, music, crowding, or sleep disruption.", "is_positive_signal": False, "sort_order": 60},
-    {"code": "pricing_value", "name": "Pricing and Value", "description": "Price fairness, package value, billing expectations, or perceived value.", "is_positive_signal": False, "sort_order": 70},
-    {"code": "booking_checkin", "name": "Booking and Check-in", "description": "Reservation accuracy, check-in, check-out, deposits, or payment handling.", "is_positive_signal": False, "sort_order": 80},
-    {"code": "amenities_facilities", "name": "Amenities and Facilities", "description": "Pool, gym, spa, Wi-Fi, parking, lifts, and common guest amenities.", "is_positive_signal": False, "sort_order": 90},
-    {"code": "positive_general", "name": "Positive General", "description": "Positive review content without a specific operational complaint.", "is_positive_signal": True, "sort_order": 100},
-    {"code": "other_uncategorized", "name": "Other or Uncategorized", "description": "Fallback category for unclear or low-confidence review topics.", "is_positive_signal": False, "sort_order": 110},
-]
-
-CATEGORY_DEPARTMENT_MAPPINGS = [
-    {"category_code": "cleanliness", "department_code": "housekeeping", "is_primary": True, "routing_notes": "Housekeeping owns cleanliness investigation and recovery."},
-    {"category_code": "room_condition", "department_code": "engineering", "is_primary": True, "routing_notes": "Engineering owns room defects and facilities faults."},
-    {"category_code": "food_beverage", "department_code": "food_beverage", "is_primary": True, "routing_notes": "F&B owns dining, breakfast, bar, banquet, and room-service issues."},
-    {"category_code": "service_delay", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations coordinates delayed-service follow-up across departments."},
-    {"category_code": "staff_behavior", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations triages service behavior and escalates to the department head."},
-    {"category_code": "noise_events", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations coordinates noise complaints with events or security context."},
-    {"category_code": "pricing_value", "department_code": "sales_revenue", "is_primary": True, "routing_notes": "Sales and Revenue owns value perception and package expectation analysis."},
-    {"category_code": "booking_checkin", "department_code": "front_office", "is_primary": True, "routing_notes": "Front Office owns reservations, arrival, departure, and payment handling issues."},
-    {"category_code": "amenities_facilities", "department_code": "engineering", "is_primary": True, "routing_notes": "Engineering owns facility availability and technical amenity issues."},
-    {"category_code": "amenities_facilities", "department_code": "guest_relations", "is_primary": False, "routing_notes": "Guest Relations follows up when the amenity issue requires service recovery."},
-    {"category_code": "positive_general", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations monitors positive feedback themes and recognition opportunities."},
-    {"category_code": "other_uncategorized", "department_code": "guest_relations", "is_primary": True, "routing_notes": "Guest Relations reviews low-confidence topics before assigning ownership."},
-]
-
-REPUTATION_RISK_THRESHOLDS = [
-    {"category_code": "cleanliness", "low_rating_max": 3.0, "negative_sentiment_max": -0.35, "urgent_confidence_min": 0.78, "recurring_count_7d_min": 3, "description": "Escalate repeated hygiene complaints quickly because they damage trust."},
-    {"category_code": "room_condition", "low_rating_max": 3.0, "negative_sentiment_max": -0.30, "urgent_confidence_min": 0.75, "recurring_count_7d_min": 4, "description": "Escalate defects when guest comfort or core room function is affected."},
-    {"category_code": "food_beverage", "low_rating_max": 3.0, "negative_sentiment_max": -0.30, "urgent_confidence_min": 0.72, "recurring_count_7d_min": 4, "description": "Escalate dining issues that repeat across breakfast, restaurant, or banquet contexts."},
-    {"category_code": "service_delay", "low_rating_max": 3.0, "negative_sentiment_max": -0.25, "urgent_confidence_min": 0.72, "recurring_count_7d_min": 4, "description": "Escalate delays when they indicate broken handoffs or sustained queueing."},
-    {"category_code": "staff_behavior", "low_rating_max": 3.0, "negative_sentiment_max": -0.25, "urgent_confidence_min": 0.70, "recurring_count_7d_min": 3, "description": "Escalate behavior issues because they require management review and coaching."},
-    {"category_code": "noise_events", "low_rating_max": 3.0, "negative_sentiment_max": -0.25, "urgent_confidence_min": 0.72, "recurring_count_7d_min": 3, "description": "Escalate noise patterns when sleep disruption appears in repeated feedback."},
-    {"category_code": "pricing_value", "low_rating_max": 3.0, "negative_sentiment_max": -0.20, "urgent_confidence_min": 0.68, "recurring_count_7d_min": 5, "description": "Escalate value perception issues when repeated feedback points to package mismatch."},
-    {"category_code": "booking_checkin", "low_rating_max": 3.0, "negative_sentiment_max": -0.25, "urgent_confidence_min": 0.72, "recurring_count_7d_min": 3, "description": "Escalate arrival and payment friction because it affects first impression."},
-    {"category_code": "amenities_facilities", "low_rating_max": 3.0, "negative_sentiment_max": -0.25, "urgent_confidence_min": 0.70, "recurring_count_7d_min": 4, "description": "Escalate amenity outages when they recur or affect core guest expectations."},
-    {"category_code": "positive_general", "low_rating_max": 2.0, "negative_sentiment_max": -0.50, "urgent_confidence_min": 0.90, "recurring_count_7d_min": 10, "description": "Positive feedback is not normally ticketed unless contradictory metadata is present."},
-    {"category_code": "other_uncategorized", "low_rating_max": 2.0, "negative_sentiment_max": -0.40, "urgent_confidence_min": 0.65, "recurring_count_7d_min": 2, "description": "Escalate low-confidence issues only when the rating or sentiment is clearly severe."},
 ]
 
 DEMO_ROLES = [
@@ -142,27 +105,27 @@ DEMO_ROLES = [
         "code": "admin",
         "name": "Prototype Admin",
         "description": "Demo role with full configuration and operational access.",
-        "permissions": ["config:read", "config:write", "reviews:read", "tickets:manage", "analytics:read"],
+        "permissions": ["config:read", "config:write", "reviews:read", "issues:manage", "analytics:read"],
         "department_scope": ["*"],
     },
     {
         "code": "operations_manager",
         "name": "Operations Manager",
-        "description": "Hotel operations role that can monitor all departments and manage action tickets.",
-        "permissions": ["config:read", "reviews:read", "tickets:manage", "analytics:read"],
-        "department_scope": ["front_office", "housekeeping", "food_beverage", "engineering", "guest_relations", "sales_revenue"],
+        "description": "Hotel operations role that can monitor all departments and manage issues.",
+        "permissions": ["config:read", "reviews:read", "issues:manage", "analytics:read"],
+        "department_scope": ["front_office", "housekeeping", "food_beverage", "engineering", "guest_relations", "management"],
     },
     {
         "code": "department_head",
         "name": "Department Head",
         "description": "Department owner role for triaging and resolving assigned issues.",
-        "permissions": ["config:read", "reviews:read", "tickets:manage"],
+        "permissions": ["config:read", "reviews:read", "issues:manage"],
         "department_scope": ["assigned_department"],
     },
     {
         "code": "analyst",
         "name": "Review Analyst",
-        "description": "Demo analyst role for reviewing insights, labels, and source configuration.",
+        "description": "Demo analyst role for reviewing insights and source configuration.",
         "permissions": ["config:read", "reviews:read", "analytics:read"],
         "department_scope": [],
     },

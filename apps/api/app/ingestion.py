@@ -18,13 +18,7 @@ from app.seed_reviews import SEED_REVIEWS
 
 SEED_SOURCE_CODE = "google_business_profile"
 SEED_CONNECTOR_KEY = "google_business_profile"
-PENDING_ANALYSIS_VALUES = {
-    "sentiment_label": "pending",
-    "sentiment_score": 0.0,
-    "issue_category_code": "other_uncategorized",
-    "reputation_risk": "low",
-    "department_code": "guest_relations",
-}
+PENDING_ANALYSIS_VALUES = {}
 
 
 def stable_payload_hash(payload: dict[str, Any]) -> str:
@@ -82,12 +76,6 @@ def canonical_review_values(raw_review_id: int, payload: dict[str, Any], now: da
         "title": payload.get("title"),
         "body": payload["body"],
         "content_hash": normalized_content_hash(payload),
-        "sentiment_label": payload.get("sentiment_label", PENDING_ANALYSIS_VALUES["sentiment_label"]),
-        "sentiment_score": payload.get("sentiment_score", PENDING_ANALYSIS_VALUES["sentiment_score"]),
-        "issue_category_code": payload.get("issue_category_code", PENDING_ANALYSIS_VALUES["issue_category_code"]),
-        "reputation_risk": payload.get("reputation_risk", PENDING_ANALYSIS_VALUES["reputation_risk"]),
-        "department_code": payload.get("department_code", PENDING_ANALYSIS_VALUES["department_code"]),
-        "action_status": "new",
         "normalized_payload": normalized_payload,
         "updated_at": now,
     }
@@ -185,13 +173,13 @@ def upsert_ingested_review(
         normalized_review = NormalizedReview(**values)
         session.add(normalized_review)
         session.flush()
-        analyze_and_persist_review(session, normalized_review, now)
+        analyze_and_persist_review(session, normalized_review, analyzed_at=now)
         run.records_created += 1
     elif payload_changed:
         previous_content_hash = normalized_review.content_hash
         for field, value in values.items():
             setattr(normalized_review, field, value)
-        analyze_and_persist_review(session, normalized_review, now)
+        analyze_and_persist_review(session, normalized_review, analyzed_at=now)
         run.records_updated += 1
     else:
         if normalized_review.content_hash != values["content_hash"]:

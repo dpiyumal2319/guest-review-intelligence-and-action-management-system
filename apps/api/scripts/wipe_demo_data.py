@@ -6,9 +6,9 @@ from app.database import SessionLocal
 
 
 DEMO_TABLES = (
-    "ticket_events",
-    "action_tickets",
-    "review_issue_category_predictions",
+    "issue_events",
+    "issue_review_links",
+    "detected_issues",
     "review_analyses",
     "normalized_reviews",
     "raw_reviews",

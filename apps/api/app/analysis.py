@@ -4,12 +4,17 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 import re
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.ml.issue_classifier import IssueCategoryPredictionResult, get_issue_category_classifier
-from app.models import CategoryDepartmentMapping, NormalizedReview, ReviewAnalysis, ReviewIssueCategoryPrediction
+from app.ml.department_classifier import DepartmentPredictionResult, get_department_classifier
+from app.models import Department, NormalizedReview, ReviewAnalysis
 from app.sentiment import ANALYSIS_VERSION, get_sentiment_analyzer
+from app.semantic_similarity import (
+    EmbeddingResult,
+    get_semantic_similarity_analyzer,
+    split_sentences,
+)
 
 
 URGENCY_TERMS = {
@@ -25,19 +30,14 @@ URGENCY_TERMS = {
     "unsafe",
     "urgent",
 }
-CATEGORY_REPUTATION_RISK_WEIGHT = {
-    "cleanliness": 18,
-    "booking_checkin": 16,
-    "room_condition": 15,
-    "staff_behavior": 14,
-    "noise_events": 13,
-    "service_delay": 12,
-    "food_beverage": 11,
-    "amenities_facilities": 10,
-    "pricing_value": 9,
-    "other_uncategorized": 6,
-    "positive_general": 0,
-}
+
+
+@dataclass(frozen=True)
+class SentenceAnalysis:
+    sentence: str
+    department_code: str
+    department_confidence: float
+    embedding: list[float] | None
 
 
 @dataclass(frozen=True)
@@ -45,27 +45,41 @@ class AnalysisResult:
     sentiment_label: str
     sentiment_score: float
     sentiment_confidence: float
-    issue_category_code: str
-    issue_category_predictions: list[IssueCategoryPredictionResult]
+    department_code: str
+    department_confidence: float
+    department_model_name: str
+    department_model_version: str
     reputation_risk_score: int
     reputation_risk_label: str
-    department_code: str
     explanation_factors: dict
+    embedding: list[float] | None
+    embedding_model_name: str | None
+    sentence_analyses: list[SentenceAnalysis]
 
 
-def analyze_and_persist_review(session: Session, review: NormalizedReview, analyzed_at: datetime | None = None) -> ReviewAnalysis:
+def analyze_and_persist_review(
+    session: Session,
+    review: NormalizedReview,
+    *,
+    analyzed_at: datetime | None = None,
+) -> ReviewAnalysis:
     analyzed_at = analyzed_at or datetime.now(UTC)
     result = analyze_review(session, review, analyzed_at)
+    embedding_result = _embed_review_text(review)
+    embedding = embedding_result.embeddings[0] if embedding_result.embeddings else None
+
     values = {
         "sentiment_label": result.sentiment_label,
         "sentiment_score": result.sentiment_score,
         "sentiment_confidence": result.sentiment_confidence,
-        "issue_category_code": result.issue_category_code,
+        "department_code": result.department_code,
+        "department_confidence": result.department_confidence,
+        "department_model_name": result.department_model_name,
         "reputation_risk_score": result.reputation_risk_score,
         "reputation_risk_label": result.reputation_risk_label,
-        "department_code": result.department_code,
-        "model_name": result.explanation_factors["model"]["sentiment_model_name"],
-        "model_version": result.explanation_factors["model"]["sentiment_model_version"],
+        "embedding": embedding,
+        "embedding_model_name": embedding_result.model_name or None,
+        "embedding_generated_at": analyzed_at if embedding is not None else None,
         "analysis_version": ANALYSIS_VERSION,
         "explanation_factors": result.explanation_factors,
         "analyzed_at": analyzed_at,
@@ -80,61 +94,78 @@ def analyze_and_persist_review(session: Session, review: NormalizedReview, analy
     else:
         for field, value in values.items():
             setattr(analysis, field, value)
-        analysis.issue_category_predictions.clear()
         session.flush()
 
-    analysis.issue_category_predictions = [
-        ReviewIssueCategoryPrediction(
-            category_code=prediction.category_code,
-            confidence=prediction.confidence,
-            rank=prediction.rank,
-            is_primary=prediction.rank == 1,
-            department_code=primary_department_for_category(session, prediction.category_code),
-            model_name=prediction.model_name,
-            model_version=prediction.model_version,
-            analyzed_at=analyzed_at,
-        )
-        for prediction in result.issue_category_predictions
-    ]
-
-    review.sentiment_label = result.sentiment_label
-    review.sentiment_score = result.sentiment_score
-    review.issue_category_code = result.issue_category_code
-    review.reputation_risk = result.reputation_risk_label
-    review.department_code = result.department_code
     review.updated_at = analyzed_at
     return analysis
 
 
-def analyze_review(session: Session, review: NormalizedReview, analyzed_at: datetime) -> AnalysisResult:
+def analyze_review(
+    session: Session,
+    review: NormalizedReview,
+    analyzed_at: datetime,
+) -> AnalysisResult:
     text = " ".join(part for part in [review.title, review.body] if part)
     tokens = tokenize(text)
+
     sentiment_result = get_sentiment_analyzer().analyze(text, tokens, review.rating)
-    issue_category_predictions, category_factors = classify_issue_categories(text)
-    issue_category_code = issue_category_predictions[0].category_code
-    department_code = primary_department_for_category(session, issue_category_code)
+
+    department_predictions = classify_department(text)
+    department_code = department_predictions[0].department_code if department_predictions else "guest_relations"
+    department_confidence = department_predictions[0].confidence if department_predictions else 0.3
+
+    department_risk_weight = _get_department_risk_weight(session, department_code)
+
     urgency_score, urgency_matches = urgency_factor(text)
-    recurrence_count = recurrence_count_7d(session, review, issue_category_code, analyzed_at)
-    duplicate_signal = bool(review.normalized_payload.get("duplicate_signal") or review.normalized_payload.get("duplicate_review_ids"))
+    duplicate_signal = bool(
+        review.normalized_payload.get("duplicate_signal")
+        or review.normalized_payload.get("duplicate_review_ids")
+    )
+
     reputation_risk_score, reputation_risk_label, reputation_risk_factors = score_reputation_risk(
         rating=review.rating,
         sentiment_score=sentiment_result.sentiment_score,
-        issue_category_code=issue_category_code,
+        department_risk_weight=department_risk_weight,
         review_date=review.review_date,
         analyzed_at=analyzed_at,
         urgency_score=urgency_score,
-        recurrence_count=recurrence_count,
         duplicate_signal=duplicate_signal,
         normalized_payload=review.normalized_payload,
     )
+
+    sentences = split_sentences(text)
+    sentence_analyses: list[SentenceAnalysis] = []
+    if sentences:
+        dept_classifier = get_department_classifier()
+        embedding_runtime = get_semantic_similarity_analyzer()
+        sentence_embeddings = embedding_runtime.embed_batch(sentences) if embedding_runtime.is_available() else EmbeddingResult()
+        for i, sentence in enumerate(sentences):
+            sent_dept = dept_classifier.classify(sentence)
+            sent_emb = sentence_embeddings.embeddings[i] if i < len(sentence_embeddings.embeddings) else None
+            sentence_analyses.append(
+                SentenceAnalysis(
+                    sentence=sentence,
+                    department_code=sent_dept[0].department_code if sent_dept else department_code,
+                    department_confidence=sent_dept[0].confidence if sent_dept else 0.0,
+                    embedding=sent_emb,
+                )
+            )
+
     explanation_factors = {
         "sentiment": sentiment_result.explanation_factors,
-        "issue_category": category_factors,
-        "reputation_risk": reputation_risk_factors,
         "department": {
             "department_code": department_code,
-            "mapping_source": "category_department_mappings.primary",
+            "department_confidence": department_confidence,
+            "predictions": [
+                {
+                    "department_code": pred.department_code,
+                    "confidence": pred.confidence,
+                    "rank": pred.rank,
+                }
+                for pred in department_predictions
+            ],
         },
+        "reputation_risk": reputation_risk_factors,
         "model": {
             "sentiment_model_name": sentiment_result.model_name,
             "sentiment_model_version": sentiment_result.model_version,
@@ -142,44 +173,43 @@ def analyze_review(session: Session, review: NormalizedReview, analyzed_at: date
             "sentiment_confidence": sentiment_result.sentiment_confidence,
             "sentiment_strategy": sentiment_result.explanation_factors["strategy"],
             "fallback_note": sentiment_result.fallback_note,
-            "issue_classifier_model": issue_category_predictions[0].model_name,
-            "issue_classifier_version": issue_category_predictions[0].model_version,
+            "department_model_name": department_predictions[0].model_name if department_predictions else "unavailable",
+            "department_model_version": department_predictions[0].model_version if department_predictions else "unavailable",
         },
         "signals": {
             "urgency_terms": urgency_matches,
-            "recurrence_count_7d": recurrence_count,
             "duplicate_signal": duplicate_signal,
         },
     }
+
     return AnalysisResult(
         sentiment_label=sentiment_result.sentiment_label,
         sentiment_score=sentiment_result.sentiment_score,
         sentiment_confidence=sentiment_result.sentiment_confidence,
-        issue_category_code=issue_category_code,
-        issue_category_predictions=issue_category_predictions,
+        department_code=department_code,
+        department_confidence=department_confidence,
+        department_model_name=department_predictions[0].model_name if department_predictions else "unavailable",
+        department_model_version=department_predictions[0].model_version if department_predictions else "unavailable",
         reputation_risk_score=reputation_risk_score,
         reputation_risk_label=reputation_risk_label,
-        department_code=department_code,
         explanation_factors=explanation_factors,
+        embedding=None,
+        embedding_model_name=None,
+        sentence_analyses=sentence_analyses,
     )
 
 
-def classify_issue_categories(text: str) -> tuple[list[IssueCategoryPredictionResult], dict]:
-    classifier = get_issue_category_classifier()
-    predictions = classifier.predict_ranked(text, top_k=3)
-    return predictions, {
-        "predictions": [
-            {
-                "category_code": prediction.category_code,
-                "confidence": prediction.confidence,
-                "rank": prediction.rank,
-                "model_name": prediction.model_name,
-                "model_version": prediction.model_version,
-            }
-            for prediction in predictions
-        ],
-        "mapping_source": "huggingface_zero_shot_classification",
-    }
+def classify_department(text: str) -> list[DepartmentPredictionResult]:
+    classifier = get_department_classifier()
+    return classifier.classify(text, top_k=1)
+
+
+def _embed_review_text(review: NormalizedReview) -> EmbeddingResult:
+    runtime = get_semantic_similarity_analyzer()
+    text = " ".join(part for part in [review.title, review.body] if part).strip()
+    if not text:
+        return EmbeddingResult()
+    return runtime.embed_batch([text])
 
 
 def reanalyze_reviews(
@@ -193,7 +223,7 @@ def reanalyze_reviews(
         select(NormalizedReview)
         .join(NormalizedReview.source)
         .options(
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.analysis),
             selectinload(NormalizedReview.source),
         )
     )
@@ -202,7 +232,7 @@ def reanalyze_reviews(
 
     reviews = list(session.scalars(query.order_by(NormalizedReview.id)))
     for review in reviews:
-        analyze_and_persist_review(session, review, analyzed_at)
+        analyze_and_persist_review(session, review, analyzed_at=analyzed_at)
     session.commit()
     return len(reviews)
 
@@ -211,32 +241,31 @@ def score_reputation_risk(
     *,
     rating: float | None,
     sentiment_score: float,
-    issue_category_code: str,
+    department_risk_weight: int,
     review_date: datetime | None,
     analyzed_at: datetime,
     urgency_score: int,
-    recurrence_count: int,
     duplicate_signal: bool,
     normalized_payload: dict | None = None,
 ) -> tuple[int, str, dict]:
     rating_points = 0 if rating is None else round(max(0.0, (5.0 - float(rating)) / 4.0) * 30)
     sentiment_points = round(max(0.0, -sentiment_score) * 25)
-    category_points = CATEGORY_REPUTATION_RISK_WEIGHT.get(issue_category_code, 6)
+    department_points = department_risk_weight
     recency_points = recency_factor(review_date, analyzed_at)
-    recurrence_points = min(10, max(0, recurrence_count - 1) * 3)
     duplicate_points = 5 if duplicate_signal else 0
     visibility_points, visibility_signals = visibility_factor(normalized_payload or {})
-    total = int(min(
-        100,
-        rating_points
-        + sentiment_points
-        + category_points
-        + recency_points
-        + urgency_score
-        + recurrence_points
-        + duplicate_points
-        + visibility_points,
-    ))
+    total = int(
+        min(
+            100,
+            rating_points
+            + sentiment_points
+            + department_points
+            + recency_points
+            + urgency_score
+            + duplicate_points
+            + visibility_points,
+        )
+    )
     if total >= 75:
         label = "critical"
     elif total >= 50:
@@ -245,29 +274,31 @@ def score_reputation_risk(
         label = "medium"
     else:
         label = "low"
-    return total, label, {
-        "score": total,
-        "label": label,
-        "weights": {
-            "rating": rating_points,
-            "sentiment": sentiment_points,
-            "issue_category": category_points,
-            "recency": recency_points,
-            "urgency_terms": urgency_score,
-            "recurrence": recurrence_points,
-            "duplicate_signal": duplicate_points,
-            "platform_visibility": visibility_points,
+    return (
+        total,
+        label,
+        {
+            "score": total,
+            "label": label,
+            "weights": {
+                "rating": rating_points,
+                "sentiment": sentiment_points,
+                "department": department_points,
+                "recency": recency_points,
+                "urgency_terms": urgency_score,
+                "duplicate_signal": duplicate_points,
+                "platform_visibility": visibility_points,
+            },
+            "operational_explanations": reputation_risk_explanations(
+                rating_points=rating_points,
+                sentiment_points=sentiment_points,
+                department_points=department_points,
+                recency_points=recency_points,
+                visibility_signals=visibility_signals,
+            ),
+            "thresholds": {"low": "0-29", "medium": "30-49", "high": "50-74", "critical": "75-100"},
         },
-        "operational_explanations": reputation_risk_explanations(
-            rating_points=rating_points,
-            sentiment_points=sentiment_points,
-            category_points=category_points,
-            recency_points=recency_points,
-            recurrence_points=recurrence_points,
-            visibility_signals=visibility_signals,
-        ),
-        "thresholds": {"low": "0-29", "medium": "30-49", "high": "50-74", "critical": "75-100"},
-    }
+    )
 
 
 def recency_factor(review_date: datetime | None, analyzed_at: datetime) -> int:
@@ -301,7 +332,10 @@ def visibility_factor(normalized_payload: dict) -> tuple[int, list[str]]:
     if normalized_payload.get("provider_url"):
         signals.append("public_review_url")
         points += 2
-    if normalized_payload.get("provider_has_reply") is False or normalized_payload.get("provider_has_management_response") is False:
+    if (
+        normalized_payload.get("provider_has_reply") is False
+        or normalized_payload.get("provider_has_management_response") is False
+    ):
         signals.append("unreplied_public_review")
         points += 2
     return min(8, points), signals
@@ -323,9 +357,8 @@ def reputation_risk_explanations(
     *,
     rating_points: int,
     sentiment_points: int,
-    category_points: int,
+    department_points: int,
     recency_points: int,
-    recurrence_points: int,
     visibility_signals: list[str],
 ) -> list[str]:
     explanations: list[str] = []
@@ -333,12 +366,10 @@ def reputation_risk_explanations(
         explanations.append("low rating")
     if sentiment_points >= 10:
         explanations.append("negative sentiment")
-    if category_points >= 14:
-        explanations.append("high-impact issue category")
+    if department_points >= 14:
+        explanations.append("high-impact department")
     if recency_points:
         explanations.append("recent review")
-    if recurrence_points:
-        explanations.append("recent recurrence")
     if visibility_signals:
         explanations.append("visible platform engagement")
     return explanations
@@ -350,37 +381,11 @@ def urgency_factor(text: str) -> tuple[int, list[str]]:
     return min(15, len(matches) * 5), matches
 
 
-def recurrence_count_7d(
-    session: Session,
-    review: NormalizedReview,
-    issue_category_code: str,
-    analyzed_at: datetime,
-) -> int:
-    if review.review_date is None:
-        return 1
-    window_start = review.review_date - timedelta(days=7)
-    window_end = review.review_date + timedelta(days=7)
-    count = session.scalar(
-        select(func.count(NormalizedReview.id))
-        .where(NormalizedReview.id != review.id)
-        .where(NormalizedReview.issue_category_code == issue_category_code)
-        .where(NormalizedReview.review_date.is_not(None))
-        .where(NormalizedReview.review_date >= window_start)
-        .where(NormalizedReview.review_date <= window_end)
-    )
-    return (count or 0) + 1
-
-
-def primary_department_for_category(session: Session, issue_category_code: str) -> str:
-    mapping = session.scalar(
-        select(CategoryDepartmentMapping)
-        .where(CategoryDepartmentMapping.category_code == issue_category_code)
-        .where(CategoryDepartmentMapping.is_primary.is_(True))
-        .limit(1)
-    )
-    if mapping is None:
-        return "guest_relations"
-    return mapping.department_code
+def _get_department_risk_weight(session: Session, department_code: str) -> int:
+    dept = session.get(Department, department_code)
+    if dept is not None:
+        return dept.risk_weight
+    return 12
 
 
 def tokenize(text: str) -> set[str]:
