@@ -35,6 +35,22 @@ from app.semantic_similarity import (
 _TEST_PREFIX = "test-z-"
 
 
+def _db_available() -> bool:
+    try:
+        session = SessionLocal()
+        session.execute(__import__('sqlalchemy').text("SELECT 1"))
+        session.close()
+        return True
+    except Exception:
+        return False
+
+
+@pytest.fixture(autouse=True, scope="module")
+def _require_db():
+    if not _db_available():
+        pytest.skip("PostgreSQL database not available")
+
+
 @pytest.fixture(autouse=True, scope="module")
 def _wipe_demo_data():
     session = SessionLocal()
