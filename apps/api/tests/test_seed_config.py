@@ -1164,6 +1164,98 @@ def test_review_api_searches_filters_and_redacts_display_fields(tmp_path: Path, 
         assert normalized_review.reviewer_name == "guest@example.com"
 
 
+def test_review_api_can_order_by_operational_priority(tmp_path: Path, monkeypatch) -> None:
+    database_url = f"sqlite:///{tmp_path / 'review-priority-order.db'}"
+    monkeypatch.setenv("DATABASE_URL", database_url)
+    migrate(database_url)
+
+    engine = create_engine(database_url, connect_args={"check_same_thread": False})
+    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    with TestingSessionLocal() as session:
+        seed_reference_config(session)
+        run_payload_ingestion(
+            session,
+            source_code="google_business_profile",
+            connector_key="test_priority_order",
+            payloads=[
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "recent-low-001",
+                    "reviewer_name": "Recent Guest",
+                    "review_date": "2026-05-22T10:00:00+00:00",
+                    "rating": 5.0,
+                    "language": "en",
+                    "title": "Helpful team",
+                    "body": "Excellent staff and smooth check-in.",
+                    "sentiment_label": "positive",
+                    "sentiment_score": 0.75,
+                    "issue_category_code": "positive_general",
+                    "reputation_risk": "low",
+                    "department_code": "guest_relations",
+                },
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "older-high-ticket-001",
+                    "reviewer_name": "Ticketed Guest",
+                    "review_date": "2026-05-18T10:00:00+00:00",
+                    "rating": 2.0,
+                    "language": "en",
+                    "title": "Slow check-in",
+                    "body": "The check-in queue took a long time.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.55,
+                    "issue_category_code": "booking_checkin",
+                    "reputation_risk": "high",
+                    "department_code": "front_office",
+                },
+                {
+                    "source_code": "google_business_profile",
+                    "external_review_id": "older-high-new-001",
+                    "reviewer_name": "Waiting Guest",
+                    "review_date": "2026-05-17T10:00:00+00:00",
+                    "rating": 1.0,
+                    "language": "en",
+                    "title": "Broken room fixture",
+                    "body": "The shower fixture was broken and nobody followed up.",
+                    "sentiment_label": "negative",
+                    "sentiment_score": -0.85,
+                    "issue_category_code": "room_condition",
+                    "reputation_risk": "high",
+                    "department_code": "engineering",
+                },
+            ],
+        )
+        ticketed_review = session.scalar(
+            select(NormalizedReview).where(NormalizedReview.external_review_id == "older-high-ticket-001")
+        )
+        assert ticketed_review is not None
+        ticketed_review.action_status = "ticket_created"
+        session.commit()
+
+    def override_get_session():
+        with TestingSessionLocal() as session:
+            yield session
+
+    app.dependency_overrides[get_session] = override_get_session
+    try:
+        client = TestClient(app)
+        priority_response = client.get("/reviews", params={"order_by": "operational_priority"})
+        recent_response = client.get("/reviews")
+        invalid_response = client.get("/reviews", params={"order_by": "rating"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert priority_response.status_code == 200
+    assert [review["external_review_id"] for review in priority_response.json()["reviews"]] == [
+        "older-high-new-001",
+        "older-high-ticket-001",
+        "recent-low-001",
+    ]
+    assert recent_response.status_code == 200
+    assert recent_response.json()["reviews"][0]["external_review_id"] == "recent-low-001"
+    assert invalid_response.status_code == 422
+
+
 def test_ticket_update_api_records_manageable_field_events(tmp_path: Path, monkeypatch) -> None:
     database_url = f"sqlite:///{tmp_path / 'ticket-update.db'}"
     monkeypatch.setenv("DATABASE_URL", database_url)

@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.analysis import reanalyze_reviews
@@ -164,6 +164,7 @@ async def reviews(
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
+    order_by: str = Query(default="review_date"),
     page: int = Query(default=1, ge=1),
     per_page: int = Query(default=25, ge=1, le=100),
     session: Session = Depends(get_session),
@@ -174,6 +175,8 @@ async def reviews(
         raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
     if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
         raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
+    if order_by not in {"review_date", "operational_priority"}:
+        raise HTTPException(status_code=422, detail="order_by must be one of ['operational_priority', 'review_date']")
 
     query = (
         select(NormalizedReview)
@@ -226,7 +229,31 @@ async def reviews(
     imported_reviews = list(
         session.scalars(
             query
-            .order_by(NormalizedReview.review_date.desc(), NormalizedReview.id.desc())
+            .order_by(
+                *(
+                    (
+                        case(
+                            (NormalizedReview.reputation_risk == "critical", 4),
+                            (NormalizedReview.reputation_risk == "high", 3),
+                            (NormalizedReview.reputation_risk == "medium", 2),
+                            else_=1,
+                        ).desc(),
+                        case(
+                            (NormalizedReview.action_status == "new", 4),
+                            (NormalizedReview.action_status == "reviewed", 3),
+                            (NormalizedReview.action_status == "ticket_created", 2),
+                            else_=1,
+                        ).desc(),
+                        NormalizedReview.review_date.desc(),
+                        NormalizedReview.id.desc(),
+                    )
+                    if order_by == "operational_priority"
+                    else (
+                        NormalizedReview.review_date.desc(),
+                        NormalizedReview.id.desc(),
+                    )
+                )
+            )
             .offset((page - 1) * per_page)
             .limit(per_page)
         )

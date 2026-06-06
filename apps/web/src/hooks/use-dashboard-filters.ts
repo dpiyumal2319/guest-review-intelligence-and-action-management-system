@@ -12,7 +12,6 @@ export type DashboardFilters = {
   department_code: string
   reputation_risk: string
   action_status: string
-  search: string
   date_from: string
   date_to: string
 }
@@ -23,7 +22,6 @@ const DEFAULTS: DashboardFilters = {
   department_code: "",
   reputation_risk: "",
   action_status: "",
-  search: "",
   date_from: DEFAULT_DATE_FROM,
   date_to: DEFAULT_DATE_TO,
 }
@@ -46,7 +44,6 @@ export function useDashboardFilters() {
     department_code: searchParams.get("department_code") ?? "",
     reputation_risk: searchParams.get("reputation_risk") ?? "",
     action_status: searchParams.get("action_status") ?? "",
-    search: searchParams.get("search") ?? "",
     date_from: searchParams.get("date_from") ?? DEFAULT_DATE_FROM,
     date_to: searchParams.get("date_to") ?? DEFAULT_DATE_TO,
   }), [searchParams])
@@ -75,7 +72,6 @@ export function useDashboardFilters() {
     if (filters.department_code) params.set("department_code", filters.department_code)
     if (filters.reputation_risk) params.set("reputation_risk", filters.reputation_risk)
     if (filters.action_status) params.set("action_status", filters.action_status)
-    if (filters.search) params.set("search", filters.search)
     if (filters.date_from) params.set("date_from", startOfDay(filters.date_from))
     if (filters.date_to) params.set("date_to", endOfDay(filters.date_to))
     if (extraParams) {
