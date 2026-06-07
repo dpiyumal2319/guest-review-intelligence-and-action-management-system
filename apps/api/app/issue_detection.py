@@ -153,13 +153,12 @@ def _match_review_against_issues(
 
     now = datetime.now(UTC)
     matched_issue_ids: set[int] = set()
-    review_dept = review.analysis.department_code if review.analysis else "guest_relations"
 
     for sentence_text, sentence_dept, sentence_emb in sentence_vectors:
         for issue in issues:
             if issue.id in matched_issue_ids:
                 continue
-            if issue.department_code != sentence_dept and issue.department_code != review_dept:
+            if issue.department_code != sentence_dept:
                 continue
 
             similarity = centroid_similarity(issue.cluster_centroid, sentence_emb)
@@ -254,10 +253,12 @@ def _find_emerging_clusters(
 ) -> list[dict]:
     groups_by_dept: dict[str, list[NormalizedReview]] = {}
     for review in singletons:
-        if review.analysis is None or review.analysis.department_code is None:
-            continue
-        dept = review.analysis.department_code
-        groups_by_dept.setdefault(dept, []).append(review)
+        sentence_depts = {
+            sentence_dept
+            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review)
+        }
+        for dept in sentence_depts:
+            groups_by_dept.setdefault(dept, []).append(review)
 
     clusters: list[dict] = []
 
@@ -278,7 +279,7 @@ def _find_emerging_clusters(
 
                 b_vectors = _build_sentence_vectors(reviews[j])
 
-                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors)
+                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors, department_code=dept)
 
                 if max_sim >= SIMILARITY_THRESHOLD:
                     component.append(reviews[j])
@@ -303,12 +304,20 @@ def _find_emerging_clusters(
 def _max_sentence_pair_similarity(
     a_vectors: list[tuple[str, str, list[float]]],
     b_vectors: list[tuple[str, str, list[float]]],
+    *,
+    department_code: str | None = None,
 ) -> float:
     if not a_vectors or not b_vectors:
         return 0.0
     best = 0.0
-    for _, _a_dept, a_emb in a_vectors:
-        for _, _b_dept, b_emb in b_vectors:
+    for _, a_dept, a_emb in a_vectors:
+        if department_code is not None and a_dept != department_code:
+            continue
+        for _, b_dept, b_emb in b_vectors:
+            if department_code is not None and b_dept != department_code:
+                continue
+            if department_code is None and a_dept != b_dept:
+                continue
             sim = centroid_similarity(a_emb, b_emb)
             if sim > best:
                 best = sim
@@ -326,13 +335,9 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
     centroid_vectors: list[list[float]] = []
     for review in reviews:
         sentence_vectors = _build_sentence_vectors(review)
-        found = False
         for _sentence, s_dept, s_emb in sentence_vectors:
             if s_dept == department_code:
                 centroid_vectors.append(s_emb)
-                found = True
-        if not found and review.analysis is not None and review.analysis.embedding is not None:
-            centroid_vectors.append(review.analysis.embedding)
 
     if not centroid_vectors:
         return None
@@ -549,8 +554,6 @@ def _recompute_issue_centroid(session: Session, issue: DetectedIssue) -> None:
         for _st, s_dept, s_emb in sentence_vectors:
             if s_dept == issue.department_code:
                 embeddings.append(s_emb)
-        if review.analysis is not None and review.analysis.embedding is not None:
-            embeddings.append(review.analysis.embedding)
 
     if embeddings:
         issue.cluster_centroid = compute_centroid(embeddings)
@@ -636,10 +639,12 @@ def get_emerging_candidates(session: Session) -> list[dict]:
 
     groups_by_dept: dict[str, list[NormalizedReview]] = {}
     for review in singletons:
-        if review.analysis is None or review.analysis.department_code is None:
-            continue
-        dept = review.analysis.department_code
-        groups_by_dept.setdefault(dept, []).append(review)
+        sentence_depts = {
+            sentence_dept
+            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review)
+        }
+        for dept in sentence_depts:
+            groups_by_dept.setdefault(dept, []).append(review)
 
     candidates: list[dict] = []
     now = datetime.now(UTC)
@@ -664,7 +669,7 @@ def get_emerging_candidates(session: Session) -> list[dict]:
 
                 b_vectors = _build_sentence_vectors(reviews[j])
 
-                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors)
+                max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors, department_code=dept)
 
                 if max_sim >= SIMILARITY_THRESHOLD:
                     component_reviews.append(reviews[j])
@@ -681,7 +686,7 @@ def get_emerging_candidates(session: Session) -> list[dict]:
                     for b in range(a + 1, len(component_reviews)):
                         a_vecs = _build_sentence_vectors(component_reviews[a])
                         b_vecs = _build_sentence_vectors(component_reviews[b])
-                        s = _max_sentence_pair_similarity(a_vecs, b_vecs)
+                        s = _max_sentence_pair_similarity(a_vecs, b_vecs, department_code=dept)
                         if s > 0:
                             sims.append(s)
 

@@ -8,6 +8,7 @@ before any test runs.
 """
 
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -33,6 +34,28 @@ from app.semantic_similarity import (
 
 
 _TEST_PREFIX = "test-z-"
+
+
+class _DeterministicDepartmentClassifier:
+    def classify(self, text: str):
+        lowered = text.lower()
+        if any(term in lowered for term in ["air conditioner", "room temperature", "hot"]):
+            department_code = "engineering"
+        elif any(term in lowered for term in ["bathroom", "mold", "dirty", "cleaned", "floor"]):
+            department_code = "housekeeping"
+        elif any(term in lowered for term in ["reservation", "charged", "refund"]):
+            department_code = "front_office"
+        else:
+            department_code = "guest_relations"
+        return [SimpleNamespace(department_code=department_code, confidence=0.99)]
+
+
+@pytest.fixture(autouse=True)
+def _deterministic_sentence_classifier(monkeypatch):
+    monkeypatch.setattr(
+        "app.issue_detection.get_department_classifier",
+        lambda: _DeterministicDepartmentClassifier(),
+    )
 
 
 def _db_available() -> bool:
@@ -465,7 +488,7 @@ class TestCrossDepartmentSentenceLinking:
 
             issues_before = session.query(DetectedIssue).count()
 
-            multi_text = "The air conditioner was broken and room was hot. The bathroom was dirty and floor not cleaned."
+            multi_text = "The air conditioner was broken and my room was extremely hot. The bathroom was dirty with mold in the shower area."
             multi_emb = _get_embedding(multi_text)
 
             _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-multi", title=f"{_TEST_PREFIX}AC and bathroom", body=multi_text, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=multi_emb)
@@ -489,7 +512,7 @@ class TestCrossDepartmentSentenceLinking:
                 if issue is not None:
                     linked_depts.add(issue.department_code)
 
-            assert len(links) >= 1
+            assert {"engineering", "housekeeping"}.issubset(linked_depts)
         finally:
             _cleanup_test_data(session)
             session.close()
