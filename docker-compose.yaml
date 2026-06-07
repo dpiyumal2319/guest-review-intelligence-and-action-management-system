@@ -15,6 +15,22 @@ services:
       timeout: 5s
       retries: 5
 
+  postgres_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: guest_reviews_test
+      POSTGRES_USER: guest_reviews
+      POSTGRES_PASSWORD: guest_reviews
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U guest_reviews -d guest_reviews_test"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api:
     build:
       context: ./apps/api
@@ -38,3 +54,4 @@ services:
 
 volumes:
   postgres_data:
+  postgres_test_data:

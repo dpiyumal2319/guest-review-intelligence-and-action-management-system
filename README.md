@@ -271,9 +271,16 @@ npm run lint:web
 npm run build:web
 ```
 
-`npm run api:test` bootstraps `apps/api/.venv` if needed and runs the API test suite. Issue-detection behavior tests require PostgreSQL and the local embedding model; otherwise they skip by design.
+`npm run api:test` bootstraps `apps/api/.venv`, targets a dedicated test database, migrates it, seeds reference data, and runs the API test suite there. It does not clear the main demo/application database.
 
-**Note**: The issue-detection test suite wipes all operational demo data (reviews, analyses, issues, links) before running. Repopulate afterward with `npm run api:demo`.
+For local DB-backed tests, start the dedicated test Postgres service first:
+
+```bash
+npm run api:test-db:up
+npm run api:test:docker
+```
+
+The test database runs at `localhost:5433` and is isolated from the main app database on `localhost:5432`.
 
 ### Wipe only demo operational data
 

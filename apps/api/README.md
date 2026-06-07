@@ -27,6 +27,15 @@ The test command creates `apps/api/.venv` when needed and installs `requirements
 npm run api:install
 ```
 
+The runner uses a dedicated test database and does not wipe the main app/demo database. For local DB-backed tests:
+
+```bash
+npm run api:test-db:up
+npm run api:test:docker
+```
+
+`api:test:docker` points pytest at `postgresql+psycopg://guest_reviews:guest_reviews@localhost:5433/guest_reviews_test`, migrates that database, seeds reference config, and runs the suite there.
+
 To install the local transformer NLP runtime into the same venv:
 
 ```bash

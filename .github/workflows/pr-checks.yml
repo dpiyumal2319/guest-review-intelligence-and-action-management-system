@@ -13,12 +13,12 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
+      postgres_test:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: guest_reviews
           POSTGRES_PASSWORD: guest_reviews
-          POSTGRES_DB: guest_reviews
+          POSTGRES_DB: guest_reviews_test
         ports:
           - 5432:5432
         options: >-
@@ -28,7 +28,7 @@ jobs:
           --health-retries 5
 
     env:
-      DATABASE_URL: postgresql+psycopg://guest_reviews:guest_reviews@localhost:5432/guest_reviews
+      TEST_DATABASE_URL: postgresql+psycopg://guest_reviews:guest_reviews@localhost:5432/guest_reviews_test
 
     steps:
       - name: Checkout repository
@@ -54,15 +54,11 @@ jobs:
       - name: Run web build
         run: npm run build:web
 
-      - name: Run API migrations
+      - name: Prepare API virtualenv
         run: |
           cd apps/api
           python3 -m venv .venv
           .venv/bin/python -m pip install -r requirements.txt
-          .venv/bin/python -m alembic upgrade head
-
-      - name: Seed API reference data
-        run: cd apps/api && .venv/bin/python -m app.seed
 
       - name: Run API tests
         run: npm run api:test

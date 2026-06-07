@@ -31,4 +31,21 @@ if ! .venv/bin/python -m pytest --version >/dev/null 2>&1; then
   .venv/bin/python -m pip install -r requirements.txt
 fi
 
+if [ -n "${TEST_DATABASE_URL:-}" ]; then
+  export DATABASE_URL="$TEST_DATABASE_URL"
+elif TEST_DATABASE_URL="$(
+  .venv/bin/python scripts/prepare_test_db.py --print-url
+)"; then
+  export DATABASE_URL="$TEST_DATABASE_URL"
+else
+  echo "warning: could not derive dedicated test database URL" >&2
+fi
+
+if [ -n "${DATABASE_URL:-}" ] && { [ -n "${TEST_DATABASE_URL:-}" ] || .venv/bin/python scripts/prepare_test_db.py --ensure >/dev/null 2>&1; }; then
+  .venv/bin/python -m alembic upgrade head >/dev/null
+  .venv/bin/python -m app.seed >/dev/null
+else
+  echo "warning: could not provision dedicated test database; database-backed tests may skip" >&2
+fi
+
 .venv/bin/python -m pytest -s tests

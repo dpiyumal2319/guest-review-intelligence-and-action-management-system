@@ -3,8 +3,8 @@
 These tests verify externally observable detection behaviour.
 They require a running PostgreSQL database configured via DATABASE_URL.
 
-Tests are isolated: a module-level fixture wipes all non-reference data
-before any test runs.
+Tests are isolated in a dedicated test database. This module only cleans up
+rows created through its own prefixed fixtures.
 """
 
 from datetime import UTC, datetime
@@ -78,20 +78,16 @@ def _require_db():
 
 
 @pytest.fixture(autouse=True, scope="module")
-def _wipe_demo_data():
-    """Wipe all operational demo data for test isolation.
+def _cleanup_prefixed_test_data():
+    if not _db_available():
+        yield
+        return
 
-    Running these tests clears imported reviews, analyses, detected issues,
-    and links. Repopulate afterward with: npm run api:demo
-    """
     session = SessionLocal()
     try:
-        for model in [IssueEvent, IssueReviewLink, DetectedIssue, ReviewAnalysis, NormalizedReview, RawReview]:
-            try:
-                session.query(model).delete()
-                session.commit()
-            except Exception:
-                session.rollback()
+        _cleanup_test_data(session)
+        yield
+        _cleanup_test_data(session)
     finally:
         session.close()
 
