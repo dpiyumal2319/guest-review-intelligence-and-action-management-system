@@ -1,6 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { AppSidebar } from "@/components/app-sidebar"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
@@ -172,6 +173,8 @@ function IssueDetailSheet({
 }
 
 function IssuesContent() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const { activeRole, scopeLabel } = useDemoRole()
   const [departments, setDepartments] = useState<Department[]>([])
   const [activeIssues, setActiveIssues] = useState<IssuesResponse | null>(null)
@@ -180,6 +183,9 @@ function IssuesContent() {
   const [error, setError] = useState<string | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<DetectedIssue | null>(null)
   const [activeTab, setActiveTab] = useState("active")
+
+  const page = parseInt(searchParams.get("page") ?? "1", 10)
+  const perPage = 25
 
   const loadConfig = useCallback(async () => {
     const res = await fetch(`${apiBaseUrl}/config`)
@@ -193,7 +199,7 @@ function IssuesContent() {
     setError(null)
     try {
       const [issuesRes, emergingRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/issues?per_page=100`),
+        fetch(`${apiBaseUrl}/issues?page=${page}&per_page=${perPage}`),
         fetch(`${apiBaseUrl}/issues/emerging`),
       ])
       if (!issuesRes.ok) throw new Error("Failed to load issues")
@@ -209,7 +215,7 @@ function IssuesContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [])
+  }, [page])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadData() }, [loadData])
@@ -260,14 +266,14 @@ function IssuesContent() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList>
-              <TabsTrigger value="active">
-                Active Issues
-                {activeIssues && (
-                  <Badge variant="secondary" className="ml-2 text-xs">
-                    {activeIssues.issues.filter((i) => i.status === "active" || i.status === "recurred").length}
-                  </Badge>
-                )}
-              </TabsTrigger>
+                <TabsTrigger value="active">
+                  Active Issues
+                  {activeIssues && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      {activeIssues.total}
+                    </Badge>
+                  )}
+                </TabsTrigger>
               <TabsTrigger value="emerging">
                 Emerging
                 {emergingIssues.length > 0 && (
@@ -344,6 +350,38 @@ function IssuesContent() {
                         </TableBody>
                       </Table>
                     </div>
+
+                  {activeIssues.total_pages > 1 && (
+                    <div className="flex items-center justify-between p-4">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page <= 1}
+                        onClick={() => {
+                          const params = new URLSearchParams(searchParams.toString())
+                          params.set("page", String(page - 1))
+                          router.push(`?${params.toString()}`)
+                        }}
+                      >
+                        Previous
+                      </Button>
+                      <span className="text-xs text-muted-foreground">
+                        Page {activeIssues.page} of {activeIssues.total_pages} ({activeIssues.total} issues)
+                      </span>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={page >= activeIssues.total_pages}
+                        onClick={() => {
+                          const params = new URLSearchParams(searchParams.toString())
+                          params.set("page", String(page + 1))
+                          router.push(`?${params.toString()}`)
+                        }}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
                   </CardContent>
                 </Card>
               )}
