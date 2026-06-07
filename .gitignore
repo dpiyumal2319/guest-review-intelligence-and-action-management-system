@@ -1,4 +1,5 @@
 node_modules/
+.npm-cache/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -16,6 +17,8 @@ coverage/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+apps/api/api-dev*.log
+apps/web/web-dev*.log
 
 # Offline ML research artifacts.
 artifacts/
