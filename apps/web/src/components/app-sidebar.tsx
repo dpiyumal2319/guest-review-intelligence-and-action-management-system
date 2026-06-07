@@ -16,7 +16,6 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import {
-  ChartNoAxesCombinedIcon,
   CircleHelpIcon,
   ClipboardListIcon,
   LayoutDashboardIcon,
@@ -91,11 +90,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<a href="#" />}
+              className="h-auto py-2 data-[slot=sidebar-menu-button]:p-1.5!"
+              render={<a href="/dashboard" />}
             >
-              <ChartNoAxesCombinedIcon className="size-5!" />
-              <span className="text-base font-semibold">Hotel Review Ops</span>
+              <div className="flex flex-col gap-0.5 leading-none">
+                <span className="text-sm font-semibold uppercase tracking-[0.18em] text-sidebar-primary">
+                  The Kingsbury
+                </span>
+                <span className="text-[11px] tracking-wide text-muted-foreground">
+                  Review Intelligence
+                </span>
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

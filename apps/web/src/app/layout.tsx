@@ -1,24 +1,25 @@
 import type { Metadata } from "next";
-import localFont from "next/font/local";
+import { Inter, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 import { AppProviders } from "./providers";
 import { ThemeProvider } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
-const geistSans = localFont({
-  src: "./fonts/GeistVF.woff",
-  variable: "--font-geist-sans",
-  weight: "100 900",
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
 });
-const geistMono = localFont({
-  src: "./fonts/GeistMonoVF.woff",
-  variable: "--font-geist-mono",
-  weight: "100 900",
+const jetBrainsMono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-jetbrains",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Guest Review Intelligence",
-  description: "Hotel guest review intelligence and action management prototype.",
+  title: "The Kingsbury · Guest Review Intelligence",
+  description:
+    "The Kingsbury guest review intelligence and action management prototype.",
 };
 
 export default function RootLayout({
@@ -30,11 +31,9 @@ export default function RootLayout({
     <html
       lang="en"
       suppressHydrationWarning
-      className={cn("font-sans", geistSans.variable)}
+      className={cn(inter.variable, jetBrainsMono.variable)}
     >
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+      <body className="font-sans antialiased">
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
