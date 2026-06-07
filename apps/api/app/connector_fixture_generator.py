@@ -18,7 +18,7 @@ DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_TOTAL_REVIEWS = 2000
 DEFAULT_DATE_WINDOW_START = datetime(2025, 6, 5, 0, 0, tzinfo=UTC)
 DEFAULT_DATE_WINDOW_END = datetime(2026, 6, 5, 23, 59, 59, tzinfo=UTC)
-DEFAULT_OUTPUT_DIR = Path("apps/api/data/generated-fixtures/connectors")
+DEFAULT_OUTPUT_BASE = Path("apps/api/data/generated-fixtures")
 PLATFORMS = ("google_business_profile", "booking_com", "tripadvisor")
 ANALYSIS_FIELD_NAMES = {
     "analysis",
@@ -515,7 +515,7 @@ def write_platform_file(output_dir: Path, platform: str, payloads: list[dict[str
 
 def generate_connector_fixtures(
     *,
-    output_dir: Path = DEFAULT_OUTPUT_DIR,
+    output_dir: Path | None = None,
     total_reviews: int = DEFAULT_TOTAL_REVIEWS,
     model: str = DEFAULT_MODEL,
     ollama_url: str = DEFAULT_OLLAMA_URL,
@@ -607,15 +607,22 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--date-window-end", default=DEFAULT_DATE_WINDOW_END.isoformat())
     parser.add_argument("--id-namespace", default="")
     parser.add_argument("--quiet", action="store_true", help="Suppress progress logs.")
-    parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument("--output-dir", type=Path, default=None)
     return parser
+
+
+def _default_output_dir(model: str) -> Path:
+    sanitized = re.sub(r"[^a-zA-Z0-9-]", "-", model).strip("-")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    return DEFAULT_OUTPUT_BASE / f"connectors-{sanitized}-{timestamp}"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
+    output_dir = args.output_dir or _default_output_dir(args.model)
     result = generate_connector_fixtures(
-        output_dir=args.output_dir,
+        output_dir=output_dir,
         total_reviews=args.total_reviews,
         model=args.model,
         ollama_url=args.ollama_url,

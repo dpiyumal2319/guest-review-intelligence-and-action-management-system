@@ -113,7 +113,56 @@ class DepartmentClassifierRuntime:
         return predictions
 
     def classify_batch(self, texts: list[str]) -> list[list[DepartmentPredictionResult]]:
-        return [self.classify(text) for text in texts]
+        if not texts:
+            return []
+        if self.pipeline is None:
+            return [
+                [DepartmentPredictionResult(
+                    department_code="guest_relations",
+                    confidence=0.3,
+                    rank=1,
+                    model_name=DEPARTMENT_MODEL_NAME,
+                    model_version="unavailable",
+                )]
+                for _ in texts
+            ]
+
+        results = self.pipeline(
+            texts,
+            candidate_labels=self._candidate_labels,
+            multi_label=False,
+            truncation=True,
+            batch_size=64,
+        )
+        predictions: list[list[DepartmentPredictionResult]] = []
+        for result in results:
+            labels = list(result.get("labels", []))
+            scores = list(result.get("scores", []))
+            per_text: list[DepartmentPredictionResult] = []
+            for label, score in zip(labels, scores, strict=False):
+                confidence = round(float(score), 3)
+                department_code = DEPARTMENT_LABEL_TO_CODE.get(str(label).strip(), "guest_relations")
+                per_text.append(
+                    DepartmentPredictionResult(
+                        department_code=department_code,
+                        confidence=confidence,
+                        rank=len(per_text) + 1,
+                        model_name=self.model_name,
+                        model_version=self.model_version,
+                    )
+                )
+            if not per_text:
+                per_text.append(
+                    DepartmentPredictionResult(
+                        department_code="guest_relations",
+                        confidence=0.3,
+                        rank=1,
+                        model_name=DEPARTMENT_MODEL_NAME,
+                        model_version="unavailable",
+                    )
+                )
+            predictions.append(per_text)
+        return predictions
 
 
 def _load_transformer_pipeline(*, model_id: str, revision: str | None):

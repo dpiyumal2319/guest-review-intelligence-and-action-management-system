@@ -35,17 +35,12 @@ Install these on your machine:
 - Python 3.12 or newer
 - Node.js 20 or newer
 
-Optional but useful:
+All setup, import, and verification commands are npm scripts — you don't need
+`psql`, `curl`, or `jq` to follow this runbook.
 
-- `psql`
-- `curl`
-- `jq`
-
-NLP model artifacts are loaded with `local_files_only=True`. For full Issue detection, the local machine or CI runner needs the embedding model available locally:
-
-- `sentence-transformers/all-MiniLM-L6-v2`
-
-Sentiment and department analysis degrade when their models are unavailable, but `POST /issues/detect` intentionally fails if the embedding model is unavailable.
+NLP model artifacts are loaded with `local_files_only=True`. The
+`npm run api:download-models` step (see §3.2) downloads everything to
+`~/.cache/huggingface/` automatically.
 
 ## 3. Bootstrap: Docker DB with Local API/Web
 
@@ -71,9 +66,14 @@ From repo root:
 npm ci
 npm run api:install
 npm run api:install:nlp
+npm run api:download-models
 ```
 
-This creates `apps/api/.venv` and installs API/NLP dependencies.
+This creates `apps/api/.venv`, installs API/NLP Python packages, and downloads Hugging Face model artifacts into the local cache so the app can load them with `local_files_only=True`.
+
+The download step requires a working internet connection and downloads ~2 GB of model weights on first run. Models are cached in `~/.cache/huggingface/` for reuse.
+
+For the web app, use root workspace installs only. Do not run `npm install` inside `apps/web`, because a nested `apps/web/node_modules` can shadow the hoisted `next` package and break builds.
 
 ### 3.3 Run migrations and seed reference data
 
@@ -97,9 +97,7 @@ No Issues are pre-seeded. Issues are created by analysis and detection.
 From repo root:
 
 ```bash
-cd apps/api
-source .venv/bin/activate
-python3 -m uvicorn app.main:app --reload
+npm run dev:api
 ```
 
 API endpoints:
@@ -126,9 +124,7 @@ Web:
 Use this when you want a fast end-to-end proof that raw reviews become detected Issues:
 
 ```bash
-cd apps/api
-source .venv/bin/activate
-python3 scripts/demo_pipeline.py
+npm run api:demo
 ```
 
 The script:
@@ -148,15 +144,13 @@ Expected result:
 
 The pregenerated fixture sets committed in this repo are:
 
-- `apps/api/data/generated-fixtures/connectors`
-- `apps/api/data/generated-fixtures/connectors-llama`
+- `apps/api/data/generated-fixtures/connectors-dolphin` (generated with `dolphin-llama3:latest`)
+- `apps/api/data/generated-fixtures/connectors-llama` (generated with `llama3.1:latest`)
 
 Validate fixture identities before importing both sets:
 
 ```bash
-python3 apps/api/scripts/validate_fixture_identity.py \
-  apps/api/data/generated-fixtures/connectors \
-  apps/api/data/generated-fixtures/connectors-llama
+npm run api:validate-fixtures
 ```
 
 Expected:
@@ -165,64 +159,51 @@ Expected:
 validated 2 fixture directories without identity collisions
 ```
 
-Import the llama fixture set from `apps/api`:
+Import the llama fixture set:
 
 ```bash
-source .venv/bin/activate
-python3 -m app.jobs connector google_business_profile --fixture-path ./data/generated-fixtures/connectors-llama/google_business_profile.json
-python3 -m app.jobs connector booking_com --fixture-path ./data/generated-fixtures/connectors-llama/booking_com.json
-python3 -m app.jobs connector tripadvisor --fixture-path ./data/generated-fixtures/connectors-llama/tripadvisor.json
+npm run api:import:llama
 ```
 
 Then trigger detection:
 
 ```bash
-curl -X POST 'http://localhost:8000/issues/detect?force=true'
+npm run api:detect
 ```
 
 ### 4.3 Load both fixture sets
 
-If you want the larger combined demo dataset, first wipe operational demo data:
+If you want the larger combined demo dataset:
 
 ```bash
-cd apps/api
-source .venv/bin/activate
-python3 scripts/wipe_demo_data.py
+npm run api:import:all
 ```
 
-Then import both fixture directories:
-
-```bash
-python3 -m app.jobs connector google_business_profile --fixture-path ./data/generated-fixtures/connectors/google_business_profile.json
-python3 -m app.jobs connector booking_com --fixture-path ./data/generated-fixtures/connectors/booking_com.json
-python3 -m app.jobs connector tripadvisor --fixture-path ./data/generated-fixtures/connectors/tripadvisor.json
-python3 -m app.jobs connector google_business_profile --fixture-path ./data/generated-fixtures/connectors-llama/google_business_profile.json
-python3 -m app.jobs connector booking_com --fixture-path ./data/generated-fixtures/connectors-llama/booking_com.json
-python3 -m app.jobs connector tripadvisor --fixture-path ./data/generated-fixtures/connectors-llama/tripadvisor.json
-curl -X POST 'http://localhost:8000/issues/detect?force=true'
-```
+This wipes any existing demo data, imports all six connector sets (dolphin + llama), and triggers issue detection.
 
 ## 5. Verify Data
 
-Check imported review counts:
-
 ```bash
-psql 'postgresql://guest_reviews:guest_reviews@localhost:5432/guest_reviews' -c \
-"SELECT source_code, count(*) FROM normalized_reviews GROUP BY source_code ORDER BY source_code;"
+npm run api:verify
 ```
 
-Check detected Issues:
+Example output:
 
-```bash
-psql 'postgresql://guest_reviews:guest_reviews@localhost:5432/guest_reviews' -c \
-"SELECT department_code, status, count(*) FROM detected_issues GROUP BY department_code, status ORDER BY department_code, status;"
 ```
+=== Reviews by source ===
+  booking_com: 666
+  google_business_profile: 668
+  tripadvisor: 666
 
-Check evidence links:
+=== Issues by department/status ===
+  engineering (active): 13
+  food_beverage (active): 20
+  front_office (active): 48
+  guest_relations (active): 72
+  housekeeping (active): 71
+  management (active): 15
 
-```bash
-psql 'postgresql://guest_reviews:guest_reviews@localhost:5432/guest_reviews' -c \
-"SELECT count(*) FROM issue_review_links;"
+=== Evidence links: 1385 ===
 ```
 
 ## 6. Main UI Routes
@@ -266,6 +247,12 @@ npm run api:migrate
 npm run api:seed
 ```
 
+To trigger detection against a Docker container:
+
+```bash
+npm run api:detect
+```
+
 Endpoints:
 
 - web: `http://localhost:3000`
@@ -289,9 +276,7 @@ npm run build:web
 ### Wipe only demo operational data
 
 ```bash
-cd apps/api
-source .venv/bin/activate
-python3 scripts/wipe_demo_data.py
+npm run api:wipe
 ```
 
 This removes operational demo data such as detected Issues, issue events, issue-review links, analyses, reviews, raw reviews, and ingestion runs. It does not remove reference config.
@@ -307,16 +292,19 @@ This removes operational demo data such as detected Issues, issue events, issue-
 `POST /issues/detect` returns `503`
 
 - the embedding model is unavailable locally
-- install NLP dependencies with `npm run api:install:nlp`
-- ensure `sentence-transformers/all-MiniLM-L6-v2` is cached locally for `local_files_only=True`
+- run `npm run api:download-models` to download all required models
+- `npm run api:install:nlp` installs only the Python packages, not the model weights
 
 API ingestion fails with model/runtime errors
 
-- rerun dependency installation:
+- the sentiment or department classification model is not cached
+- run `npm run api:download-models` to download all required models
+- rerun dependency installation if packages are missing:
 
 ```bash
 npm run api:install
 npm run api:install:nlp
+npm run api:download-models
 ```
 
 ## 9. Secondary Workflow: Generate New Review Fixtures with Ollama
@@ -338,15 +326,27 @@ Examples:
 
 ### 9.2 Generate a new dolphin dataset
 
+When `--output-dir` is omitted, the script creates
+`apps/api/data/generated-fixtures/connectors-<model>-<timestamp>` automatically:
+
 ```bash
 python3 apps/api/scripts/generate_connector_fixtures.py \
   --total-reviews 1000 \
   --model dolphin-llama3:latest \
-  --seed 202607 \
-  --output-dir /tmp/guest-review-fixtures-dolphin
+  --seed 202607
 ```
 
 ### 9.3 Generate a new llama dataset with namespaced IDs
+
+```bash
+python3 apps/api/scripts/generate_connector_fixtures.py \
+  --total-reviews 1000 \
+  --model llama3.1:latest \
+  --seed 202607 \
+  --id-namespace llama
+```
+
+To write to a specific location (e.g. outside the repo):
 
 ```bash
 python3 apps/api/scripts/generate_connector_fixtures.py \
@@ -367,7 +367,12 @@ python3 apps/api/scripts/validate_fixture_identity.py \
 
 ### 9.5 Import generated datasets
 
-Use the same connector import commands shown earlier, replacing the fixture paths.
+Use `npm run api:import:dolphin` and `npm run api:import:llama`, or point the
+helper script directly at your new directory:
+
+```bash
+sh apps/api/scripts/import_fixture_set.sh apps/api/data/generated-fixtures/connectors-mynewset-20260705-143022
+```
 
 ## 10. Canonical Supporting Docs
 

@@ -1,5 +1,12 @@
 """Demo pipeline: import seed reviews, run analysis, and trigger issue detection."""
 
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from app.database import SessionLocal
 from app.ingestion import run_seed_ingestion
 from app.issue_detection import detect_issues

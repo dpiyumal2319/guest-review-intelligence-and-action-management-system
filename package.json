@@ -6,14 +6,25 @@
   "scripts": {
     "api:install": "cd apps/api && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt",
     "api:install:nlp": "cd apps/api && python3 -m venv .venv && .venv/bin/python -m pip install -r requirements-nlp.txt",
-    "api:migrate": "cd apps/api && python3 -m alembic upgrade head",
-    "api:seed": "cd apps/api && python3 -m app.seed",
+    "api:migrate": "cd apps/api && .venv/bin/python -m alembic upgrade head",
+    "api:seed": "cd apps/api && .venv/bin/python -m app.seed",
+    "api:download-models": "cd apps/api && .venv/bin/python scripts/download_models.py",
+    "api:demo": "cd apps/api && .venv/bin/python scripts/demo_pipeline.py",
+    "api:wipe": "cd apps/api && .venv/bin/python scripts/wipe_demo_data.py",
+    "api:validate-fixtures": "cd apps/api && .venv/bin/python scripts/validate_fixture_identity.py data/generated-fixtures/connectors-dolphin data/generated-fixtures/connectors-llama",
+    "api:import:dolphin": "sh apps/api/scripts/import_fixture_set.sh apps/api/data/generated-fixtures/connectors-dolphin",
+    "api:import:llama": "sh apps/api/scripts/import_fixture_set.sh apps/api/data/generated-fixtures/connectors-llama",
+    "api:import:all": "npm run api:wipe && npm run api:import:dolphin && npm run api:import:llama && npm run api:detect",
+    "api:detect": "cd apps/api && .venv/bin/python scripts/trigger_detection.py",
+    "api:verify": "cd apps/api && .venv/bin/python scripts/verify_data.py",
     "api:test": "sh apps/api/scripts/run_tests.sh",
+    "dev:api": "cd apps/api && .venv/bin/python -m uvicorn app.main:app --reload",
     "dev:web": "npm --workspace apps/web run dev",
     "build:web": "npm --workspace apps/web run build",
     "lint:web": "npm --workspace apps/web run lint"
   },
   "devDependencies": {
+    "pyright": "^1.1.410",
     "shadcn": "^4.8.0"
   }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from functools import lru_cache
 import hashlib
 import os
 
@@ -39,22 +40,24 @@ def detect_issues(
     updated = 0
     linked = 0
 
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] = {}
+
     existing_issues = list(session.scalars(select(DetectedIssue)))
 
     unlinked_reviews = _get_unlinked_reviews(session, force=force)
 
     for review in unlinked_reviews:
-        linked_count = _match_review_against_issues(session, review, existing_issues)
+        linked_count = _match_review_against_issues(session, review, existing_issues, _sentence_vector_cache)
         linked += linked_count
 
     session.flush()
 
     singletons = _get_unlinked_negative_reviews(session)
 
-    emerging_clusters = _find_emerging_clusters(session, singletons)
+    emerging_clusters = _find_emerging_clusters(session, singletons, _sentence_vector_cache)
 
     for cluster in emerging_clusters:
-        issue = _promote_cluster(session, cluster)
+        issue = _promote_cluster(session, cluster, _sentence_vector_cache)
         if issue is not None:
             created += 1
             existing_issues.append(issue)
@@ -63,7 +66,7 @@ def detect_issues(
 
     for issue in existing_issues:
         if issue.status == "active":
-            _update_issue_from_links(session, issue)
+            _update_issue_from_links(session, issue, _sentence_vector_cache)
             updated += 1
 
     session.commit()
@@ -111,16 +114,25 @@ def _get_unlinked_negative_reviews(session: Session) -> list[NormalizedReview]:
     ))
 
 
-def _build_sentence_vectors(review: NormalizedReview) -> list[tuple[str, str, list[float]]]:
+def _build_sentence_vectors(
+    review: NormalizedReview,
+    cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
+) -> list[tuple[str, str, list[float]]]:
+    if cache is not None and review.id in cache:
+        return cache[review.id]
     text = review.body or ""
     sentences = split_sentences(text)
     if not sentences:
-        return []
+        result: list[tuple[str, str, list[float]]] = []
+        if cache is not None:
+            cache[review.id] = result
+        return result
 
     dept_classifier = get_department_classifier()
     embedding_runtime = get_semantic_similarity_analyzer()
 
-    sentence_depts = [dept_classifier.classify(s)[0].department_code for s in sentences]
+    dept_results = dept_classifier.classify_batch(sentences)
+    sentence_depts = [r[0].department_code for r in dept_results] if dept_results else []
 
     sentence_embeddings: list[list[float]] = []
     if embedding_runtime.is_available():
@@ -137,6 +149,8 @@ def _build_sentence_vectors(review: NormalizedReview) -> list[tuple[str, str, li
         emb = sentence_embeddings[i] if i < len(sentence_embeddings) else []
         if emb:
             results.append((sentence, dept, emb))
+    if cache is not None:
+        cache[review.id] = results
     return results
 
 
@@ -144,10 +158,11 @@ def _match_review_against_issues(
     session: Session,
     review: NormalizedReview,
     issues: list[DetectedIssue],
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
 ) -> int:
     linked_count = 0
 
-    sentence_vectors = _build_sentence_vectors(review)
+    sentence_vectors = _build_sentence_vectors(review, _sentence_vector_cache)
     if not sentence_vectors:
         return 0
 
@@ -250,12 +265,13 @@ def _extract_evidence_snippet(body: str) -> str | None:
 def _find_emerging_clusters(
     session: Session,
     singletons: list[NormalizedReview],
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
 ) -> list[dict]:
     groups_by_dept: dict[str, list[NormalizedReview]] = {}
     for review in singletons:
         sentence_depts = {
             sentence_dept
-            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review)
+            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review, _sentence_vector_cache)
         }
         for dept in sentence_depts:
             groups_by_dept.setdefault(dept, []).append(review)
@@ -271,13 +287,13 @@ def _find_emerging_clusters(
             component: list[NormalizedReview] = [reviews[i]]
             visited.add(reviews[i].id)
 
-            a_vectors = _build_sentence_vectors(reviews[i])
+            a_vectors = _build_sentence_vectors(reviews[i], _sentence_vector_cache)
 
             for j in range(i + 1, len(reviews)):
                 if reviews[j].id in visited:
                     continue
 
-                b_vectors = _build_sentence_vectors(reviews[j])
+                b_vectors = _build_sentence_vectors(reviews[j], _sentence_vector_cache)
 
                 max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors, department_code=dept)
 
@@ -324,7 +340,11 @@ def _max_sentence_pair_similarity(
     return best
 
 
-def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
+def _promote_cluster(
+    session: Session,
+    cluster: dict,
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
+) -> DetectedIssue | None:
     reviews: list[NormalizedReview] = cluster["reviews"]
     if not reviews:
         return None
@@ -334,7 +354,7 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
 
     centroid_vectors: list[list[float]] = []
     for review in reviews:
-        sentence_vectors = _build_sentence_vectors(review)
+        sentence_vectors = _build_sentence_vectors(review, _sentence_vector_cache)
         for _sentence, s_dept, s_emb in sentence_vectors:
             if s_dept == department_code:
                 centroid_vectors.append(s_emb)
@@ -405,7 +425,7 @@ def _promote_cluster(session: Session, cluster: dict) -> DetectedIssue | None:
 
     for review in reviews:
         similarity = 0.0
-        sentence_vectors = _build_sentence_vectors(review)
+        sentence_vectors = _build_sentence_vectors(review, _sentence_vector_cache)
         best_sim = 0.0
         best_sentence = None
         for st, s_dept, s_emb in sentence_vectors:
@@ -540,7 +560,11 @@ def _build_cluster_key(department_code: str, review_ids: list[int]) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()[:64]
 
 
-def _recompute_issue_centroid(session: Session, issue: DetectedIssue) -> None:
+def _recompute_issue_centroid(
+    session: Session,
+    issue: DetectedIssue,
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
+) -> None:
     links = session.scalars(
         select(IssueReviewLink).where(IssueReviewLink.issue_id == issue.id)
     ).all()
@@ -550,7 +574,7 @@ def _recompute_issue_centroid(session: Session, issue: DetectedIssue) -> None:
         review = session.get(NormalizedReview, link.review_id)
         if review is None:
             continue
-        sentence_vectors = _build_sentence_vectors(review)
+        sentence_vectors = _build_sentence_vectors(review, _sentence_vector_cache)
         for _st, s_dept, s_emb in sentence_vectors:
             if s_dept == issue.department_code:
                 embeddings.append(s_emb)
@@ -570,8 +594,12 @@ def _count_triggering_reviews(session: Session, issue: DetectedIssue) -> int:
     ) or 1
 
 
-def _update_issue_from_links(session: Session, issue: DetectedIssue) -> None:
-    _recompute_issue_centroid(session, issue)
+def _update_issue_from_links(
+    session: Session,
+    issue: DetectedIssue,
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] | None = None,
+) -> None:
+    _recompute_issue_centroid(session, issue, _sentence_vector_cache)
     issue.recurrence_count = _count_triggering_reviews(session, issue)
     issue.last_seen_at = datetime.now(UTC)
     links = session.scalars(
@@ -635,13 +663,14 @@ def _priority_from_risk(risk_score: int) -> str:
 
 
 def get_emerging_candidates(session: Session) -> list[dict]:
+    _sentence_vector_cache: dict[int, list[tuple[str, str, list[float]]]] = {}
     singletons = _get_unlinked_negative_reviews(session)
 
     groups_by_dept: dict[str, list[NormalizedReview]] = {}
     for review in singletons:
         sentence_depts = {
             sentence_dept
-            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review)
+            for _sentence, sentence_dept, _embedding in _build_sentence_vectors(review, _sentence_vector_cache)
         }
         for dept in sentence_depts:
             groups_by_dept.setdefault(dept, []).append(review)
@@ -661,13 +690,13 @@ def get_emerging_candidates(session: Session) -> list[dict]:
             component_reviews = [reviews[i]]
             visited.add(reviews[i].id)
 
-            a_vectors = _build_sentence_vectors(reviews[i])
+            a_vectors = _build_sentence_vectors(reviews[i], _sentence_vector_cache)
 
             for j in range(i + 1, len(reviews)):
                 if reviews[j].id in visited:
                     continue
 
-                b_vectors = _build_sentence_vectors(reviews[j])
+                b_vectors = _build_sentence_vectors(reviews[j], _sentence_vector_cache)
 
                 max_sim = _max_sentence_pair_similarity(a_vectors, b_vectors, department_code=dept)
 
@@ -684,8 +713,8 @@ def get_emerging_candidates(session: Session) -> list[dict]:
                 sims = []
                 for a in range(len(component_reviews)):
                     for b in range(a + 1, len(component_reviews)):
-                        a_vecs = _build_sentence_vectors(component_reviews[a])
-                        b_vecs = _build_sentence_vectors(component_reviews[b])
+                        a_vecs = _build_sentence_vectors(component_reviews[a], _sentence_vector_cache)
+                        b_vecs = _build_sentence_vectors(component_reviews[b], _sentence_vector_cache)
                         s = _max_sentence_pair_similarity(a_vecs, b_vecs, department_code=dept)
                         if s > 0:
                             sims.append(s)

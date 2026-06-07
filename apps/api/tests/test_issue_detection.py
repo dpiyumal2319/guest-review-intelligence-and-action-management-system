@@ -49,6 +49,9 @@ class _DeterministicDepartmentClassifier:
             department_code = "guest_relations"
         return [SimpleNamespace(department_code=department_code, confidence=0.99)]
 
+    def classify_batch(self, texts: list[str]):
+        return [self.classify(t) for t in texts]
+
 
 @pytest.fixture(autouse=True)
 def _deterministic_sentence_classifier(monkeypatch):

@@ -139,8 +139,9 @@ def analyze_review(
         dept_classifier = get_department_classifier()
         embedding_runtime = get_semantic_similarity_analyzer()
         sentence_embeddings = embedding_runtime.embed_batch(sentences) if embedding_runtime.is_available() else EmbeddingResult()
+        dept_results = dept_classifier.classify_batch(sentences)
         for i, sentence in enumerate(sentences):
-            sent_dept = dept_classifier.classify(sentence)
+            sent_dept = dept_results[i] if i < len(dept_results) else []
             sent_emb = sentence_embeddings.embeddings[i] if i < len(sentence_embeddings.embeddings) else None
             sentence_analyses.append(
                 SentenceAnalysis(
