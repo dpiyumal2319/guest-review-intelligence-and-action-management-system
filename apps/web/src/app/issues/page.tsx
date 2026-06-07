@@ -83,6 +83,16 @@ function IssueDetailSheet({
           <Badge variant="outline">Recurrence: {issue.recurrence_count}x</Badge>
         </div>
 
+        {issue.keywords && issue.keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {issue.keywords.map((kw) => (
+              <Badge key={kw} variant="secondary" className="text-xs font-normal">
+                {kw}
+              </Badge>
+            ))}
+          </div>
+        )}
+
         <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
           <div>
             <span className="text-muted-foreground">First seen:</span>{" "}

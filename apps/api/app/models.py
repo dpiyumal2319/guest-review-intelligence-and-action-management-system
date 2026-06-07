@@ -239,6 +239,9 @@ class DetectedIssue(Base):
     title_generated_by: Mapped[str] = mapped_column(String(32), nullable=False)
     title_generation_model: Mapped[str | None] = mapped_column(String(120))
     title_confidence: Mapped[float | None] = mapped_column(Float)
+    keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    title_quality_score: Mapped[float | None] = mapped_column(Float)
+    merged_from_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

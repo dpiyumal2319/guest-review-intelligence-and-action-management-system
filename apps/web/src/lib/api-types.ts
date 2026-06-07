@@ -129,6 +129,9 @@ export type DetectedIssueCompact = {
   resolved_at: string | null
   recurred_at: string | null
   assignee_name: string | null
+  keywords: string[]
+  title_quality_score: number | null
+  merged_from_id: number | null
   created_at: string
   updated_at: string
 }
@@ -167,6 +170,7 @@ export type IssueDetectResponse = {
   created: number
   updated: number
   linked: number
+  merged: number
   issues: DetectedIssueCompact[]
 }
 

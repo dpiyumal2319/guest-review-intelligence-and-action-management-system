@@ -405,6 +405,7 @@ async def detect_issues_endpoint(
         created=result["created"],
         updated=result["updated"],
         linked=result["linked"],
+        merged=result.get("merged", 0),
         issues=issues,
     )
 
