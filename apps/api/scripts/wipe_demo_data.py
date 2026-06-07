@@ -1,14 +1,22 @@
 from __future__ import annotations
 
+from pathlib import Path
+import sys
+
 from sqlalchemy import text
+
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from app.database import SessionLocal
 
 
 DEMO_TABLES = (
-    "ticket_events",
-    "action_tickets",
-    "review_issue_category_predictions",
+    "issue_events",
+    "issue_review_links",
+    "detected_issues",
     "review_analyses",
     "normalized_reviews",
     "raw_reviews",

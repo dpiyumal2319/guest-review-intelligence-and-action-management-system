@@ -18,7 +18,7 @@ export function SiteHeader() {
     activeRole,
     activeRoleCode,
     assignedDepartmentCode,
-    canManageTickets,
+    canManageIssues,
     departments,
     isLoading,
     roles,
@@ -43,7 +43,7 @@ export function SiteHeader() {
           <Badge variant="outline" className="shrink-0 text-[11px]">
             {scopeLabel}
           </Badge>
-          <Badge variant={canManageTickets ? "secondary" : "outline"} className="shrink-0 text-[11px]">
+          <Badge variant={canManageIssues ? "secondary" : "outline"} className="shrink-0 text-[11px]">
             {workflowLabel}
           </Badge>
         </div>

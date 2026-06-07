@@ -8,9 +8,9 @@
   "date_window_start": "2025-06-05T00:00:00+00:00",
   "dates_redistributed_at": "2026-06-05T15:43:36.384014+00:00",
   "files": {
-    "booking_com": "apps/api/data/generated-fixtures/connectors/booking_com.json",
-    "google_business_profile": "apps/api/data/generated-fixtures/connectors/google_business_profile.json",
-    "tripadvisor": "apps/api/data/generated-fixtures/connectors/tripadvisor.json"
+    "booking_com": "apps/api/data/generated-fixtures/connectors-dolphin/booking_com.json",
+    "google_business_profile": "apps/api/data/generated-fixtures/connectors-dolphin/google_business_profile.json",
+    "tripadvisor": "apps/api/data/generated-fixtures/connectors-dolphin/tripadvisor.json"
   },
   "generated_at": "2026-06-04T23:12:53.072444+00:00",
   "model": "dolphin-llama3:latest",

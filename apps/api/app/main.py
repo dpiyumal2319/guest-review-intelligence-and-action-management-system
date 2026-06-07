@@ -11,46 +11,48 @@ from app.analysis_runtime import AnalysisRuntimeUnavailableError
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key
+from app.issue_detection import detect_issues, get_emerging_candidates, resolve_issue
 from app.models import (
-    ActionTicket,
-    CategoryDepartmentMapping,
     DemoRole,
     Department,
+    DetectedIssue,
     IngestionRun,
-    IssueCategory,
+    IssueEvent,
+    IssueReviewLink,
     NormalizedReview,
     ReviewAnalysis,
-    ReviewIssueCategoryPrediction,
     ReviewSource,
-    ReputationRiskThreshold,
-    TicketEvent,
 )
 from app.schemas import (
     ConnectorImportRequest,
+    DashboardActionMetricResponse,
+    DashboardAgingRiskResponse,
+    DashboardDrillThroughResponse,
+    DashboardIssueItemResponse,
+    DashboardIssueMetricResponse,
+    DashboardOwnerPressureItemResponse,
+    DashboardPlatformRiskItemResponse,
+    DemoRoleResponse,
+    DepartmentResponse,
+    DetectedIssueCompactResponse,
+    DetectedIssueDetailResponse,
     HealthResponse,
     IngestionRunResponse,
     IngestionRunsResponse,
     IngestionSourceStatusesResponse,
-    IssueSummaryResponse,
-    IssueSummaryItemResponse,
-    ReferenceConfigResponse,
-    OverviewKpiResponse,
+    IssueDetectResponse,
+    IssueEmergingResponse,
+    IssueUpdateRequest,
+    IssuesResponse,
     OverviewActionAnalyticsResponse,
-    DashboardActionMetricResponse,
-    DashboardAgingRiskResponse,
-    DashboardDrillThroughResponse,
-    DashboardOwnerPressureItemResponse,
-    DashboardPlatformRiskItemResponse,
-    DashboardRecurringIssueItemResponse,
+    OverviewKpiResponse,
+    OverviewDepartmentCountResponse,
     ReanalysisResponse,
-    RecurringIssueTicketCreateRequest,
+    ReferenceConfigResponse,
     ReviewResponse,
     ReviewsResponse,
+    ReviewSourceResponse,
     SemanticAnalysisResponse,
-    TicketCreateRequest,
-    TicketResponse,
-    TicketsResponse,
-    TicketUpdateRequest,
 )
 from app.semantic_similarity import (
     DEFAULT_MIN_CLUSTER_SIZE,
@@ -66,7 +68,7 @@ MVP_REVIEW_SOURCE_CODES = tuple(source["code"] for source in REVIEW_SOURCES)
 app = FastAPI(
     title="Guest Review Intelligence API",
     summary="REST API for the hotel review intelligence prototype.",
-    version="0.1.0",
+    version="0.2.0",
 )
 
 app.add_middleware(
@@ -75,6 +77,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+_VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
+_VALID_REPUTATION_RISK_LABELS = {"low", "medium", "high", "critical"}
+_VALID_ISSUE_STATUSES = {"active", "resolved", "recurred"}
+_VALID_ISSUE_PRIORITIES = {"low", "medium", "high", "urgent"}
 
 
 @app.get("/health", tags=["system"], response_model=HealthResponse)
@@ -93,17 +101,6 @@ async def reference_config(session: Session = Depends(get_session)) -> Reference
             )
         ),
         departments=list(session.scalars(select(Department).order_by(Department.sort_order))),
-        issue_categories=list(session.scalars(select(IssueCategory).order_by(IssueCategory.sort_order))),
-        category_department_mappings=list(
-            session.scalars(
-                select(CategoryDepartmentMapping).order_by(
-                    CategoryDepartmentMapping.category_code,
-                    CategoryDepartmentMapping.is_primary.desc(),
-                    CategoryDepartmentMapping.department_code,
-                )
-            )
-        ),
-        reputation_risk_thresholds=list(session.scalars(select(ReputationRiskThreshold).order_by(ReputationRiskThreshold.category_code))),
         demo_roles=list(session.scalars(select(DemoRole).order_by(DemoRole.code))),
     )
 
@@ -163,13 +160,11 @@ async def ingestion_source_status(session: Session = Depends(get_session)) -> In
 @app.get("/reviews", tags=["reviews"], response_model=ReviewsResponse)
 async def reviews(
     source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
     reputation_risk: str | None = Query(default=None),
     risk_group: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    action_status_group: str | None = Query(default=None),
+    has_issues: bool | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     search: str | None = Query(default=None, min_length=1),
@@ -182,9 +177,8 @@ async def reviews(
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
     if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
         raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-    _validate_review_filter_groups(risk_group=risk_group, action_status_group=action_status_group)
+    if risk_group is not None and risk_group not in {"high_or_critical"}:
+        raise HTTPException(status_code=422, detail=f"risk_group must be 'high_or_critical'")
     if order_by not in {"review_date", "operational_priority"}:
         raise HTTPException(status_code=422, detail="order_by must be one of ['operational_priority', 'review_date']")
 
@@ -193,32 +187,35 @@ async def reviews(
         .join(NormalizedReview.source)
         .options(
             selectinload(NormalizedReview.source),
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.analysis),
+            selectinload(NormalizedReview.issue_links),
         )
     )
     query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
     if department_code is not None:
         query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
+            NormalizedReview.analysis.has(ReviewAnalysis.department_code == department_code)
         )
     if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    query = _apply_reputation_risk_filters(query, reputation_risk=reputation_risk, risk_group=risk_group)
-    query = _apply_action_status_filters(query, action_status=action_status, action_status_group=action_status_group)
+        query = query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.sentiment_label == sentiment_label)
+        )
+    if reputation_risk is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.reputation_risk_label == reputation_risk)
+        )
+    if risk_group == "high_or_critical":
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.reputation_risk_label.in_(["high", "critical"])
+            )
+        )
+    if has_issues is True:
+        query = query.where(NormalizedReview.issue_links.any())
+    elif has_issues is False:
+        query = query.where(~NormalizedReview.issue_links.any())
     if date_from is not None:
         query = query.where(NormalizedReview.review_date >= date_from)
     if date_to is not None:
@@ -234,44 +231,41 @@ async def reviews(
         )
 
     total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+
+    order_clauses = []
+    if order_by == "operational_priority":
+        order_clauses = [
+            case(
+                (ReviewAnalysis.reputation_risk_label == "critical", 4),
+                (ReviewAnalysis.reputation_risk_label == "high", 3),
+                (ReviewAnalysis.reputation_risk_label == "medium", 2),
+                else_=1,
+            ).desc(),
+            NormalizedReview.review_date.desc(),
+            NormalizedReview.id.desc(),
+        ]
+    else:
+        order_clauses = [
+            NormalizedReview.review_date.desc(),
+            NormalizedReview.id.desc(),
+        ]
+
     imported_reviews = list(
         session.scalars(
-            query
-            .order_by(
-                *(
-                    (
-                        case(
-                            (NormalizedReview.reputation_risk == "critical", 4),
-                            (NormalizedReview.reputation_risk == "high", 3),
-                            (NormalizedReview.reputation_risk == "medium", 2),
-                            else_=1,
-                        ).desc(),
-                        case(
-                            (NormalizedReview.action_status == "new", 4),
-                            (NormalizedReview.action_status == "reviewed", 3),
-                            (NormalizedReview.action_status == "ticket_created", 2),
-                            else_=1,
-                        ).desc(),
-                        NormalizedReview.review_date.desc(),
-                        NormalizedReview.id.desc(),
-                    )
-                    if order_by == "operational_priority"
-                    else (
-                        NormalizedReview.review_date.desc(),
-                        NormalizedReview.id.desc(),
-                    )
-                )
-            )
+            query.order_by(*order_clauses)
             .offset((page - 1) * per_page)
             .limit(per_page)
         )
     )
+
     review_payloads = []
     for review in imported_reviews:
         payload = ReviewResponse.model_validate(review).model_dump()
         if payload["analysis"] is not None:
-            payload["analysis"]["explanation_factors"].pop("model", None)
+            payload["analysis"].pop("model", None)
+            payload["analysis"].pop("explanation_factors", None)
         review_payloads.append(payload)
+
     total_pages = (total + per_page - 1) // per_page if total else 0
     return ReviewsResponse(
         reviews=review_payloads,
@@ -285,7 +279,6 @@ async def reviews(
 @app.get("/analysis/semantic-clusters", tags=["analysis"], response_model=SemanticAnalysisResponse)
 async def semantic_clusters(
     source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     similarity_threshold: float | None = Query(default=None, ge=0.0, le=1.0),
     min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
@@ -296,27 +289,15 @@ async def semantic_clusters(
         .join(NormalizedReview.source)
         .options(
             selectinload(NormalizedReview.source),
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
+            selectinload(NormalizedReview.analysis),
         )
     )
     query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
     if source_code is not None:
         query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
     if department_code is not None:
         query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
+            NormalizedReview.analysis.has(ReviewAnalysis.department_code == department_code)
         )
 
     imported_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
@@ -325,11 +306,7 @@ async def semantic_clusters(
         similarity_threshold=similarity_threshold,
         min_cluster_size=min_cluster_size,
     )
-    response = SemanticAnalysisResponse.model_validate(asdict(semantic_result))
-    cluster_ticket_ids = _ticket_ids_by_source_group(session, "semantic_cluster")
-    for cluster in response.clusters:
-        cluster.linked_ticket_ids = cluster_ticket_ids.get(cluster.cluster_id, [])
-    return response
+    return SemanticAnalysisResponse.model_validate(asdict(semantic_result))
 
 
 @app.post("/analysis/reanalyze", tags=["analysis"], response_model=ReanalysisResponse)
@@ -344,76 +321,317 @@ async def reanalyze_imported_reviews(
     return ReanalysisResponse(analyzed_count=analyzed_count)
 
 
-_VALID_TICKET_STATUSES = {"open", "in_progress", "blocked", "resolved", "verified"}
-_VALID_TICKET_PRIORITIES = {"low", "medium", "high", "urgent"}
-_VALID_REVIEW_ACTION_STATUSES = {"new", "reviewed", "ticket_created", "ignored"}
-_VALID_SENTIMENT_LABELS = {"positive", "mixed", "negative"}
-_VALID_REPUTATION_RISK_LABELS = {"low", "medium", "high", "critical"}
-_VALID_REPUTATION_RISK_GROUPS = {"high_or_critical"}
-_VALID_ACTION_STATUS_GROUPS = {"ticket_needed"}
-_ALLOWED_TICKET_STATUS_TRANSITIONS = {
-    "open": {"in_progress", "blocked", "resolved"},
-    "in_progress": {"open", "blocked", "resolved"},
-    "blocked": {"open", "in_progress", "resolved"},
-    "resolved": {"open", "in_progress", "blocked", "verified"},
-    "verified": set(),
-}
+@app.get("/issues", tags=["issues"], response_model=IssuesResponse)
+async def list_issues(
+    status: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    priority: str | None = Query(default=None),
+    assignee: str | None = Query(default=None),
+    min_risk: int | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    per_page: int = Query(default=25, ge=1, le=100),
+    session: Session = Depends(get_session),
+) -> IssuesResponse:
+    if status is not None and status not in _VALID_ISSUE_STATUSES:
+        raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_ISSUE_STATUSES)}")
+    if priority is not None and priority not in _VALID_ISSUE_PRIORITIES:
+        raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_ISSUE_PRIORITIES)}")
+
+    query = select(DetectedIssue)
+    if status is not None:
+        query = query.where(DetectedIssue.status == status)
+    if department_code is not None:
+        query = query.where(DetectedIssue.department_code == department_code)
+    if priority is not None:
+        query = query.where(DetectedIssue.priority == priority)
+    if assignee is not None:
+        query = query.where(DetectedIssue.assignee_name == assignee)
+    if min_risk is not None:
+        query = query.where(DetectedIssue.reputation_risk_score >= min_risk)
+
+    total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
+    issues = list(
+        session.scalars(
+            query.order_by(
+                DetectedIssue.status.asc(),
+                DetectedIssue.reputation_risk_score.desc(),
+                DetectedIssue.last_seen_at.desc(),
+            )
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+        )
+    )
+    total_pages = (total + per_page - 1) // per_page if total else 0
+    return IssuesResponse(
+        issues=issues,
+        total=total,
+        page=page,
+        per_page=per_page,
+        total_pages=total_pages,
+    )
 
 
-def _risk_rank(label: str | None) -> int:
-    return {"low": 0, "medium": 1, "high": 2, "critical": 3}.get(label or "", 0)
+@app.get("/issues/emerging", tags=["issues"], response_model=list[IssueEmergingResponse])
+async def emerging_issues(
+    session: Session = Depends(get_session),
+) -> list[IssueEmergingResponse]:
+    candidates = get_emerging_candidates(session)
+    return candidates
 
 
-def _validate_review_filter_groups(
-    *,
-    risk_group: str | None = None,
-    action_status_group: str | None = None,
-) -> None:
-    if risk_group is not None and risk_group not in _VALID_REPUTATION_RISK_GROUPS:
-        raise HTTPException(status_code=422, detail=f"risk_group must be one of {sorted(_VALID_REPUTATION_RISK_GROUPS)}")
-    if action_status_group is not None and action_status_group not in _VALID_ACTION_STATUS_GROUPS:
-        raise HTTPException(status_code=422, detail=f"action_status_group must be one of {sorted(_VALID_ACTION_STATUS_GROUPS)}")
+@app.post("/issues/detect", tags=["issues"], response_model=IssueDetectResponse)
+async def detect_issues_endpoint(
+    force: bool = Query(default=False),
+    session: Session = Depends(get_session),
+) -> IssueDetectResponse:
+    from app.semantic_similarity import get_semantic_similarity_analyzer
+
+    similarity_runtime = get_semantic_similarity_analyzer()
+    if not similarity_runtime.is_available():
+        raise HTTPException(
+            status_code=503,
+            detail="Embedding model is not available. Issue detection requires a working embedding model.",
+        )
+
+    result = detect_issues(session, force=force)
+
+    issues = list(
+        session.scalars(
+            select(DetectedIssue).order_by(DetectedIssue.created_at.desc()).limit(result["created"] or 10)
+        )
+    )
+
+    return IssueDetectResponse(
+        created=result["created"],
+        updated=result["updated"],
+        linked=result["linked"],
+        issues=issues,
+    )
 
 
-def _apply_reputation_risk_filters(query, *, reputation_risk: str | None, risk_group: str | None):
+@app.get("/issues/{issue_id}", tags=["issues"], response_model=DetectedIssueDetailResponse)
+async def get_issue(
+    issue_id: int,
+    session: Session = Depends(get_session),
+) -> DetectedIssue:
+    issue = session.scalar(
+        select(DetectedIssue)
+        .where(DetectedIssue.id == issue_id)
+        .options(
+            selectinload(DetectedIssue.review_links),
+            selectinload(DetectedIssue.events),
+        )
+    )
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return issue
+
+
+@app.patch("/issues/{issue_id}", tags=["issues"], response_model=DetectedIssueCompactResponse)
+async def update_issue(
+    issue_id: int,
+    body: IssueUpdateRequest,
+    session: Session = Depends(get_session),
+) -> DetectedIssue:
+    issue = session.get(DetectedIssue, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    now = datetime.now(timezone.utc)
+
+    if body.priority is not None:
+        if body.priority not in _VALID_ISSUE_PRIORITIES:
+            raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_ISSUE_PRIORITIES)}")
+        if body.priority != issue.priority:
+            session.add(
+                IssueEvent(
+                    issue_id=issue.id,
+                    event_type="priority_changed",
+                    actor="system",
+                    old_value=issue.priority,
+                    new_value=body.priority,
+                    note="Priority updated via API",
+                    created_at=now,
+                )
+            )
+            issue.priority = body.priority
+
+    if body.assignee_name is not None and body.assignee_name != issue.assignee_name:
+        session.add(
+            IssueEvent(
+                issue_id=issue.id,
+                event_type="assignee_changed",
+                actor="system",
+                old_value=issue.assignee_name,
+                new_value=body.assignee_name,
+                note=f"Assignee changed to {body.assignee_name}",
+                created_at=now,
+            )
+        )
+        issue.assignee_name = body.assignee_name
+
+    issue.updated_at = now
+    session.commit()
+    session.refresh(issue)
+    return issue
+
+
+@app.patch("/issues/{issue_id}/resolve", tags=["issues"], response_model=DetectedIssueCompactResponse)
+async def resolve_issue_endpoint(
+    issue_id: int,
+    session: Session = Depends(get_session),
+) -> DetectedIssue:
+    issue = resolve_issue(session, issue_id)
+    if issue is None:
+        raise HTTPException(status_code=404, detail="Issue not found")
+    return issue
+
+
+@app.get("/overview/kpis", tags=["overview"], response_model=OverviewKpiResponse)
+async def overview_kpis(
+    source_code: str | None = Query(default=None),
+    department_code: str | None = Query(default=None),
+    sentiment_label: str | None = Query(default=None),
+    reputation_risk: str | None = Query(default=None),
+    risk_group: str | None = Query(default=None),
+    date_from: datetime | None = Query(default=None),
+    date_to: datetime | None = Query(default=None),
+    session: Session = Depends(get_session),
+) -> OverviewKpiResponse:
+    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
+        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
+    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
+        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
+    if risk_group is not None and risk_group not in {"high_or_critical"}:
+        raise HTTPException(status_code=422, detail=f"risk_group must be 'high_or_critical'")
+
+    query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(selectinload(NormalizedReview.analysis))
+    )
+    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
+    if source_code is not None:
+        query = query.where(NormalizedReview.source_code == source_code)
+    if department_code is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.department_code == department_code)
+        )
+    if sentiment_label is not None:
+        query = query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.sentiment_label == sentiment_label)
+        )
     if reputation_risk is not None:
-        return query.where(NormalizedReview.reputation_risk == reputation_risk)
+        query = query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.reputation_risk_label == reputation_risk)
+        )
     if risk_group == "high_or_critical":
-        return query.where(NormalizedReview.reputation_risk.in_(("high", "critical")))
-    return query
+        query = query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.reputation_risk_label.in_(["high", "critical"])
+            )
+        )
+    if date_from is not None:
+        query = query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        query = query.where(NormalizedReview.review_date <= date_to)
 
+    matched_reviews = list(session.scalars(query))
+    total = len(matched_reviews)
 
-def _apply_action_status_filters(query, *, action_status: str | None, action_status_group: str | None):
-    if action_status is not None:
-        return query.where(NormalizedReview.action_status == action_status)
-    if action_status_group == "ticket_needed":
-        return query.where(NormalizedReview.action_status.in_(("new", "reviewed")))
-    return query
+    sentiment_mix = {label: 0 for label in _VALID_SENTIMENT_LABELS}
+    reputation_risk_mix = {label: 0 for label in _VALID_REPUTATION_RISK_LABELS}
+    department_counts: dict[str, int] = {}
+    rating_total = 0.0
+    rating_count = 0
+    reputation_risk_score_total = 0
+    reputation_risk_score_count = 0
+
+    for review in matched_reviews:
+        if review.analysis is not None:
+            if review.analysis.sentiment_label in sentiment_mix:
+                sentiment_mix[review.analysis.sentiment_label] += 1
+            if review.analysis.reputation_risk_label in reputation_risk_mix:
+                reputation_risk_mix[review.analysis.reputation_risk_label] += 1
+            department_counts[review.analysis.department_code] = (
+                department_counts.get(review.analysis.department_code, 0) + 1
+            )
+            reputation_risk_score_total += review.analysis.reputation_risk_score
+            reputation_risk_score_count += 1
+        if review.rating is not None:
+            rating_total += float(review.rating)
+            rating_count += 1
+
+    average_rating = round(rating_total / rating_count, 2) if rating_count else None
+    average_reputation_risk_score = (
+        round(reputation_risk_score_total / reputation_risk_score_count)
+        if reputation_risk_score_count
+        else 0
+    )
+
+    top_departments = [
+        {"code": code, "count": count}
+        for code, count in sorted(department_counts.items(), key=lambda item: item[1], reverse=True)[:5]
+    ]
+
+    active_issues = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.status == "active")
+    ) or 0
+    recurred_issues = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.status == "recurred")
+    ) or 0
+    high_risk_issues = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.reputation_risk_score >= 50)
+    ) or 0
+
+    all_issues = list(session.scalars(select(DetectedIssue)))
+    priority_distribution: dict[str, int] = {}
+    dept_issue_counts: dict[str, int] = {}
+    for issue in all_issues:
+        priority_distribution[issue.priority] = priority_distribution.get(issue.priority, 0) + 1
+        dept_issue_counts[issue.department_code] = dept_issue_counts.get(issue.department_code, 0) + 1
+
+    return OverviewKpiResponse(
+        total_reviews=total,
+        average_rating=average_rating,
+        average_reputation_risk_score=average_reputation_risk_score,
+        sentiment_mix=sentiment_mix,
+        reputation_risk_mix=reputation_risk_mix,
+        top_departments=top_departments,
+        active_issues=active_issues,
+        recurred_issues=recurred_issues,
+        high_risk_issues=high_risk_issues,
+        priority_distribution=priority_distribution,
+        department_issue_counts=dept_issue_counts,
+        filters_applied={
+            "source_code": source_code,
+            "department_code": department_code,
+            "sentiment_label": sentiment_label,
+            "reputation_risk": reputation_risk,
+            "risk_group": risk_group,
+            "date_from": date_from.isoformat() if date_from else None,
+            "date_to": date_to.isoformat() if date_to else None,
+        },
+    )
 
 
 def _dashboard_filters(
     *,
     source_code: str | None = None,
-    issue_category_code: str | None = None,
     department_code: str | None = None,
     sentiment_label: str | None = None,
     reputation_risk: str | None = None,
     risk_group: str | None = None,
-    action_status: str | None = None,
-    action_status_group: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
     search: str | None = None,
 ) -> dict[str, str | None]:
     return {
         "source_code": source_code,
-        "issue_category_code": issue_category_code,
         "department_code": department_code,
         "sentiment_label": sentiment_label,
         "reputation_risk": reputation_risk,
         "risk_group": risk_group,
-        "action_status": action_status,
-        "action_status_group": action_status_group,
         "date_from": date_from.date().isoformat() if date_from else None,
         "date_to": date_to.date().isoformat() if date_to else None,
         "search": search,
@@ -425,464 +643,13 @@ def _dashboard_drill_through(path: str, filters: dict[str, str | None]) -> Dashb
     return DashboardDrillThroughResponse(path=path, filters=cleaned)
 
 
-def _ticket_ids_by_source_group(session: Session, source_group_type: str) -> dict[str, list[int]]:
-    tickets = list(
-        session.scalars(
-            select(ActionTicket)
-            .where(ActionTicket.source_group_type == source_group_type)
-            .order_by(ActionTicket.created_at.desc())
-        )
-    )
-    linked: dict[str, list[int]] = {}
-    for ticket in tickets:
-        if ticket.source_group_key is None:
-            continue
-        linked.setdefault(ticket.source_group_key, []).append(ticket.id)
-    return linked
-
-
-def _validate_recurring_ticket_request(body: RecurringIssueTicketCreateRequest, session: Session) -> None:
-    if body.priority is not None and body.priority not in _VALID_TICKET_PRIORITIES:
-        raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
-    if body.department_code is not None and session.scalar(
-        select(Department).where(Department.code == body.department_code)
-    ) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
-
-
-def _dominant_department(reviews: list[NormalizedReview]) -> str:
-    counts: dict[str, int] = {}
-    for review in reviews:
-        counts[review.department_code] = counts.get(review.department_code, 0) + 1
-    return max(counts, key=lambda department: counts[department])
-
-
-def _priority_from_reputation_risk_label(label: str | None) -> str:
-    if label == "critical":
-        return "urgent"
-    if label == "high":
-        return "high"
-    if label == "medium":
-        return "medium"
-    return "low"
-
-
-def _priority_from_review(review: NormalizedReview) -> str:
-    label = review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
-    return _priority_from_reputation_risk_label(label)
-
-
-def _priority_from_reviews(reviews: list[NormalizedReview]) -> str:
-    order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-    highest_label = max(
-        (
-            review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
-            for review in reviews
-        ),
-        key=lambda label: order.get(label, 0),
-        default="low",
-    )
-    return _priority_from_reputation_risk_label(highest_label)
-
-
-def _validate_ticket_status_transition(current_status: str, next_status: str) -> None:
-    if next_status == current_status:
-        return
-    allowed_next = _ALLOWED_TICKET_STATUS_TRANSITIONS.get(current_status, set())
-    if next_status not in allowed_next:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Cannot transition ticket from {current_status} to {next_status}",
-        )
-
-
-def _assignment_value(name: str | None, email: str | None) -> str | None:
-    if name and email:
-        return f"{name} <{email}>"
-    return name or email
-
-
-def _filtered_verified_reviews_query(
-    *,
-    source_code: str | None = None,
-    issue_category_code: str | None = None,
-    department_code: str | None = None,
-    sentiment_label: str | None = None,
-    reputation_risk: str | None = None,
-    risk_group: str | None = None,
-    action_status: str | None = None,
-    action_status_group: str | None = None,
-    date_from: datetime | None = None,
-    date_to: datetime | None = None,
-    search: str | None = None,
-):
-    query = (
-        select(NormalizedReview)
-        .join(NormalizedReview.source)
-        .options(
-            selectinload(NormalizedReview.source),
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
-            selectinload(NormalizedReview.issue_category),
-        )
-    )
-    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
-    if department_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
-        )
-    if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    query = _apply_reputation_risk_filters(query, reputation_risk=reputation_risk, risk_group=risk_group)
-    query = _apply_action_status_filters(query, action_status=action_status, action_status_group=action_status_group)
-    if date_from is not None:
-        query = query.where(NormalizedReview.review_date >= date_from)
-    if date_to is not None:
-        query = query.where(NormalizedReview.review_date <= date_to)
-    if search is not None:
-        query = query.where(
-            or_(
-                NormalizedReview.body.ilike(f"%{search}%"),
-                NormalizedReview.title.ilike(f"%{search}%"),
-                NormalizedReview.external_review_id.ilike(f"%{search}%"),
-                NormalizedReview.reviewer_name.ilike(f"%{search}%"),
-            )
-        )
-    return query
-
-
-def _create_recurring_issue_ticket(
-    *,
-    session: Session,
-    body: RecurringIssueTicketCreateRequest,
-    priority: str,
-    department_code: str,
-    source_group_type: str,
-    source_group_key: str,
-    source_group_label: str,
-    source_category_code: str,
-    source_cluster_id: str | None,
-    source_review_ids: list[int],
-    note_prefix: str,
-) -> ActionTicket:
-    now = datetime.now(timezone.utc)
-    ticket = ActionTicket(
-        review_id=None,
-        department_code=department_code,
-        source_group_type=source_group_type,
-        source_group_key=source_group_key,
-        source_group_label=source_group_label,
-        source_category_code=source_category_code,
-        source_cluster_id=source_cluster_id,
-        source_review_ids=source_review_ids,
-        priority=priority,
-        status="open",
-        assignee_name=body.assignee_name,
-        assignee_email=body.assignee_email,
-        due_date=body.due_date,
-        notes=body.notes,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(ticket)
-
-    for review_id in source_review_ids:
-        review = session.get(NormalizedReview, review_id)
-        if review is not None:
-            review.action_status = "ticket_created"
-            review.updated_at = now
-
-    session.flush()
-    note = f"{note_prefix}; source reviews: {', '.join(f'#{review_id}' for review_id in source_review_ids)}"
-    if body.notes:
-        note = f"{note}. {body.notes}"
-    session.add(TicketEvent(
-        ticket_id=ticket.id,
-        event_type="created",
-        old_value=None,
-        new_value="open",
-        note=note,
-        occurred_at=now,
-    ))
-    session.commit()
-    session.refresh(ticket)
-    return ticket
-
-
-@app.get("/overview/kpis", tags=["overview"], response_model=OverviewKpiResponse)
-async def overview_kpis(
-    source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
-    department_code: str | None = Query(default=None),
-    sentiment_label: str | None = Query(default=None),
-    reputation_risk: str | None = Query(default=None),
-    risk_group: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    action_status_group: str | None = Query(default=None),
-    date_from: datetime | None = Query(default=None),
-    date_to: datetime | None = Query(default=None),
-    session: Session = Depends(get_session),
-) -> OverviewKpiResponse:
-    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
-        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
-        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-    _validate_review_filter_groups(risk_group=risk_group, action_status_group=action_status_group)
-
-    query = (
-        select(NormalizedReview)
-        .join(NormalizedReview.source)
-        .options(selectinload(NormalizedReview.analysis))
-    )
-    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
-    if department_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
-        )
-    if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    query = _apply_reputation_risk_filters(query, reputation_risk=reputation_risk, risk_group=risk_group)
-    query = _apply_action_status_filters(query, action_status=action_status, action_status_group=action_status_group)
-    if date_from is not None:
-        query = query.where(NormalizedReview.review_date >= date_from)
-    if date_to is not None:
-        query = query.where(NormalizedReview.review_date <= date_to)
-
-    matched_reviews = list(session.scalars(query))
-    total = len(matched_reviews)
-
-    sentiment_mix = {label: 0 for label in _VALID_SENTIMENT_LABELS}
-    reputation_risk_mix = {label: 0 for label in _VALID_REPUTATION_RISK_LABELS}
-    action_status_mix = {label: 0 for label in _VALID_REVIEW_ACTION_STATUSES}
-    department_counts: dict[str, int] = {}
-    category_counts: dict[str, int] = {}
-    rating_total = 0.0
-    rating_count = 0
-    reputation_risk_score_total = 0
-    reputation_risk_score_count = 0
-
-    for review in matched_reviews:
-        if review.sentiment_label in sentiment_mix:
-            sentiment_mix[review.sentiment_label] += 1
-        if review.reputation_risk in reputation_risk_mix:
-            reputation_risk_mix[review.reputation_risk] += 1
-        if review.action_status in action_status_mix:
-            action_status_mix[review.action_status] += 1
-        if review.rating is not None:
-            rating_total += float(review.rating)
-            rating_count += 1
-        if review.department_code:
-            department_counts[review.department_code] = department_counts.get(review.department_code, 0) + 1
-        if review.issue_category_code:
-            category_counts[review.issue_category_code] = category_counts.get(review.issue_category_code, 0) + 1
-        if review.analysis is not None:
-            reputation_risk_score_total += review.analysis.reputation_risk_score
-            reputation_risk_score_count += 1
-
-    average_rating = round(rating_total / rating_count, 2) if rating_count else None
-    average_reputation_risk_score = round(reputation_risk_score_total / reputation_risk_score_count) if reputation_risk_score_count else 0
-
-    top_departments = [
-        {"code": code, "count": count}
-        for code, count in sorted(department_counts.items(), key=lambda item: item[1], reverse=True)[:5]
-    ]
-    top_categories = [
-        {"code": code, "count": count}
-        for code, count in sorted(category_counts.items(), key=lambda item: item[1], reverse=True)[:5]
-    ]
-
-    return OverviewKpiResponse(
-        total_reviews=total,
-        average_rating=average_rating,
-        average_reputation_risk_score=average_reputation_risk_score,
-        sentiment_mix=sentiment_mix,
-        reputation_risk_mix=reputation_risk_mix,
-        action_status_mix=action_status_mix,
-        top_departments=top_departments,
-        top_categories=top_categories,
-        filters_applied={
-            "source_code": source_code,
-            "issue_category_code": issue_category_code,
-            "department_code": department_code,
-            "sentiment_label": sentiment_label,
-            "reputation_risk": reputation_risk,
-            "risk_group": risk_group,
-            "action_status": action_status,
-            "action_status_group": action_status_group,
-            "date_from": date_from.isoformat() if date_from else None,
-            "date_to": date_to.isoformat() if date_to else None,
-        },
-    )
-
-
-@app.get("/issues/summary", tags=["issues"], response_model=IssueSummaryResponse)
-async def issues_summary(
-    source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
-    department_code: str | None = Query(default=None),
-    sentiment_label: str | None = Query(default=None),
-    reputation_risk: str | None = Query(default=None),
-    risk_group: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    action_status_group: str | None = Query(default=None),
-    date_from: datetime | None = Query(default=None),
-    date_to: datetime | None = Query(default=None),
-    session: Session = Depends(get_session),
-) -> IssueSummaryResponse:
-    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
-        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
-        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-    _validate_review_filter_groups(risk_group=risk_group, action_status_group=action_status_group)
-
-    query = _filtered_verified_reviews_query(
-        source_code=source_code,
-        issue_category_code=issue_category_code,
-        department_code=department_code,
-        sentiment_label=sentiment_label,
-        reputation_risk=reputation_risk,
-        risk_group=risk_group,
-        action_status=action_status,
-        action_status_group=action_status_group,
-        date_from=date_from,
-        date_to=date_to,
-    )
-
-    matched_reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
-    total = len(matched_reviews)
-
-    most_recent_review_date = max(
-        (review.review_date for review in matched_reviews if review.review_date is not None),
-        default=None,
-    )
-    recent_window_start = most_recent_review_date - timedelta(days=14) if most_recent_review_date is not None else None
-
-    grouped_aggregates: dict[tuple[str, str], dict] = {}
-    risk_order = {"low": 0, "medium": 1, "high": 2, "critical": 3}
-    for review in matched_reviews:
-        cat_code = review.issue_category_code
-        dept_code = review.department_code
-        group_key = (cat_code, dept_code)
-        if group_key not in grouped_aggregates:
-            grouped_aggregates[group_key] = {
-                "group_key": f"{cat_code}:{dept_code}",
-                "category_code": cat_code,
-                "category_name": review.issue_category.name if review.issue_category else cat_code.replace("_", " ").title(),
-                "department_code": dept_code,
-                "review_count": 0,
-                "recent_review_count": 0,
-                "reputation_risk_score_total": 0,
-                "reputation_risk_score_count": 0,
-                "highest_reputation_risk": "low",
-                "source_mix": {},
-                "min_review_id": review.id,
-                "latest_review_date": review.review_date,
-            }
-        agg = grouped_aggregates[group_key]
-        agg["review_count"] += 1
-        if recent_window_start is not None and review.review_date is not None and review.review_date >= recent_window_start:
-            agg["recent_review_count"] += 1
-        if review.analysis is not None:
-            agg["reputation_risk_score_total"] += review.analysis.reputation_risk_score
-            agg["reputation_risk_score_count"] += 1
-        review_risk_label = review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
-        if risk_order.get(review_risk_label, 0) > risk_order.get(agg["highest_reputation_risk"], 0):
-            agg["highest_reputation_risk"] = review_risk_label
-        src = review.source_code
-        agg["source_mix"][src] = agg["source_mix"].get(src, 0) + 1
-        if review.id < agg["min_review_id"]:
-            agg["min_review_id"] = review.id
-        if agg["latest_review_date"] is None or (
-            review.review_date is not None and review.review_date > agg["latest_review_date"]
-        ):
-            agg["latest_review_date"] = review.review_date
-
-    category_ticket_ids = _ticket_ids_by_source_group(session, "category_department_recurrence")
-    items: list[IssueSummaryItemResponse] = []
-    for agg in sorted(
-        grouped_aggregates.values(),
-        key=lambda x: (x["recent_review_count"], x["review_count"], x["average_reputation_risk_score"] if "average_reputation_risk_score" in x else 0),
-        reverse=True,
-    ):
-        avg_reputation_risk = (
-            round(agg["reputation_risk_score_total"] / agg["reputation_risk_score_count"], 1)
-            if agg["reputation_risk_score_count"] > 0
-            else 0.0
-        )
-        items.append(IssueSummaryItemResponse(
-            group_key=agg["group_key"],
-            category_code=agg["category_code"],
-            category_name=agg["category_name"],
-            department_code=agg["department_code"],
-            review_count=agg["review_count"],
-            recent_review_count=agg["recent_review_count"],
-            average_reputation_risk_score=avg_reputation_risk,
-            highest_reputation_risk=agg["highest_reputation_risk"],
-            source_mix=agg["source_mix"],
-            representative_review_id=agg["min_review_id"],
-            latest_review_date=agg["latest_review_date"],
-            linked_ticket_ids=category_ticket_ids.get(agg["group_key"], []),
-        ))
-
-    return IssueSummaryResponse(
-        items=items,
-        total_reviews=total,
-        filters_applied={
-            "source_code": source_code,
-            "issue_category_code": issue_category_code,
-            "department_code": department_code,
-            "sentiment_label": sentiment_label,
-            "reputation_risk": reputation_risk,
-            "risk_group": risk_group,
-            "action_status": action_status,
-            "action_status_group": action_status_group,
-            "date_from": date_from.isoformat() if date_from else None,
-            "date_to": date_to.isoformat() if date_to else None,
-        },
-    )
-
-
 @app.get("/overview/action-analytics", tags=["overview"], response_model=OverviewActionAnalyticsResponse)
 async def overview_action_analytics(
     source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
     department_code: str | None = Query(default=None),
     sentiment_label: str | None = Query(default=None),
     reputation_risk: str | None = Query(default=None),
     risk_group: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    action_status_group: str | None = Query(default=None),
     date_from: datetime | None = Query(default=None),
     date_to: datetime | None = Query(default=None),
     session: Session = Depends(get_session),
@@ -891,642 +658,172 @@ async def overview_action_analytics(
         raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
     if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
         raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-    _validate_review_filter_groups(risk_group=risk_group, action_status_group=action_status_group)
-
-    matched_reviews = list(
-        session.scalars(
-            _filtered_verified_reviews_query(
-                source_code=source_code,
-                issue_category_code=issue_category_code,
-                department_code=department_code,
-                sentiment_label=sentiment_label,
-                reputation_risk=reputation_risk,
-                risk_group=risk_group,
-                action_status=action_status,
-                action_status_group=action_status_group,
-                date_from=date_from,
-                date_to=date_to,
-            ).order_by(NormalizedReview.review_date.desc(), NormalizedReview.id.desc())
-        )
-    )
+    if risk_group is not None and risk_group not in {"high_or_critical"}:
+        raise HTTPException(status_code=422, detail=f"risk_group must be 'high_or_critical'")
 
     base_filters = _dashboard_filters(
         source_code=source_code,
-        issue_category_code=issue_category_code,
         department_code=department_code,
         sentiment_label=sentiment_label,
         reputation_risk=reputation_risk,
         risk_group=risk_group,
-        action_status=action_status,
-        action_status_group=action_status_group,
         date_from=date_from,
         date_to=date_to,
     )
 
-    high_risk_reviews = [review for review in matched_reviews if review.reputation_risk in {"high", "critical"}]
-    action_leakage_reviews = [review for review in high_risk_reviews if review.action_status in {"new", "reviewed"}]
-
-    latest_high_risk_review_date = max(
-        (review.review_date for review in high_risk_reviews if review.review_date is not None),
-        default=None,
+    review_query = (
+        select(NormalizedReview)
+        .join(NormalizedReview.source)
+        .options(selectinload(NormalizedReview.analysis))
     )
-    aging_threshold_days = 7
-    aging_cutoff = (
-        latest_high_risk_review_date - timedelta(days=aging_threshold_days)
-        if latest_high_risk_review_date is not None
-        else None
-    )
-    aging_risk_reviews = [
-        review
-        for review in action_leakage_reviews
-        if aging_cutoff is not None and review.review_date is not None and review.review_date < aging_cutoff
-    ]
-
-    grouped_aggregates: dict[tuple[str, str], dict] = {}
-    latest_matched_review_date = max(
-        (review.review_date for review in matched_reviews if review.review_date is not None),
-        default=None,
-    )
-    recent_window_start = (
-        latest_matched_review_date - timedelta(days=14)
-        if latest_matched_review_date is not None
-        else None
-    )
-    for review in matched_reviews:
-        group_key = (review.issue_category_code, review.department_code)
-        if group_key not in grouped_aggregates:
-            grouped_aggregates[group_key] = {
-                "group_key": f"{review.issue_category_code}:{review.department_code}",
-                "category_code": review.issue_category_code,
-                "category_name": review.issue_category.name if review.issue_category else review.issue_category_code.replace("_", " ").title(),
-                "department_code": review.department_code,
-                "review_count": 0,
-                "recent_review_count": 0,
-                "reputation_risk_score_total": 0,
-                "reputation_risk_score_count": 0,
-                "highest_reputation_risk": "low",
-                "source_mix": {},
-                "latest_review_date": review.review_date,
-                "latest_review_title": review.display_title,
-                "latest_review_excerpt": review.display_body,
-            }
-        aggregate = grouped_aggregates[group_key]
-        aggregate["review_count"] += 1
-        if recent_window_start is not None and review.review_date is not None and review.review_date >= recent_window_start:
-            aggregate["recent_review_count"] += 1
-        if review.analysis is not None:
-            aggregate["reputation_risk_score_total"] += review.analysis.reputation_risk_score
-            aggregate["reputation_risk_score_count"] += 1
-        review_risk_label = review.analysis.reputation_risk_label if review.analysis is not None else review.reputation_risk
-        if _risk_rank(review_risk_label) > _risk_rank(aggregate["highest_reputation_risk"]):
-            aggregate["highest_reputation_risk"] = review_risk_label
-        aggregate["source_mix"][review.source_code] = aggregate["source_mix"].get(review.source_code, 0) + 1
-        if aggregate["latest_review_date"] is None or (
-            review.review_date is not None and review.review_date > aggregate["latest_review_date"]
-        ):
-            aggregate["latest_review_date"] = review.review_date
-            aggregate["latest_review_title"] = review.display_title
-            aggregate["latest_review_excerpt"] = review.display_body
-
-    category_ticket_ids = _ticket_ids_by_source_group(session, "category_department_recurrence")
-    recurring_issue_items: list[DashboardRecurringIssueItemResponse] = []
-    for aggregate in grouped_aggregates.values():
-        linked_ticket_ids = category_ticket_ids.get(aggregate["group_key"], [])
-        if aggregate["review_count"] < 2 or linked_ticket_ids:
-            continue
-        average_reputation_risk_score = (
-            round(aggregate["reputation_risk_score_total"] / aggregate["reputation_risk_score_count"], 1)
-            if aggregate["reputation_risk_score_count"] > 0
-            else 0.0
+    review_query = review_query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
+    if source_code is not None:
+        review_query = review_query.where(NormalizedReview.source_code == source_code)
+    if department_code is not None:
+        review_query = review_query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.department_code == department_code)
         )
-        recurring_issue_items.append(
-            DashboardRecurringIssueItemResponse(
-                group_key=aggregate["group_key"],
-                category_code=aggregate["category_code"],
-                category_name=aggregate["category_name"],
-                department_code=aggregate["department_code"],
-                review_count=aggregate["review_count"],
-                recent_review_count=aggregate["recent_review_count"],
-                average_reputation_risk_score=average_reputation_risk_score,
-                highest_reputation_risk=aggregate["highest_reputation_risk"],
-                source_mix=aggregate["source_mix"],
-                latest_review_date=aggregate["latest_review_date"],
-                latest_review_title=aggregate["latest_review_title"],
-                latest_review_excerpt=aggregate["latest_review_excerpt"],
-                linked_ticket_ids=linked_ticket_ids,
-                reviews_drill_through=_dashboard_drill_through(
-                    "/reviews",
-                    {
-                        **base_filters,
-                        "issue_category_code": aggregate["category_code"],
-                        "department_code": aggregate["department_code"],
-                    },
-                ),
+    if sentiment_label is not None:
+        review_query = review_query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.sentiment_label == sentiment_label)
+        )
+    if reputation_risk is not None:
+        review_query = review_query.where(
+            NormalizedReview.analysis.has(ReviewAnalysis.reputation_risk_label == reputation_risk)
+        )
+    if risk_group == "high_or_critical":
+        review_query = review_query.where(
+            NormalizedReview.analysis.has(
+                ReviewAnalysis.reputation_risk_label.in_(["high", "critical"])
+            )
+        )
+    if date_from is not None:
+        review_query = review_query.where(NormalizedReview.review_date >= date_from)
+    if date_to is not None:
+        review_query = review_query.where(NormalizedReview.review_date <= date_to)
+
+    matched_reviews = list(session.scalars(review_query.order_by(NormalizedReview.review_date.desc())))
+
+    high_risk_reviews = [
+        r for r in matched_reviews
+        if r.analysis is not None and r.analysis.reputation_risk_label in {"high", "critical"}
+    ]
+    action_leakage_reviews = high_risk_reviews
+
+    active_issues = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.status == "active")
+    ) or 0
+    high_risk_issues_count = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.reputation_risk_score >= 50)
+    ) or 0
+    recurred_issues_count = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.status == "recurred")
+    ) or 0
+
+    issues_by_department: dict[str, list[DetectedIssue]] = {}
+    all_issues = list(session.scalars(select(DetectedIssue)))
+    for issue in all_issues:
+        issues_by_department.setdefault(issue.department_code, []).append(issue)
+
+    owner_pressure: list[DashboardOwnerPressureItemResponse] = []
+    for dept_code, dept_issues in issues_by_department.items():
+        active_count = sum(1 for i in dept_issues if i.status == "active")
+        high_risk_dept = sum(1 for i in dept_issues if i.reputation_risk_score >= 50)
+        owner_pressure.append(
+            DashboardOwnerPressureItemResponse(
+                department_code=dept_code,
+                active_issues=active_count,
+                high_risk_issues=high_risk_dept,
                 issues_drill_through=_dashboard_drill_through(
                     "/issues",
-                    {
-                        **base_filters,
-                        "issue_category_code": aggregate["category_code"],
-                        "department_code": aggregate["department_code"],
-                    },
+                    {"department_code": dept_code},
+                ),
+                reviews_drill_through=_dashboard_drill_through(
+                    "/reviews",
+                    {"department_code": dept_code, "risk_group": "high_or_critical"},
                 ),
             )
         )
+    owner_pressure.sort(key=lambda item: (item.high_risk_issues, item.active_issues), reverse=True)
 
-    recurring_issue_items.sort(
-        key=lambda item: (_risk_rank(item.highest_reputation_risk), item.recent_review_count, item.review_count, item.average_reputation_risk_score),
-        reverse=True,
-    )
-
-    recurring_issue_groups_by_department: dict[str, int] = {}
-    for item in recurring_issue_items:
-        recurring_issue_groups_by_department[item.department_code] = recurring_issue_groups_by_department.get(item.department_code, 0) + 1
-
-    owner_pressure_by_department: dict[str, dict[str, int]] = {}
-    for review in action_leakage_reviews:
-        bucket = owner_pressure_by_department.setdefault(
-            review.department_code,
-            {"unresolved_high_risk_reviews": 0, "recurring_issue_groups": 0},
-        )
-        bucket["unresolved_high_risk_reviews"] += 1
-    for department_key, recurring_count in recurring_issue_groups_by_department.items():
-        bucket = owner_pressure_by_department.setdefault(
-            department_key,
-            {"unresolved_high_risk_reviews": 0, "recurring_issue_groups": 0},
-        )
-        bucket["recurring_issue_groups"] = recurring_count
-
-    owner_pressure = [
-        DashboardOwnerPressureItemResponse(
-            department_code=department_key,
-            unresolved_high_risk_reviews=counts["unresolved_high_risk_reviews"],
-            recurring_issue_groups=counts["recurring_issue_groups"],
-            reviews_drill_through=_dashboard_drill_through(
-                "/reviews",
-                {
-                    **base_filters,
-                    "department_code": department_key,
-                    "reputation_risk": None,
-                    "risk_group": "high_or_critical",
-                },
-            ),
-            issues_drill_through=_dashboard_drill_through(
-                "/issues",
-                {
-                    **base_filters,
-                    "department_code": department_key,
-                    "reputation_risk": None,
-                    "risk_group": "high_or_critical",
-                },
-            ),
-            tickets_drill_through=_dashboard_drill_through(
-                "/tickets",
-                {
-                    **base_filters,
-                    "department_code": department_key,
-                    "source_code": None,
-                    "issue_category_code": None,
-                    "sentiment_label": None,
-                    "reputation_risk": None,
-                    "risk_group": None,
-                    "action_status": None,
-                    "action_status_group": None,
-                },
-            ),
-        )
-        for department_key, counts in owner_pressure_by_department.items()
-    ]
-    owner_pressure.sort(
-        key=lambda item: (item.unresolved_high_risk_reviews, item.recurring_issue_groups),
-        reverse=True,
-    )
-
-    platform_counts: dict[str, dict[str, int]] = {}
+    platform_counts: dict[str, int] = {}
     for review in high_risk_reviews:
-        bucket = platform_counts.setdefault(review.source_code, {"high_risk_reviews": 0, "ticket_needed_reviews": 0})
-        bucket["high_risk_reviews"] += 1
-        if review.action_status in {"new", "reviewed"}:
-            bucket["ticket_needed_reviews"] += 1
+        platform_counts[review.source_code] = platform_counts.get(review.source_code, 0) + 1
 
     platform_risk_spread = [
         DashboardPlatformRiskItemResponse(
-            source_code=source_key,
-            high_risk_reviews=counts["high_risk_reviews"],
-            ticket_needed_reviews=counts["ticket_needed_reviews"],
+            source_code=src,
+            high_risk_reviews=count,
             drill_through=_dashboard_drill_through(
                 "/reviews",
-                {
-                    **base_filters,
-                    "source_code": source_key,
-                    "reputation_risk": None,
-                    "risk_group": "high_or_critical",
-                },
+                {"source_code": src, "risk_group": "high_or_critical"},
             ),
         )
-        for source_key, counts in platform_counts.items()
+        for src, count in platform_counts.items()
     ]
-    platform_risk_spread.sort(
-        key=lambda item: (item.ticket_needed_reviews, item.high_risk_reviews),
+    platform_risk_spread.sort(key=lambda item: item.high_risk_reviews, reverse=True)
+
+    recent_issues = sorted(
+        all_issues,
+        key=lambda i: i.last_seen_at or i.created_at,
         reverse=True,
-    )
+    )[:5]
+    recent_issue_items = [
+        DashboardIssueItemResponse(
+            issue_id=issue.id,
+            title=issue.title,
+            department_code=issue.department_code,
+            status=issue.status,
+            priority=issue.priority,
+            reputation_risk_score=issue.reputation_risk_score,
+            recurrence_count=issue.recurrence_count,
+            first_seen_at=issue.first_seen_at,
+            last_seen_at=issue.last_seen_at,
+            issues_drill_through=_dashboard_drill_through("/issues", {}),
+            reviews_drill_through=_dashboard_drill_through(
+                "/reviews",
+                {"department_code": issue.department_code},
+            ),
+        )
+        for issue in recent_issues
+    ]
 
     return OverviewActionAnalyticsResponse(
-        high_risk_reviews=DashboardActionMetricResponse(
-            review_count=len(high_risk_reviews),
-            drill_through=_dashboard_drill_through(
-                "/reviews",
-                {**base_filters, "reputation_risk": None, "risk_group": "high_or_critical"},
-            ),
+        active_issues=DashboardIssueMetricResponse(
+            issue_count=active_issues,
+            drill_through=_dashboard_drill_through("/issues", {"status": "active"}),
+        ),
+        high_risk_issues=DashboardIssueMetricResponse(
+            issue_count=high_risk_issues_count,
+            drill_through=_dashboard_drill_through("/issues", {"min_risk": "50"}),
+        ),
+        recurred_issues=DashboardIssueMetricResponse(
+            issue_count=recurred_issues_count,
+            drill_through=_dashboard_drill_through("/issues", {"status": "recurred"}),
         ),
         action_leakage=DashboardActionMetricResponse(
             review_count=len(action_leakage_reviews),
             drill_through=_dashboard_drill_through(
                 "/reviews",
-                {
-                    **base_filters,
-                    "reputation_risk": None,
-                    "risk_group": "high_or_critical",
-                    "action_status": None,
-                    "action_status_group": "ticket_needed",
-                },
+                {"risk_group": "high_or_critical"},
             ),
         ),
         aging_risk=DashboardAgingRiskResponse(
-            review_count=len(aging_risk_reviews),
-            threshold_days=aging_threshold_days,
-            oldest_review_date=min((review.review_date for review in aging_risk_reviews if review.review_date is not None), default=None),
-            drill_through=_dashboard_drill_through(
-                "/reviews",
-                {
-                    **base_filters,
-                    "reputation_risk": None,
-                    "risk_group": "high_or_critical",
-                    "action_status": None,
-                    "action_status_group": "ticket_needed",
-                },
-            ),
+            review_count=0,
+            threshold_days=7,
+            oldest_review_date=None,
+            drill_through=_dashboard_drill_through("/reviews", {}),
         ),
         owner_pressure=owner_pressure[:5],
         platform_risk_spread=platform_risk_spread[:3],
-        recurring_issues_without_tickets=recurring_issue_items[:4],
+        recent_issues=recent_issue_items,
         filters_applied={
             "source_code": source_code,
-            "issue_category_code": issue_category_code,
             "department_code": department_code,
             "sentiment_label": sentiment_label,
             "reputation_risk": reputation_risk,
             "risk_group": risk_group,
-            "action_status": action_status,
-            "action_status_group": action_status_group,
             "date_from": date_from.isoformat() if date_from else None,
             "date_to": date_to.isoformat() if date_to else None,
         },
     )
-
-
-@app.post("/issues/groups/{category_code}/{department_code}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
-async def create_issue_group_ticket(
-    category_code: str,
-    department_code: str,
-    body: RecurringIssueTicketCreateRequest,
-    source_code: str | None = Query(default=None),
-    sentiment_label: str | None = Query(default=None),
-    reputation_risk: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    date_from: datetime | None = Query(default=None),
-    date_to: datetime | None = Query(default=None),
-    session: Session = Depends(get_session),
-) -> ActionTicket:
-    category = session.get(IssueCategory, category_code)
-    if category is None:
-        raise HTTPException(status_code=404, detail="Issue category not found")
-    _validate_recurring_ticket_request(body, session)
-    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
-        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
-        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-
-    query = _filtered_verified_reviews_query(
-        source_code=source_code,
-        issue_category_code=category_code,
-        department_code=department_code,
-        sentiment_label=sentiment_label,
-        reputation_risk=reputation_risk,
-        action_status=action_status,
-        date_from=date_from,
-        date_to=date_to,
-    )
-
-    reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
-    reviews = [review for review in reviews if review.department_code == department_code]
-    if not reviews:
-        raise HTTPException(status_code=404, detail="No reviews found for this recurring issue group")
-
-    affected_department = body.department_code or department_code
-    return _create_recurring_issue_ticket(
-        session=session,
-        body=body,
-        priority=body.priority or _priority_from_reviews(reviews),
-        department_code=affected_department,
-        source_group_type="category_department_recurrence",
-        source_group_key=f"{category_code}:{department_code}",
-        source_group_label=f"{category.name} recurrence for {department_code.replace('_', ' ')}",
-        source_category_code=category_code,
-        source_cluster_id=None,
-        source_review_ids=[review.id for review in reviews],
-        note_prefix=f"Created from recurring issue group {category.name} / {department_code.replace('_', ' ')}",
-    )
-
-
-@app.post("/analysis/semantic-clusters/{cluster_id}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
-async def create_semantic_cluster_ticket(
-    cluster_id: str,
-    body: RecurringIssueTicketCreateRequest,
-    source_code: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
-    department_code: str | None = Query(default=None),
-    similarity_threshold: float | None = Query(default=None, ge=0.0, le=1.0),
-    min_cluster_size: int = Query(default=DEFAULT_MIN_CLUSTER_SIZE, ge=2, le=20),
-    session: Session = Depends(get_session),
-) -> ActionTicket:
-    _validate_recurring_ticket_request(body, session)
-    query = (
-        select(NormalizedReview)
-        .join(NormalizedReview.source)
-        .options(
-            selectinload(NormalizedReview.source),
-            selectinload(NormalizedReview.analysis).selectinload(ReviewAnalysis.issue_category_predictions),
-        )
-    )
-    query = query.where(NormalizedReview.source_code.in_(MVP_REVIEW_SOURCE_CODES))
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if issue_category_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.category_code == issue_category_code
-                )
-            )
-        )
-    if department_code is not None:
-        query = query.where(
-            NormalizedReview.analysis.has(
-                ReviewAnalysis.issue_category_predictions.any(
-                    ReviewIssueCategoryPrediction.department_code == department_code
-                )
-            )
-        )
-
-    reviews = list(session.scalars(query.order_by(NormalizedReview.review_date.desc(), NormalizedReview.id)))
-    analysis = analyze_semantic_similarity(
-        reviews,
-        similarity_threshold=similarity_threshold,
-        min_cluster_size=min_cluster_size,
-    )
-    cluster = next((item for item in analysis.clusters if item.cluster_id == cluster_id), None)
-    if cluster is None:
-        raise HTTPException(status_code=404, detail="Semantic cluster not found with the current filters")
-
-    category = session.get(IssueCategory, cluster.category_code)
-    label = category.name if category is not None else cluster.category_code.replace("_", " ").title()
-    return _create_recurring_issue_ticket(
-        session=session,
-        body=body,
-        priority=body.priority or _priority_from_reviews([review for review in reviews if review.id in cluster.review_ids]),
-        department_code=body.department_code or cluster.department_code,
-        source_group_type="semantic_cluster",
-        source_group_key=cluster.cluster_id,
-        source_group_label=f"{label} semantic cluster",
-        source_category_code=cluster.category_code,
-        source_cluster_id=cluster.cluster_id,
-        source_review_ids=cluster.review_ids,
-        note_prefix=f"Created from semantic cluster {cluster.cluster_id}",
-    )
-
-
-@app.post("/reviews/{review_id}/tickets", tags=["tickets"], response_model=TicketResponse, status_code=201)
-async def create_ticket(
-    review_id: int,
-    body: TicketCreateRequest,
-    session: Session = Depends(get_session),
-) -> ActionTicket:
-    review = session.get(NormalizedReview, review_id)
-    if review is None:
-        raise HTTPException(status_code=404, detail="Review not found")
-    if body.priority is not None and body.priority not in _VALID_TICKET_PRIORITIES:
-        raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
-    if session.scalar(select(Department).where(Department.code == body.department_code)) is None:
-        raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
-
-    now = datetime.now(timezone.utc)
-    ticket = ActionTicket(
-        review_id=review_id,
-        department_code=body.department_code,
-        priority=body.priority or _priority_from_review(review),
-        status="open",
-        assignee_name=body.assignee_name,
-        assignee_email=body.assignee_email,
-        due_date=body.due_date,
-        notes=body.notes,
-        created_at=now,
-        updated_at=now,
-    )
-    session.add(ticket)
-
-    review.action_status = "ticket_created"
-    review.updated_at = now
-
-    session.flush()
-
-    session.add(TicketEvent(
-        ticket_id=ticket.id,
-        event_type="created",
-        old_value=None,
-        new_value="open",
-        note=body.notes,
-        occurred_at=now,
-    ))
-    session.commit()
-    session.refresh(ticket)
-    return ticket
-
-
-@app.get("/reviews/{review_id}/tickets", tags=["tickets"], response_model=TicketsResponse)
-async def review_tickets(
-    review_id: int,
-    session: Session = Depends(get_session),
-) -> TicketsResponse:
-    if session.get(NormalizedReview, review_id) is None:
-        raise HTTPException(status_code=404, detail="Review not found")
-    tickets = list(
-        session.scalars(
-            select(ActionTicket)
-            .where(ActionTicket.review_id == review_id)
-            .options(selectinload(ActionTicket.events))
-            .order_by(ActionTicket.created_at.desc())
-        )
-    )
-    return TicketsResponse(tickets=tickets)
-
-
-@app.get("/tickets", tags=["tickets"], response_model=TicketsResponse)
-async def list_tickets(
-    department_code: str | None = Query(default=None),
-    status: str | None = Query(default=None),
-    priority: str | None = Query(default=None),
-    date_from: datetime | None = Query(default=None),
-    date_to: datetime | None = Query(default=None),
-    source_code: str | None = Query(default=None),
-    sentiment_label: str | None = Query(default=None),
-    reputation_risk: str | None = Query(default=None),
-    risk_group: str | None = Query(default=None),
-    issue_category_code: str | None = Query(default=None),
-    action_status: str | None = Query(default=None),
-    action_status_group: str | None = Query(default=None),
-    session: Session = Depends(get_session),
-) -> TicketsResponse:
-    if sentiment_label is not None and sentiment_label not in _VALID_SENTIMENT_LABELS:
-        raise HTTPException(status_code=422, detail=f"sentiment_label must be one of {sorted(_VALID_SENTIMENT_LABELS)}")
-    if reputation_risk is not None and reputation_risk not in _VALID_REPUTATION_RISK_LABELS:
-        raise HTTPException(status_code=422, detail=f"reputation_risk must be one of {sorted(_VALID_REPUTATION_RISK_LABELS)}")
-    if action_status is not None and action_status not in _VALID_REVIEW_ACTION_STATUSES:
-        raise HTTPException(status_code=422, detail=f"action_status must be one of {sorted(_VALID_REVIEW_ACTION_STATUSES)}")
-    _validate_review_filter_groups(risk_group=risk_group, action_status_group=action_status_group)
-
-    needs_review_join = any(v is not None for v in [source_code, sentiment_label, reputation_risk, risk_group, issue_category_code, action_status, action_status_group])
-
-    if needs_review_join:
-        query = (
-            select(ActionTicket)
-            .outerjoin(NormalizedReview, ActionTicket.review_id == NormalizedReview.id)
-            .options(selectinload(ActionTicket.events))
-        )
-    else:
-        query = select(ActionTicket).options(selectinload(ActionTicket.events))
-
-    if department_code is not None:
-        query = query.where(ActionTicket.department_code == department_code)
-    if status is not None:
-        query = query.where(ActionTicket.status == status)
-    if priority is not None:
-        query = query.where(ActionTicket.priority == priority)
-    if date_from is not None:
-        query = query.where(ActionTicket.created_at >= date_from)
-    if date_to is not None:
-        query = query.where(ActionTicket.created_at <= date_to)
-    if source_code is not None:
-        query = query.where(NormalizedReview.source_code == source_code)
-    if sentiment_label is not None:
-        query = query.where(NormalizedReview.sentiment_label == sentiment_label)
-    query = _apply_reputation_risk_filters(query, reputation_risk=reputation_risk, risk_group=risk_group)
-    if issue_category_code is not None:
-        query = query.where(
-            or_(
-                NormalizedReview.issue_category_code == issue_category_code,
-                ActionTicket.source_category_code == issue_category_code,
-            )
-        )
-    query = _apply_action_status_filters(query, action_status=action_status, action_status_group=action_status_group)
-
-    tickets = list(session.scalars(query.order_by(ActionTicket.created_at.desc())))
-    return TicketsResponse(tickets=tickets)
-
-
-@app.get("/tickets/{ticket_id}", tags=["tickets"], response_model=TicketResponse)
-async def get_ticket(
-    ticket_id: int,
-    session: Session = Depends(get_session),
-) -> ActionTicket:
-    ticket = session.scalar(
-        select(ActionTicket)
-        .where(ActionTicket.id == ticket_id)
-        .options(selectinload(ActionTicket.events))
-    )
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-    return ticket
-
-
-@app.patch("/tickets/{ticket_id}", tags=["tickets"], response_model=TicketResponse)
-async def update_ticket(
-    ticket_id: int,
-    body: TicketUpdateRequest,
-    session: Session = Depends(get_session),
-) -> ActionTicket:
-    ticket = session.scalar(
-        select(ActionTicket)
-        .where(ActionTicket.id == ticket_id)
-        .options(selectinload(ActionTicket.events))
-    )
-    if ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
-
-    now = datetime.now(timezone.utc)
-    events: list[TicketEvent] = []
-    explicitly_set_fields = body.model_fields_set
-
-    if body.status is not None and body.status != ticket.status:
-        if body.status not in _VALID_TICKET_STATUSES:
-            raise HTTPException(status_code=422, detail=f"status must be one of {sorted(_VALID_TICKET_STATUSES)}")
-        _validate_ticket_status_transition(ticket.status, body.status)
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="status_change", old_value=ticket.status, new_value=body.status, occurred_at=now))
-        ticket.status = body.status
-
-    if body.priority is not None and body.priority != ticket.priority:
-        if body.priority not in _VALID_TICKET_PRIORITIES:
-            raise HTTPException(status_code=422, detail=f"priority must be one of {sorted(_VALID_TICKET_PRIORITIES)}")
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="priority_change", old_value=ticket.priority, new_value=body.priority, occurred_at=now))
-        ticket.priority = body.priority
-
-    if body.department_code is not None and body.department_code != ticket.department_code:
-        if session.scalar(select(Department).where(Department.code == body.department_code)) is None:
-            raise HTTPException(status_code=422, detail=f"Unknown department '{body.department_code}'")
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="department_change", old_value=ticket.department_code, new_value=body.department_code, occurred_at=now))
-        ticket.department_code = body.department_code
-
-    if "assignee_name" in explicitly_set_fields or "assignee_email" in explicitly_set_fields:
-        next_assignee_name = body.assignee_name if "assignee_name" in explicitly_set_fields else ticket.assignee_name
-        next_assignee_email = body.assignee_email if "assignee_email" in explicitly_set_fields else ticket.assignee_email
-        old_assignee = _assignment_value(ticket.assignee_name, ticket.assignee_email)
-        new_assignee = _assignment_value(next_assignee_name, next_assignee_email)
-        if old_assignee != new_assignee:
-            events.append(
-                TicketEvent(
-                    ticket_id=ticket_id,
-                    event_type="assignment_change",
-                    old_value=old_assignee,
-                    new_value=new_assignee,
-                    occurred_at=now,
-                )
-            )
-            ticket.assignee_name = next_assignee_name
-            ticket.assignee_email = next_assignee_email
-
-    if body.notes is not None:
-        events.append(TicketEvent(ticket_id=ticket_id, event_type="note_added", old_value=None, new_value=None, note=body.notes, occurred_at=now))
-        ticket.notes = body.notes
-
-    if "due_date" in explicitly_set_fields and body.due_date != ticket.due_date:
-        events.append(
-            TicketEvent(
-                ticket_id=ticket_id,
-                event_type="due_date_change",
-                old_value=ticket.due_date.isoformat() if ticket.due_date else None,
-                new_value=body.due_date.isoformat() if body.due_date else None,
-                occurred_at=now,
-            )
-        )
-        ticket.due_date = body.due_date
-
-    if events:
-        ticket.updated_at = now
-        session.add_all(events)
-
-    session.commit()
-    session.refresh(ticket)
-    return ticket

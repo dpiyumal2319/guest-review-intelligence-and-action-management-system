@@ -3,8 +3,12 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
+    "guard:workspace-install": "node scripts/ensure-workspace-install.mjs",
+    "predev": "npm run guard:workspace-install",
     "dev": "next dev",
+    "prebuild": "npm run guard:workspace-install",
     "build": "next build",
+    "prelint": "npm run guard:workspace-install",
     "start": "next start",
     "lint": "eslint . --max-warnings=0"
   },

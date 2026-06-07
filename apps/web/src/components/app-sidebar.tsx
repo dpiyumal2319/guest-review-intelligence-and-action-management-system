@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 
 import { useDemoRole } from "@/hooks/use-demo-role"
 import { NavMain } from "@/components/nav-main"
@@ -16,9 +17,7 @@ import {
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
 import {
-  ChartNoAxesCombinedIcon,
   CircleHelpIcon,
-  ClipboardListIcon,
   LayoutDashboardIcon,
   MessageSquareTextIcon,
   SearchIcon,
@@ -47,11 +46,6 @@ const data = {
       title: "Issues",
       url: "/issues",
       icon: <SirenIcon />,
-    },
-    {
-      title: "Tickets",
-      url: "/tickets",
-      icon: <ClipboardListIcon />,
     },
   ],
   navSecondary: [
@@ -91,11 +85,25 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="data-[slot=sidebar-menu-button]:p-1.5!"
-              render={<a href="#" />}
+              className="h-auto gap-2.5 py-2 data-[slot=sidebar-menu-button]:p-1.5!"
+              render={<a href="/dashboard" />}
             >
-              <ChartNoAxesCombinedIcon className="size-5!" />
-              <span className="text-base font-semibold">Hotel Review Ops</span>
+              <Image
+                src="/kingsbury-logo.png"
+                alt="The Kingsbury crest"
+                width={1344}
+                height={1090}
+                priority
+                className="h-9 w-auto shrink-0"
+              />
+              <div className="flex flex-col gap-0.5 leading-none">
+                <span className="text-sm font-semibold uppercase tracking-[0.18em] text-sidebar-primary">
+                  The Kingsbury
+                </span>
+                <span className="text-[11px] tracking-wide text-muted-foreground">
+                  Review Intelligence
+                </span>
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

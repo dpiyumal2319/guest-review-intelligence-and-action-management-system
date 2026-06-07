@@ -12,6 +12,24 @@ jobs:
   validate:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: guest_reviews
+          POSTGRES_PASSWORD: guest_reviews
+          POSTGRES_DB: guest_reviews
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+psycopg://guest_reviews:guest_reviews@localhost:5432/guest_reviews
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,6 +53,16 @@ jobs:
 
       - name: Run web build
         run: npm run build:web
+
+      - name: Run API migrations
+        run: |
+          cd apps/api
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements.txt
+          .venv/bin/python -m alembic upgrade head
+
+      - name: Seed API reference data
+        run: cd apps/api && .venv/bin/python -m app.seed
 
       - name: Run API tests
         run: npm run api:test

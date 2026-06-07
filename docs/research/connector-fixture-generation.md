@@ -21,7 +21,7 @@ Default behavior:
 - uses `dolphin-llama3:latest`;
 - calls local Ollama at `http://127.0.0.1:11434/api/generate`;
 - generates 2,000 reviews split across the three platforms;
-- writes JSON files under `apps/api/data/generated-fixtures/connectors/`;
+- writes JSON files under `apps/api/data/generated-fixtures/connectors-dolphin/`;
 - writes a manifest with counts, files, model, and generation timestamp;
 - keeps generated files out of git by default.
 
