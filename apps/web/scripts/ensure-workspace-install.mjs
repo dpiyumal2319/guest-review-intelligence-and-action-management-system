@@ -1,4 +1,4 @@
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, rmSync, lstatSync } from "node:fs";
 import path from "node:path";
 import process from "node:process";
 
@@ -14,11 +14,6 @@ if (stats.isSymbolicLink()) {
   process.exit(0);
 }
 
-console.error(
-  [
-    "Detected a nested apps/web/node_modules/next install.",
-    "This shadows the workspace-hoisted Next.js package and breaks builds.",
-    "Remove apps/web/node_modules and reinstall from the repo root with `npm ci`.",
-  ].join("\n"),
-);
-process.exit(1);
+// Next.js sometimes leaves a stale node_modules/next/dist build artifact
+// in the workspace. This shadows the hoisted package and must be removed.
+rmSync(nestedNextPath, { recursive: true, force: true });

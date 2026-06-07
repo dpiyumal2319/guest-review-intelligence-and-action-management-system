@@ -110,7 +110,7 @@ API endpoints:
 In another terminal from repo root:
 
 ```bash
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000 npm --workspace apps/web run dev
+npm run dev:web
 ```
 
 Web:
