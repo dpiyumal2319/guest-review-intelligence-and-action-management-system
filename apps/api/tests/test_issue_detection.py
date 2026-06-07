@@ -79,6 +79,11 @@ def _require_db():
 
 @pytest.fixture(autouse=True, scope="module")
 def _wipe_demo_data():
+    """Wipe all operational demo data for test isolation.
+
+    Running these tests clears imported reviews, analyses, detected issues,
+    and links. Repopulate afterward with: npm run api:demo
+    """
     session = SessionLocal()
     try:
         for model in [IssueEvent, IssueReviewLink, DetectedIssue, ReviewAnalysis, NormalizedReview, RawReview]:

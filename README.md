@@ -273,6 +273,8 @@ npm run build:web
 
 `npm run api:test` bootstraps `apps/api/.venv` if needed and runs the API test suite. Issue-detection behavior tests require PostgreSQL and the local embedding model; otherwise they skip by design.
 
+**Note**: The issue-detection test suite wipes all operational demo data (reviews, analyses, issues, links) before running. Repopulate afterward with `npm run api:demo`.
+
 ### Wipe only demo operational data
 
 ```bash
