@@ -193,7 +193,7 @@ function IssuesContent() {
     setError(null)
     try {
       const [issuesRes, emergingRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/issues?per_page=100`),
+        fetch(`${apiBaseUrl}/issues?per_page=500`),
         fetch(`${apiBaseUrl}/issues/emerging`),
       ])
       if (!issuesRes.ok) throw new Error("Failed to load issues")
