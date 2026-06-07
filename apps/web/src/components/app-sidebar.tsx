@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import Image from "next/image"
 
 import { useDemoRole } from "@/hooks/use-demo-role"
 import { NavMain } from "@/components/nav-main"
@@ -90,9 +91,17 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
-              className="h-auto py-2 data-[slot=sidebar-menu-button]:p-1.5!"
+              className="h-auto gap-2.5 py-2 data-[slot=sidebar-menu-button]:p-1.5!"
               render={<a href="/dashboard" />}
             >
+              <Image
+                src="/kingsbury-logo.png"
+                alt="The Kingsbury crest"
+                width={1344}
+                height={1090}
+                priority
+                className="h-9 w-auto shrink-0"
+              />
               <div className="flex flex-col gap-0.5 leading-none">
                 <span className="text-sm font-semibold uppercase tracking-[0.18em] text-sidebar-primary">
                   The Kingsbury
