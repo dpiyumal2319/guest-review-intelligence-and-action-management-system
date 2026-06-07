@@ -26,7 +26,7 @@ type DemoRoleContextValue = {
   effectiveDepartmentCode: string | null
   scopeLabel: string
   workflowLabel: string
-  canManageTickets: boolean
+  canManageIssues: boolean
   setActiveRoleCode: (roleCode: string) => void
   setAssignedDepartmentCode: (departmentCode: string) => void
 }
@@ -60,7 +60,7 @@ function scopeLabelForRole(role: DemoRole | null, departmentName: string | null)
 
 function workflowLabelForRole(role: DemoRole | null): string {
   if (!role) return "Loading workflow"
-  return role.permissions.includes("tickets:manage") ? "Ticket management enabled" : "Read-only analytics workflow"
+  return role.permissions.includes("issues:manage") ? "Issue management enabled" : "Read-only analytics workflow"
 }
 
 export function DemoRoleProvider({ children }: { children: ReactNode }) {
@@ -133,7 +133,7 @@ export function DemoRoleProvider({ children }: { children: ReactNode }) {
   const effectiveDepartmentCode = activeRole?.code === "department_head" ? assignedDepartmentCode || null : null
   const scopeLabel = scopeLabelForRole(activeRole, assignedDepartment?.name ?? null)
   const workflowLabel = workflowLabelForRole(activeRole)
-  const canManageTickets = activeRole?.permissions.includes("tickets:manage") ?? false
+  const canManageIssues = activeRole?.permissions.includes("issues:manage") ?? false
 
   const value = useMemo<DemoRoleContextValue>(() => ({
     isLoading,
@@ -146,14 +146,14 @@ export function DemoRoleProvider({ children }: { children: ReactNode }) {
     effectiveDepartmentCode,
     scopeLabel,
     workflowLabel,
-    canManageTickets,
+    canManageIssues,
     setActiveRoleCode,
     setAssignedDepartmentCode,
   }), [
     activeRole,
     activeRoleCode,
     assignedDepartmentCode,
-    canManageTickets,
+    canManageIssues,
     departments,
     effectiveDepartmentCode,
     error,
