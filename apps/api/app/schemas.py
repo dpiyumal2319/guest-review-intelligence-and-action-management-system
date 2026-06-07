@@ -28,37 +28,7 @@ class DepartmentResponse(BaseModel):
     name: str
     description: str
     service_level_hours: int
-    sort_order: int
-
-
-class IssueCategoryResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    code: str
-    name: str
-    description: str
-    is_positive_signal: bool
-    sort_order: int
-
-
-class CategoryDepartmentMappingResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    category_code: str
-    department_code: str
-    is_primary: bool
-    routing_notes: str
-
-
-class ReputationRiskThresholdResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    category_code: str
-    low_rating_max: float
-    negative_sentiment_max: float
-    urgent_confidence_min: float
-    recurring_count_7d_min: int
-    description: str
+    risk_weight: int
 
 
 class DemoRoleResponse(BaseModel):
@@ -74,9 +44,6 @@ class DemoRoleResponse(BaseModel):
 class ReferenceConfigResponse(BaseModel):
     review_sources: list[ReviewSourceResponse]
     departments: list[DepartmentResponse]
-    issue_categories: list[IssueCategoryResponse]
-    category_department_mappings: list[CategoryDepartmentMappingResponse]
-    reputation_risk_thresholds: list[ReputationRiskThresholdResponse]
     demo_roles: list[DemoRoleResponse]
 
 
@@ -122,26 +89,30 @@ class ReviewAnalysisResponse(BaseModel):
     sentiment_label: str
     sentiment_score: float
     sentiment_confidence: float
-    issue_category_code: str
+    department_code: str
+    department_confidence: float
+    department_model_name: str
     reputation_risk_score: int
     reputation_risk_label: str
-    department_code: str
-    explanation_factors: dict
+    embedding: list[float] | None = None
+    embedding_model_name: str | None = None
+    embedding_generated_at: datetime | None = None
+    analysis_version: str
+    explanation_factors: dict | None = None
     analyzed_at: datetime
     is_active: bool
-    issue_category_predictions: list["IssueCategoryPredictionResponse"] = []
 
 
-class IssueCategoryPredictionResponse(BaseModel):
+class IssueReviewLinkResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
-    category_code: str
-    confidence: float
-    rank: int
-    is_primary: bool
-    department_code: str
-    analyzed_at: datetime
+    issue_id: int
+    review_id: int
+    similarity_score: float
+    linked_at: datetime
+    is_triggering_evidence: bool
+    evidence_snippet: str | None = None
 
 
 class ReviewResponse(BaseModel):
@@ -167,14 +138,9 @@ class ReviewResponse(BaseModel):
     content_hash: str
     is_content_duplicate: bool
     duplicate_of_review_id: int | None
-    sentiment_label: str
-    sentiment_score: float
-    issue_category_code: str
-    reputation_risk: str
-    department_code: str
-    action_status: str
     updated_at: datetime
     analysis: ReviewAnalysisResponse | None
+    issue_links: list[IssueReviewLinkResponse] = []
 
 
 class ReviewsResponse(BaseModel):
@@ -185,11 +151,18 @@ class ReviewsResponse(BaseModel):
     total_pages: int
 
 
+class IngestionRunsResponse(BaseModel):
+    runs: list[IngestionRunResponse]
+
+
+class ReanalysisResponse(BaseModel):
+    analyzed_count: int
+
+
 class SemanticDuplicatePairResponse(BaseModel):
     review_id: int
     matched_review_id: int
     similarity: float
-    category_code: str
     department_code: str
 
 
@@ -198,12 +171,10 @@ class SemanticIssueClusterResponse(BaseModel):
     size: int
     representative_review_id: int
     representative_text: str
-    category_code: str
     department_code: str
     source_mix: dict[str, int]
     review_ids: list[int]
     average_similarity: float
-    linked_ticket_ids: list[int] = []
 
 
 class SemanticAnalysisResponse(BaseModel):
@@ -217,17 +188,100 @@ class SemanticAnalysisResponse(BaseModel):
     clusters: list[SemanticIssueClusterResponse]
 
 
-class IngestionRunsResponse(BaseModel):
-    runs: list[IngestionRunResponse]
+class IssueEventResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    issue_id: int
+    event_type: str
+    actor: str
+    old_value: str | None
+    new_value: str | None
+    note: str | None
+    created_at: datetime
 
 
-class ReanalysisResponse(BaseModel):
-    analyzed_count: int
+class DetectedIssueCompactResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    department_code: str
+    status: str
+    priority: str
+    reputation_risk_score: int
+    recurrence_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    resolved_at: datetime | None
+    recurred_at: datetime | None
+    assignee_name: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
-class OverviewCategoryCountResponse(BaseModel):
-    code: str
-    count: int
+class DetectedIssueDetailResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    title: str
+    department_code: str
+    status: str
+    priority: str
+    reputation_risk_score: int
+    recurrence_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
+    resolved_at: datetime | None
+    recurred_at: datetime | None
+    assignee_name: str | None
+    cluster_key: str
+    cluster_centroid: list[float]
+    embedding_model_name: str
+    title_generated_by: str
+    title_generation_model: str | None
+    title_confidence: float | None
+    created_at: datetime
+    updated_at: datetime
+    review_links: list[IssueReviewLinkResponse] = []
+    events: list[IssueEventResponse] = []
+
+
+class IssuesResponse(BaseModel):
+    issues: list[DetectedIssueCompactResponse]
+    total: int
+    page: int
+    per_page: int
+    total_pages: int
+
+
+class IssueEmergingResponse(BaseModel):
+    department_code: str
+    review_count: int
+    avg_similarity: float | None
+    risk_scores: list[int]
+    representative_snippet: str
+    review_ids: list[int]
+    first_seen_at: datetime
+    last_seen_at: datetime
+
+
+class IssueDetectResponse(BaseModel):
+    created: int
+    updated: int
+    linked: int
+    issues: list[DetectedIssueCompactResponse]
+
+
+class IssueUpdateRequest(BaseModel):
+    assignee_name: str | None = None
+    priority: str | None = None
+
+
+class IssueResolveResponse(BaseModel):
+    id: int
+    status: str
+    resolved_at: datetime
 
 
 class OverviewDepartmentCountResponse(BaseModel):
@@ -241,9 +295,12 @@ class OverviewKpiResponse(BaseModel):
     average_reputation_risk_score: int
     sentiment_mix: dict[str, int]
     reputation_risk_mix: dict[str, int]
-    action_status_mix: dict[str, int]
     top_departments: list[OverviewDepartmentCountResponse]
-    top_categories: list[OverviewCategoryCountResponse]
+    active_issues: int
+    recurred_issues: int
+    high_risk_issues: int
+    priority_distribution: dict[str, int]
+    department_issue_counts: dict[str, int]
     filters_applied: dict[str, str | None]
 
 
@@ -257,6 +314,11 @@ class DashboardActionMetricResponse(BaseModel):
     drill_through: DashboardDrillThroughResponse
 
 
+class DashboardIssueMetricResponse(BaseModel):
+    issue_count: int
+    drill_through: DashboardDrillThroughResponse
+
+
 class DashboardAgingRiskResponse(BaseModel):
     review_count: int
     threshold_days: int
@@ -266,134 +328,39 @@ class DashboardAgingRiskResponse(BaseModel):
 
 class DashboardOwnerPressureItemResponse(BaseModel):
     department_code: str
-    unresolved_high_risk_reviews: int
-    recurring_issue_groups: int
-    reviews_drill_through: DashboardDrillThroughResponse
+    active_issues: int
+    high_risk_issues: int
     issues_drill_through: DashboardDrillThroughResponse
-    tickets_drill_through: DashboardDrillThroughResponse
+    reviews_drill_through: DashboardDrillThroughResponse
 
 
 class DashboardPlatformRiskItemResponse(BaseModel):
     source_code: str
     high_risk_reviews: int
-    ticket_needed_reviews: int
     drill_through: DashboardDrillThroughResponse
 
 
-class DashboardRecurringIssueItemResponse(BaseModel):
-    group_key: str
-    category_code: str
-    category_name: str
+class DashboardIssueItemResponse(BaseModel):
+    issue_id: int
+    title: str
     department_code: str
-    review_count: int
-    recent_review_count: int
-    average_reputation_risk_score: float
-    highest_reputation_risk: str
-    source_mix: dict[str, int]
-    latest_review_date: datetime | None
-    latest_review_title: str | None
-    latest_review_excerpt: str
-    linked_ticket_ids: list[int] = []
-    reviews_drill_through: DashboardDrillThroughResponse
+    status: str
+    priority: str
+    reputation_risk_score: int
+    recurrence_count: int
+    first_seen_at: datetime
+    last_seen_at: datetime
     issues_drill_through: DashboardDrillThroughResponse
+    reviews_drill_through: DashboardDrillThroughResponse
 
 
 class OverviewActionAnalyticsResponse(BaseModel):
-    high_risk_reviews: DashboardActionMetricResponse
+    active_issues: DashboardIssueMetricResponse
+    high_risk_issues: DashboardIssueMetricResponse
+    recurred_issues: DashboardIssueMetricResponse
     action_leakage: DashboardActionMetricResponse
     aging_risk: DashboardAgingRiskResponse
     owner_pressure: list[DashboardOwnerPressureItemResponse]
     platform_risk_spread: list[DashboardPlatformRiskItemResponse]
-    recurring_issues_without_tickets: list[DashboardRecurringIssueItemResponse]
-    filters_applied: dict[str, str | None]
-
-
-class TicketCreateRequest(BaseModel):
-    department_code: str
-    priority: str | None = Field(default=None, description="low, medium, high, or urgent; defaults from Reputation Risk")
-    assignee_name: str | None = None
-    assignee_email: str | None = None
-    due_date: datetime | None = None
-    notes: str | None = None
-
-
-class RecurringIssueTicketCreateRequest(BaseModel):
-    department_code: str | None = Field(
-        default=None,
-        description="Defaults to the issue group's primary affected department.",
-    )
-    priority: str | None = Field(default=None, description="low, medium, high, or urgent; defaults from Reputation Risk")
-    assignee_name: str | None = None
-    assignee_email: str | None = None
-    due_date: datetime | None = None
-    notes: str | None = None
-
-
-class TicketUpdateRequest(BaseModel):
-    status: str | None = Field(default=None, description="open, in_progress, blocked, resolved, or verified")
-    priority: str | None = None
-    department_code: str | None = None
-    assignee_name: str | None = None
-    assignee_email: str | None = None
-    due_date: datetime | None = None
-    notes: str | None = None
-
-
-class TicketEventResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    ticket_id: int
-    event_type: str
-    old_value: str | None
-    new_value: str | None
-    note: str | None
-    occurred_at: datetime
-
-
-class TicketResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: int
-    review_id: int | None
-    department_code: str
-    source_group_type: str | None
-    source_group_key: str | None
-    source_group_label: str | None
-    source_category_code: str | None
-    source_cluster_id: str | None
-    source_review_ids: list[int] | None
-    priority: str
-    status: str
-    assignee_name: str | None
-    assignee_email: str | None
-    due_date: datetime | None
-    notes: str | None
-    created_at: datetime
-    updated_at: datetime
-    events: list[TicketEventResponse] = []
-
-
-class TicketsResponse(BaseModel):
-    tickets: list[TicketResponse]
-
-
-class IssueSummaryItemResponse(BaseModel):
-    group_key: str
-    category_code: str
-    category_name: str
-    department_code: str
-    review_count: int
-    recent_review_count: int
-    average_reputation_risk_score: float
-    highest_reputation_risk: str
-    source_mix: dict[str, int]
-    representative_review_id: int
-    latest_review_date: datetime | None
-    linked_ticket_ids: list[int] = []
-
-
-class IssueSummaryResponse(BaseModel):
-    items: list[IssueSummaryItemResponse]
-    total_reviews: int
+    recent_issues: list[DashboardIssueItemResponse]
     filters_applied: dict[str, str | None]

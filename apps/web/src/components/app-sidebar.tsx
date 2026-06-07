@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/sidebar"
 import {
   CircleHelpIcon,
-  ClipboardListIcon,
   LayoutDashboardIcon,
   MessageSquareTextIcon,
   SearchIcon,
@@ -47,11 +46,6 @@ const data = {
       title: "Issues",
       url: "/issues",
       icon: <SirenIcon />,
-    },
-    {
-      title: "Tickets",
-      url: "/tickets",
-      icon: <ClipboardListIcon />,
     },
   ],
   navSecondary: [

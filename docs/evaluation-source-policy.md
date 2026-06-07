@@ -123,7 +123,7 @@ cd apps/api
 python3 -m app.jobs connector google_business_profile
 python3 -m app.jobs connector booking_com
 python3 -m app.jobs connector tripadvisor
-python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors/google_business_profile.json
+python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors-dolphin/google_business_profile.json
 ```
 
 ## NLP Evaluation

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 import math
 import os
@@ -9,7 +9,6 @@ import re
 from typing import Iterable
 
 from app.models import NormalizedReview
-
 
 DEFAULT_SENTENCE_TRANSFORMER_MODEL_ID = "sentence-transformers/all-MiniLM-L6-v2"
 SENTENCE_TRANSFORMER_MODEL_NAME = "local-sentence-transformer-review-embeddings"
@@ -21,6 +20,8 @@ TFIDF_FALLBACK_SIMILARITY_THRESHOLD = 0.30
 TOKEN_OVERLAP_FALLBACK_SIMILARITY_THRESHOLD = 0.30
 DEFAULT_MIN_CLUSTER_SIZE = 2
 
+SENTENCE_SPLIT_PATTERN = re.compile(r"[.!?]+[)\"'\]]*\s+")
+
 
 @dataclass(frozen=True)
 class ReviewSemanticRecord:
@@ -30,7 +31,6 @@ class ReviewSemanticRecord:
     source_code: str
     source_name: str
     review_date: str | None
-    category_code: str
     department_code: str
 
     @property
@@ -39,11 +39,21 @@ class ReviewSemanticRecord:
 
 
 @dataclass(frozen=True)
+class SentenceRecord:
+    review_id: int
+    sentence: str
+    department_code: str
+
+    @property
+    def text(self) -> str:
+        return self.sentence
+
+
+@dataclass(frozen=True)
 class SemanticDuplicatePair:
     review_id: int
     matched_review_id: int
     similarity: float
-    category_code: str
     department_code: str
 
 
@@ -53,7 +63,6 @@ class SemanticIssueCluster:
     size: int
     representative_review_id: int
     representative_text: str
-    category_code: str
     department_code: str
     source_mix: dict[str, int]
     review_ids: list[int]
@@ -86,6 +95,15 @@ class SimilarityComputation:
     similarities: dict[tuple[int, int], float]
 
 
+@dataclass
+class EmbeddingResult:
+    embeddings: list[list[float]] = field(default_factory=list)
+    model_name: str = ""
+    model_version: str = ""
+    strategy: str = ""
+    fallback_note: str = ""
+
+
 class LocalSemanticSimilarityAnalyzer:
     def __init__(self) -> None:
         self.model_id = os.getenv("SEMANTIC_SIMILARITY_MODEL_ID", DEFAULT_SENTENCE_TRANSFORMER_MODEL_ID)
@@ -97,7 +115,7 @@ class LocalSemanticSimilarityAnalyzer:
                 model_id=self.model_id,
                 revision=self.model_revision,
             )
-        except Exception as exc:  # pragma: no cover - exercised through monkeypatched tests
+        except Exception as exc:
             self._unavailable_reason = f"{type(exc).__name__}: {exc}"
 
     def analyze(self, texts: list[str]) -> SimilarityComputation:
@@ -113,17 +131,35 @@ class LocalSemanticSimilarityAnalyzer:
                             or self.model_id
                         ),
                         embedding_fallback_note=(
-                            "Local sentence-transformer embeddings are active. TF-IDF cosine similarity and "
-                            "token-overlap fallback remain available when local dependencies or model artifacts "
-                            "are unavailable."
+                            "Local sentence-transformer embeddings are active."
                         ),
                     ),
                     similarities=_sentence_embedding_similarities(texts, self._model),
                 )
-            except Exception as exc:  # pragma: no cover - hard to trigger without monkeypatching
+            except Exception as exc:
                 self._unavailable_reason = f"{type(exc).__name__}: {exc}"
 
         return _fallback_similarity_computation(texts, sentence_transformer_reason=self._unavailable_reason)
+
+    def embed_batch(self, texts: list[str]) -> EmbeddingResult:
+        if self._model is not None:
+            try:
+                embeddings = self._model.encode(texts, normalize_embeddings=True)
+                rows = embeddings.tolist() if hasattr(embeddings, "tolist") else list(embeddings)
+                return EmbeddingResult(
+                    embeddings=[list(row) for row in rows],
+                    model_name=SENTENCE_TRANSFORMER_MODEL_NAME,
+                    model_version=self.model_revision or _sentence_transformer_version(self._model) or self.model_id,
+                    strategy="local_sentence_transformer",
+                    fallback_note="Local sentence-transformer embeddings are active.",
+                )
+            except Exception as exc:
+                self._unavailable_reason = f"{type(exc).__name__}: {exc}"
+
+        return _fallback_embed(texts, sentence_transformer_reason=self._unavailable_reason)
+
+    def is_available(self) -> bool:
+        return self._model is not None
 
     def metadata(self) -> SimilarityRuntimeMetadata:
         if self._model is not None:
@@ -131,15 +167,17 @@ class LocalSemanticSimilarityAnalyzer:
                 embedding_strategy="local_sentence_transformer",
                 embedding_model_name=SENTENCE_TRANSFORMER_MODEL_NAME,
                 embedding_model_version=self.model_revision or _sentence_transformer_version(self._model) or self.model_id,
-                embedding_fallback_note=(
-                    "Local sentence-transformer embeddings are active. TF-IDF cosine similarity and token-overlap "
-                    "fallback remain available when local dependencies or model artifacts are unavailable."
-                ),
+                embedding_fallback_note="Local sentence-transformer embeddings are active.",
             )
         return _fallback_similarity_computation(
             ["semantic placeholder one", "semantic placeholder two"],
             sentence_transformer_reason=self._unavailable_reason,
         ).metadata
+
+
+def split_sentences(text: str) -> list[str]:
+    parts = SENTENCE_SPLIT_PATTERN.split(text)
+    return [s.strip() for s in parts if s.strip() and len(s.strip().split()) >= 3]
 
 
 def analyze_semantic_similarity(
@@ -170,7 +208,6 @@ def analyze_semantic_similarity(
             review_id=records[left].id,
             matched_review_id=records[right].id,
             similarity=round(score, 3),
-            category_code=_dominant_value([records[left].category_code, records[right].category_code]),
             department_code=_dominant_value([records[left].department_code, records[right].department_code]),
         )
         for (left, right), score in similarities.items()
@@ -189,16 +226,30 @@ def analyze_semantic_similarity(
     )
 
 
+def compute_centroid(vectors: list[list[float]]) -> list[float]:
+    if not vectors:
+        return []
+    dim = len(vectors[0])
+    centroid = [0.0] * dim
+    for vec in vectors:
+        for i in range(dim):
+            centroid[i] += vec[i]
+    length = math.sqrt(sum(c * c for c in centroid))
+    if length > 0:
+        return [c / length for c in centroid]
+    return centroid
+
+
+def centroid_similarity(centroid: list[float], vector: list[float]) -> float:
+    if not centroid or not vector:
+        return 0.0
+    return max(min(_dot_product(centroid, vector), 1.0), -1.0)
+
+
 def _semantic_record(review: NormalizedReview) -> ReviewSemanticRecord:
-    category_code = review.issue_category_code
-    department_code = review.department_code
+    department_code = "guest_relations"
     if review.analysis is not None:
-        primary_prediction = next(
-            (prediction for prediction in review.analysis.issue_category_predictions if prediction.is_primary),
-            None,
-        )
-        category_code = primary_prediction.category_code if primary_prediction is not None else review.analysis.issue_category_code
-        department_code = primary_prediction.department_code if primary_prediction is not None else review.analysis.department_code
+        department_code = review.analysis.department_code
 
     return ReviewSemanticRecord(
         id=review.id,
@@ -207,7 +258,6 @@ def _semantic_record(review: NormalizedReview) -> ReviewSemanticRecord:
         source_code=review.source_code,
         source_name=review.source_name,
         review_date=review.review_date.isoformat() if review.review_date is not None else None,
-        category_code=category_code,
         department_code=department_code,
     )
 
@@ -254,10 +304,8 @@ def _fallback_similarity_computation(
                 embedding_model_name=TOKEN_OVERLAP_MODEL_NAME,
                 embedding_model_version=FALLBACK_MODEL_VERSION,
                 embedding_fallback_note=(
-                    "Token-overlap fallback is active because scikit-learn TF-IDF and sentence-transformers "
-                    "runtime support are unavailable"
-                    f"{_format_sentence_transformer_reason(sentence_transformer_reason)}; "
-                    f"scikit-learn failure was {type(exc).__name__}: {exc}."
+                    "Token-overlap fallback is active."
+                    f" Original error: {type(exc).__name__}: {exc}"
                 ),
             ),
             similarities={
@@ -265,6 +313,40 @@ def _fallback_similarity_computation(
                 for left in range(len(texts))
                 for right in range(left + 1, len(texts))
             },
+        )
+
+
+def _fallback_embed(
+    texts: list[str],
+    *,
+    sentence_transformer_reason: str | None,
+) -> EmbeddingResult:
+    try:
+        from sklearn.feature_extraction.text import TfidfVectorizer
+
+        vectorizer = TfidfVectorizer(
+            analyzer="word",
+            ngram_range=(1, 2),
+            min_df=1,
+            stop_words="english",
+            sublinear_tf=True,
+        )
+        matrix = vectorizer.fit_transform(texts)
+        dense = matrix.toarray()
+        return EmbeddingResult(
+            embeddings=[list(row) for row in dense],
+            model_name=TFIDF_EMBEDDING_MODEL_NAME,
+            model_version=FALLBACK_MODEL_VERSION,
+            strategy="tfidf_cosine_fallback",
+            fallback_note=f"Sentence-transformer unavailable: {sentence_transformer_reason}",
+        )
+    except Exception:
+        return EmbeddingResult(
+            embeddings=[],
+            model_name=TOKEN_OVERLAP_MODEL_NAME,
+            model_version=FALLBACK_MODEL_VERSION,
+            strategy="token_overlap_fallback",
+            fallback_note=f"All embedding strategies unavailable: {sentence_transformer_reason}",
         )
 
 
@@ -305,12 +387,6 @@ def _dot_product(left: list[float], right: list[float]) -> float:
     return max(min(sum(a * b for a, b in zip(left, right)), 1.0), -1.0)
 
 
-def _format_sentence_transformer_reason(reason: str | None) -> str:
-    if reason is None:
-        return ""
-    return f" ({reason})"
-
-
 def _build_clusters(
     records: list[ReviewSemanticRecord],
     similarities: dict[tuple[int, int], float],
@@ -346,7 +422,6 @@ def _build_clusters(
                 size=len(component_records),
                 representative_review_id=representative.id,
                 representative_text=representative.text[:240],
-                category_code=_dominant_value(record.category_code for record in component_records),
                 department_code=_dominant_value(record.department_code for record in component_records),
                 source_mix=dict(sorted(Counter(record.source_code for record in component_records).items())),
                 review_ids=[record.id for record in component_records],

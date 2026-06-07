@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, JSON, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from app.redaction import redact_display_text, redacted_fields_for_values
@@ -30,62 +30,8 @@ class Department(Base):
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     description: Mapped[str] = mapped_column(Text, nullable=False)
     service_level_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    risk_weight: Mapped[int] = mapped_column(Integer, nullable=False, default=12)
     sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
-
-
-class IssueCategory(Base):
-    __tablename__ = "issue_categories"
-
-    code: Mapped[str] = mapped_column(String(64), primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-    is_positive_signal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    department_mappings: Mapped[list["CategoryDepartmentMapping"]] = relationship(
-        back_populates="category",
-        cascade="all, delete-orphan",
-    )
-    reputation_risk_threshold: Mapped["ReputationRiskThreshold"] = relationship(
-        back_populates="category",
-        cascade="all, delete-orphan",
-    )
-
-
-class CategoryDepartmentMapping(Base):
-    __tablename__ = "category_department_mappings"
-
-    category_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    department_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("departments.code", ondelete="RESTRICT"),
-        primary_key=True,
-    )
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    routing_notes: Mapped[str] = mapped_column(Text, nullable=False)
-
-    category: Mapped[IssueCategory] = relationship(back_populates="department_mappings")
-    department: Mapped[Department] = relationship()
-
-
-class ReputationRiskThreshold(Base):
-    __tablename__ = "reputation_risk_thresholds"
-
-    category_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="CASCADE"),
-        primary_key=True,
-    )
-    low_rating_max: Mapped[float] = mapped_column(Numeric(3, 2), nullable=False)
-    negative_sentiment_max: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    urgent_confidence_min: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    recurring_count_7d_min: Mapped[int] = mapped_column(Integer, nullable=False)
-    description: Mapped[str] = mapped_column(Text, nullable=False)
-
-    category: Mapped[IssueCategory] = relationship(back_populates="reputation_risk_threshold")
 
 
 class DemoRole(Base):
@@ -169,7 +115,7 @@ class NormalizedReview(Base):
     external_review_id: Mapped[str] = mapped_column(String(120), nullable=False)
     reviewer_name: Mapped[str | None] = mapped_column(String(120))
     review_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    rating: Mapped[float | None] = mapped_column(Numeric(3, 2))
+    rating: Mapped[float | None] = mapped_column(Float)
     language: Mapped[str] = mapped_column(String(16), nullable=False, default="en")
     title: Mapped[str | None] = mapped_column(String(255))
     body: Mapped[str] = mapped_column(Text, nullable=False)
@@ -179,31 +125,19 @@ class NormalizedReview(Base):
         Integer,
         ForeignKey("normalized_reviews.id", ondelete="SET NULL"),
     )
-    sentiment_label: Mapped[str] = mapped_column(String(32), nullable=False)
-    sentiment_score: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    issue_category_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    reputation_risk: Mapped[str] = mapped_column(String(32), nullable=False)
-    department_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("departments.code", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    action_status: Mapped[str] = mapped_column(String(32), nullable=False, default="new")
     normalized_payload: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     raw_review: Mapped[RawReview] = relationship()
     source: Mapped[ReviewSource] = relationship()
-    issue_category: Mapped[IssueCategory] = relationship()
-    department: Mapped[Department] = relationship()
     analysis: Mapped["ReviewAnalysis | None"] = relationship(
         back_populates="review",
         cascade="all, delete-orphan",
         uselist=False,
+    )
+    issue_links: Mapped[list["IssueReviewLink"]] = relationship(
+        back_populates="review",
+        cascade="all, delete-orphan",
     )
 
     @property
@@ -257,123 +191,109 @@ class ReviewAnalysis(Base):
         nullable=False,
     )
     sentiment_label: Mapped[str] = mapped_column(String(32), nullable=False)
-    sentiment_score: Mapped[float] = mapped_column(Numeric(5, 3), nullable=False)
-    sentiment_confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    issue_category_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    reputation_risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
-    reputation_risk_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    sentiment_score: Mapped[float] = mapped_column(Float, nullable=False)
+    sentiment_confidence: Mapped[float] = mapped_column(Float, nullable=False)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
         nullable=False,
     )
-    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    department_confidence: Mapped[float] = mapped_column(Float, nullable=False)
+    department_model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    reputation_risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    reputation_risk_label: Mapped[str] = mapped_column(String(32), nullable=False)
+    embedding: Mapped[list[float] | None] = mapped_column(JSON)
+    embedding_model_name: Mapped[str | None] = mapped_column(String(120))
+    embedding_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     analysis_version: Mapped[str] = mapped_column(String(64), nullable=False)
     explanation_factors: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
     analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     review: Mapped[NormalizedReview] = relationship(back_populates="analysis")
-    issue_category: Mapped[IssueCategory] = relationship()
     department: Mapped[Department] = relationship()
-    issue_category_predictions: Mapped[list["ReviewIssueCategoryPrediction"]] = relationship(
-        back_populates="analysis",
-        cascade="all, delete-orphan",
-        order_by="ReviewIssueCategoryPrediction.rank",
-    )
 
 
-class ActionTicket(Base):
-    __tablename__ = "action_tickets"
+class DetectedIssue(Base):
+    __tablename__ = "detected_issues"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    review_id: Mapped[int | None] = mapped_column(
-        Integer,
-        ForeignKey("normalized_reviews.id", ondelete="RESTRICT"),
-        nullable=True,
-    )
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
         nullable=False,
     )
-    source_group_type: Mapped[str | None] = mapped_column(String(64))
-    source_group_key: Mapped[str | None] = mapped_column(String(120))
-    source_group_label: Mapped[str | None] = mapped_column(String(255))
-    source_category_code: Mapped[str | None] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
-    )
-    source_cluster_id: Mapped[str | None] = mapped_column(String(120))
-    source_review_ids: Mapped[list[int] | None] = mapped_column(JSON)
-    priority: Mapped[str] = mapped_column(String(32), nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="open")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="active")
+    priority: Mapped[str] = mapped_column(String(32), nullable=False, default="medium")
+    reputation_risk_score: Mapped[int] = mapped_column(Integer, nullable=False)
+    recurrence_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    recurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     assignee_name: Mapped[str | None] = mapped_column(String(120))
-    assignee_email: Mapped[str | None] = mapped_column(String(255))
-    due_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    notes: Mapped[str | None] = mapped_column(Text)
+    cluster_key: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    cluster_centroid: Mapped[list[float]] = mapped_column(JSON, nullable=False)
+    embedding_model_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    title_generated_by: Mapped[str] = mapped_column(String(32), nullable=False)
+    title_generation_model: Mapped[str | None] = mapped_column(String(120))
+    title_confidence: Mapped[float | None] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    review: Mapped["NormalizedReview | None"] = relationship()
     department: Mapped[Department] = relationship()
-    source_category: Mapped[IssueCategory | None] = relationship()
-    events: Mapped[list["TicketEvent"]] = relationship(
-        back_populates="ticket",
+    review_links: Mapped[list["IssueReviewLink"]] = relationship(
+        back_populates="issue",
         cascade="all, delete-orphan",
-        order_by="TicketEvent.occurred_at",
+    )
+    events: Mapped[list["IssueEvent"]] = relationship(
+        back_populates="issue",
+        cascade="all, delete-orphan",
+        order_by="IssueEvent.created_at",
     )
 
 
-class TicketEvent(Base):
-    __tablename__ = "ticket_events"
+class IssueReviewLink(Base):
+    __tablename__ = "issue_review_links"
+    __table_args__ = (
+        UniqueConstraint("issue_id", "review_id", name="uq_issue_review_link"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    ticket_id: Mapped[int] = mapped_column(
+    issue_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("action_tickets.id", ondelete="CASCADE"),
+        ForeignKey("detected_issues.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    review_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("normalized_reviews.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    similarity_score: Mapped[float] = mapped_column(Float, nullable=False)
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    is_triggering_evidence: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    evidence_snippet: Mapped[str | None] = mapped_column(Text)
+
+    issue: Mapped[DetectedIssue] = relationship(back_populates="review_links")
+    review: Mapped[NormalizedReview] = relationship(back_populates="issue_links")
+
+
+class IssueEvent(Base):
+    __tablename__ = "issue_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    issue_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("detected_issues.id", ondelete="CASCADE"),
         nullable=False,
     )
     event_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor: Mapped[str] = mapped_column(String(64), nullable=False, default="system")
     old_value: Mapped[str | None] = mapped_column(String(255))
     new_value: Mapped[str | None] = mapped_column(String(255))
     note: Mapped[str | None] = mapped_column(Text)
-    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
-    ticket: Mapped[ActionTicket] = relationship(back_populates="events")
-
-
-class ReviewIssueCategoryPrediction(Base):
-    __tablename__ = "review_issue_category_predictions"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    analysis_id: Mapped[int] = mapped_column(
-        Integer,
-        ForeignKey("review_analyses.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    category_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("issue_categories.code", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    confidence: Mapped[float] = mapped_column(Numeric(4, 3), nullable=False)
-    rank: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_primary: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    department_code: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("departments.code", ondelete="RESTRICT"),
-        nullable=False,
-    )
-    model_name: Mapped[str] = mapped_column(String(120), nullable=False)
-    model_version: Mapped[str] = mapped_column(String(64), nullable=False)
-    analyzed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
-
-    analysis: Mapped[ReviewAnalysis] = relationship(back_populates="issue_category_predictions")
-    category: Mapped[IssueCategory] = relationship()
-    department: Mapped[Department] = relationship()
+    issue: Mapped[DetectedIssue] = relationship(back_populates="events")

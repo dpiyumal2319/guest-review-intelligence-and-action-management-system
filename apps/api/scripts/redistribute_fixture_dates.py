@@ -8,7 +8,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_DIRS = (
-    ROOT / "apps/api/data/generated-fixtures/connectors",
+    ROOT / "apps/api/data/generated-fixtures/connectors-dolphin",
     ROOT / "apps/api/data/generated-fixtures/connectors-llama",
 )
 PLATFORMS = ("google_business_profile", "booking_com", "tripadvisor")

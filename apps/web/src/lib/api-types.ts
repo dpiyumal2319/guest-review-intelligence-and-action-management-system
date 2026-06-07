@@ -1,32 +1,30 @@
-export type IssueCategoryPrediction = {
-  id: number
-  category_code: string
-  confidence: number
-  rank: number
-  is_primary: boolean
-  department_code: string
-  analyzed_at: string
-}
-
 export type ReviewAnalysis = {
   id: number
   sentiment_label: string
   sentiment_score: number
   sentiment_confidence: number
-  issue_category_code: string
+  department_code: string
+  department_confidence: number
+  department_model_name: string
   reputation_risk_score: number
   reputation_risk_label: string
-  department_code: string
+  embedding: number[] | null
+  embedding_model_name: string | null
+  embedding_generated_at: string | null
+  analysis_version: string
+  explanation_factors: Record<string, unknown>
   analyzed_at: string
   is_active: boolean
-  issue_category_predictions: IssueCategoryPrediction[]
-  explanation_factors: {
-    signals?: {
-      recurrence_count_7d?: number
-      duplicate_signal?: boolean
-      urgency_terms?: string[]
-    }
-  }
+}
+
+export type IssueReviewLink = {
+  id: number
+  issue_id: number
+  review_id: number
+  similarity_score: number
+  linked_at: string
+  is_triggering_evidence: boolean
+  evidence_snippet: string | null
 }
 
 export type Review = {
@@ -50,14 +48,9 @@ export type Review = {
   content_hash: string
   is_content_duplicate: boolean
   duplicate_of_review_id: number | null
-  sentiment_label: string
-  sentiment_score: number
-  issue_category_code: string
-  reputation_risk: string
-  department_code: string
-  action_status: string
   updated_at: string
   analysis: ReviewAnalysis | null
+  issue_links: IssueReviewLink[]
 }
 
 export type ReviewsResponse = {
@@ -68,20 +61,12 @@ export type ReviewsResponse = {
   total_pages: number
 }
 
-export type IssueCategory = {
-  code: string
-  name: string
-  description: string
-  is_positive_signal: boolean
-  sort_order: number
-}
-
 export type Department = {
   code: string
   name: string
   description: string
   service_level_hours: number
-  sort_order: number
+  risk_weight: number
 }
 
 export type ReviewSource = {
@@ -101,7 +86,6 @@ export type DemoRole = {
 export type ReferenceConfig = {
   review_sources: ReviewSource[]
   departments: Department[]
-  issue_categories: IssueCategory[]
   demo_roles: DemoRole[]
 }
 
@@ -121,65 +105,69 @@ export type IngestionRun = {
   errors: string[]
 }
 
-export type IngestionSourceStatus = {
-  source_code: string
-  source_name: string
-  connector_key: string | null
-  is_verified_channel: boolean
-  latest_run: IngestionRun | null
-  errors: string[]
-}
-
-export type TicketEvent = {
+export type IssueEvent = {
   id: number
-  ticket_id: number
+  issue_id: number
   event_type: string
+  actor: string
   old_value: string | null
   new_value: string | null
   note: string | null
-  occurred_at: string
+  created_at: string
 }
 
-export type Ticket = {
+export type DetectedIssueCompact = {
   id: number
-  review_id: number | null
+  title: string
   department_code: string
-  source_group_type: string | null
-  source_group_key: string | null
-  source_group_label: string | null
-  source_category_code: string | null
-  source_cluster_id: string | null
-  source_review_ids: number[] | null
-  priority: string
   status: string
+  priority: string
+  reputation_risk_score: number
+  recurrence_count: number
+  first_seen_at: string
+  last_seen_at: string
+  resolved_at: string | null
+  recurred_at: string | null
   assignee_name: string | null
-  assignee_email: string | null
-  due_date: string | null
-  notes: string | null
   created_at: string
   updated_at: string
-  events: TicketEvent[]
 }
 
-export type IssueSummaryItem = {
-  group_key: string
-  category_code: string
-  category_name: string
+export type DetectedIssue = DetectedIssueCompact & {
+  cluster_key: string
+  cluster_centroid: number[]
+  embedding_model_name: string
+  title_generated_by: string
+  title_generation_model: string | null
+  title_confidence: number | null
+  review_links: IssueReviewLink[]
+  events: IssueEvent[]
+}
+
+export type IssuesResponse = {
+  issues: DetectedIssueCompact[]
+  total: number
+  page: number
+  per_page: number
+  total_pages: number
+}
+
+export type IssueEmerging = {
   department_code: string
   review_count: number
-  recent_review_count: number
-  average_reputation_risk_score: number
-  highest_reputation_risk: string
-  source_mix: Record<string, number>
-  representative_review_id: number
-  latest_review_date: string | null
-  linked_ticket_ids: number[]
+  avg_similarity: number | null
+  risk_scores: number[]
+  representative_snippet: string
+  review_ids: number[]
+  first_seen_at: string
+  last_seen_at: string
 }
 
-export type IssueSummary = {
-  items: IssueSummaryItem[]
-  total_reviews: number
-  filters_applied: Record<string, string | null>
+export type IssueDetectResponse = {
+  created: number
+  updated: number
+  linked: number
+  issues: DetectedIssueCompact[]
 }
 
 export type OverviewCount = {
@@ -193,9 +181,12 @@ export type OverviewKpi = {
   average_reputation_risk_score: number
   sentiment_mix: Record<string, number>
   reputation_risk_mix: Record<string, number>
-  action_status_mix: Record<string, number>
   top_departments: OverviewCount[]
-  top_categories: OverviewCount[]
+  active_issues: number
+  recurred_issues: number
+  high_risk_issues: number
+  priority_distribution: Record<string, number>
+  department_issue_counts: Record<string, number>
   filters_applied: Record<string, string | null>
 }
 
@@ -209,6 +200,11 @@ export type DashboardActionMetric = {
   drill_through: DashboardDrillThrough
 }
 
+export type DashboardIssueMetric = {
+  issue_count: number
+  drill_through: DashboardDrillThrough
+}
+
 export type DashboardAgingRisk = {
   review_count: number
   threshold_days: number
@@ -218,45 +214,41 @@ export type DashboardAgingRisk = {
 
 export type DashboardOwnerPressureItem = {
   department_code: string
-  unresolved_high_risk_reviews: number
-  recurring_issue_groups: number
-  reviews_drill_through: DashboardDrillThrough
+  active_issues: number
+  high_risk_issues: number
   issues_drill_through: DashboardDrillThrough
-  tickets_drill_through: DashboardDrillThrough
+  reviews_drill_through: DashboardDrillThrough
 }
 
 export type DashboardPlatformRiskItem = {
   source_code: string
   high_risk_reviews: number
-  ticket_needed_reviews: number
   drill_through: DashboardDrillThrough
 }
 
-export type DashboardRecurringIssueItem = {
-  group_key: string
-  category_code: string
-  category_name: string
+export type DashboardIssueItem = {
+  issue_id: number
+  title: string
   department_code: string
-  review_count: number
-  recent_review_count: number
-  average_reputation_risk_score: number
-  highest_reputation_risk: string
-  source_mix: Record<string, number>
-  latest_review_date: string | null
-  latest_review_title: string | null
-  latest_review_excerpt: string
-  linked_ticket_ids: number[]
-  reviews_drill_through: DashboardDrillThrough
+  status: string
+  priority: string
+  reputation_risk_score: number
+  recurrence_count: number
+  first_seen_at: string
+  last_seen_at: string
   issues_drill_through: DashboardDrillThrough
+  reviews_drill_through: DashboardDrillThrough
 }
 
 export type OverviewActionAnalytics = {
-  high_risk_reviews: DashboardActionMetric
+  active_issues: DashboardIssueMetric
+  high_risk_issues: DashboardIssueMetric
+  recurred_issues: DashboardIssueMetric
   action_leakage: DashboardActionMetric
   aging_risk: DashboardAgingRisk
   owner_pressure: DashboardOwnerPressureItem[]
   platform_risk_spread: DashboardPlatformRiskItem[]
-  recurring_issues_without_tickets: DashboardRecurringIssueItem[]
+  recent_issues: DashboardIssueItem[]
   filters_applied: Record<string, string | null>
 }
 
@@ -264,7 +256,6 @@ export type SemanticDuplicatePair = {
   review_id: number
   matched_review_id: number
   similarity: number
-  category_code: string
   department_code: string
 }
 
@@ -273,12 +264,10 @@ export type SemanticIssueCluster = {
   size: number
   representative_review_id: number
   representative_text: string
-  category_code: string
   department_code: string
   source_mix: Record<string, number>
   review_ids: number[]
   average_similarity: number
-  linked_ticket_ids: number[]
 }
 
 export type SemanticAnalysis = {
@@ -294,6 +283,5 @@ export type SemanticAnalysis = {
 
 export const SENTIMENT_LABELS = ["positive", "mixed", "negative"] as const
 export const REPUTATION_RISK_LABELS = ["low", "medium", "high", "critical"] as const
-export const ACTION_STATUSES = ["new", "reviewed", "ticket_created", "ignored"] as const
-export const TICKET_STATUSES = ["open", "in_progress", "blocked", "resolved", "verified"] as const
-export const TICKET_PRIORITIES = ["low", "medium", "high", "urgent"] as const
+export const ISSUE_STATUSES = ["active", "resolved", "recurred"] as const
+export const ISSUE_PRIORITIES = ["low", "medium", "high", "urgent"] as const

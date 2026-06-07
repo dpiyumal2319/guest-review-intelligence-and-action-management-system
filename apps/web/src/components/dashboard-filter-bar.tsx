@@ -1,7 +1,7 @@
 "use client"
 
 import { SearchIcon, XIcon } from "lucide-react"
-import { ACTION_STATUSES, type Department, type IssueCategory, type ReviewSource, REPUTATION_RISK_LABELS } from "@/lib/api-types"
+import { type Department, type ReviewSource, REPUTATION_RISK_LABELS } from "@/lib/api-types"
 import { type DashboardFilters } from "@/hooks/use-dashboard-filters"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -20,11 +20,10 @@ type Props = {
   onClear: () => void
   hasActiveFilters: boolean
   sources?: ReviewSource[]
-  categories?: IssueCategory[]
   departments?: Department[]
   showSearch?: boolean
   showRiskGroup?: boolean
-  showActionStatusGroup?: boolean
+  showHasIssues?: boolean
 }
 
 const NONE = "__none__"
@@ -50,16 +49,13 @@ export function DashboardFilterBar({
   onClear,
   hasActiveFilters,
   sources = [],
-  categories = [],
   departments = [],
   showSearch = false,
   showRiskGroup = false,
-  showActionStatusGroup = false,
+  showHasIssues = false,
 }: Props) {
   const sourceLabels = Object.fromEntries(sources.map((source) => [source.code, source.name]))
-  const categoryLabels = Object.fromEntries(categories.map((category) => [category.code, category.name]))
   const departmentLabels = Object.fromEntries(departments.map((department) => [department.code, department.name]))
-  const statusLabels = Object.fromEntries(ACTION_STATUSES.map((status) => [status, status.replaceAll("_", " ")]))
 
   return (
     <div className="flex flex-wrap items-end gap-3 rounded-lg border bg-card p-4">
@@ -113,26 +109,6 @@ export function DashboardFilterBar({
               <SelectItem value={NONE}>All platforms</SelectItem>
               {sources.map((s) => (
                 <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
-
-      {categories.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Issue category</Label>
-          <Select
-            value={toSelectValue(filters.issue_category_code)}
-            onValueChange={(v) => onFilterChange("issue_category_code", fromSelectValue(v))}
-          >
-            <SelectTrigger className="h-8 w-48 text-xs">
-              <SelectValue>{filterSelectValueLabel("Any category", categoryLabels)}</SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={NONE}>Any category</SelectItem>
-              {categories.map((c) => (
-                <SelectItem key={c.code} value={c.code}>{c.name}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -195,37 +171,20 @@ export function DashboardFilterBar({
         </div>
       )}
 
-      <div className="flex flex-col gap-1.5">
-        <Label className="text-xs">Review action state</Label>
-        <Select
-          value={toSelectValue(filters.action_status)}
-          onValueChange={(v) => onFilterChange("action_status", fromSelectValue(v))}
-        >
-          <SelectTrigger className="h-8 w-40 text-xs">
-            <SelectValue>{filterSelectValueLabel("Any status", statusLabels)}</SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={NONE}>Any status</SelectItem>
-            {ACTION_STATUSES.map((s) => (
-              <SelectItem key={s} value={s}>{s.replaceAll("_", " ")}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
-
-      {showActionStatusGroup && (
+      {showHasIssues && (
         <div className="flex flex-col gap-1.5">
-          <Label className="text-xs">Action focus</Label>
+          <Label className="text-xs">Issue linkage</Label>
           <Select
-            value={toSelectValue(filters.action_status_group)}
-            onValueChange={(v) => onFilterChange("action_status_group", fromSelectValue(v))}
+            value={toSelectValue(filters.has_issues)}
+            onValueChange={(v) => onFilterChange("has_issues", fromSelectValue(v))}
           >
             <SelectTrigger className="h-8 w-40 text-xs">
-              <SelectValue>{filterSelectValueLabel("Any focus", { ticket_needed: "Ticket needed" })}</SelectValue>
+              <SelectValue>{filterSelectValueLabel("Any", { true: "Linked to Issues", false: "No Issues" })}</SelectValue>
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={NONE}>Any focus</SelectItem>
-              <SelectItem value="ticket_needed">Ticket needed</SelectItem>
+              <SelectItem value={NONE}>Any</SelectItem>
+              <SelectItem value="true">Linked to Issues</SelectItem>
+              <SelectItem value="false">No Issues</SelectItem>
             </SelectContent>
           </Select>
         </div>

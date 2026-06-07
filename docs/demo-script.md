@@ -133,7 +133,7 @@ Fixture-file import:
 ```bash
 curl -X POST "$API/ingestion/connectors/google_business_profile" \
   -H "Content-Type: application/json" \
-  -d '{"fixture_path":"apps/api/data/generated-fixtures/connectors/google_business_profile.json"}'
+  -d '{"fixture_path":"apps/api/data/generated-fixtures/connectors-dolphin/google_business_profile.json"}'
 ```
 
 Equivalent backend job commands:
@@ -143,7 +143,7 @@ cd apps/api
 python3 -m app.jobs connector google_business_profile
 python3 -m app.jobs connector booking_com
 python3 -m app.jobs connector tripadvisor
-python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors/google_business_profile.json
+python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors-dolphin/google_business_profile.json
 ```
 
 Inspect run history:
