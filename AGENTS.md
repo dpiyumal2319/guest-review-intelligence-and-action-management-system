@@ -2,11 +2,13 @@
 
 When approaching a solution, think critically and recommend industry-standard approaches appropriate to the project's scale. If there is already a maintained solution, library, tool, or platform pattern that solves the problem well (not outdated obviously), point to it rather than reinventing it.
 
+Local running ollama models should not be runtime dependancies of the application.
+
 ## Agent skills
 
 ### PRD
 
-To see the full prd See `docs/agents/prd-guest-review-intelligence/md`. or gh issue #1
+To see the full prd See `docs/agents/prd-guest-review-intelligence/md`. or gh issue #61
 
 ### Issue tracker
 
