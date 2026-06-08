@@ -17,6 +17,7 @@ import { DashboardFilterBar } from "@/components/dashboard-filter-bar"
 import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { useCountUp } from "@/hooks/use-count-up"
 import {
   type ChartConfig,
   ChartContainer,
@@ -319,6 +320,14 @@ function DashboardContent() {
   const ownerChartHeight = Math.max(200, ownerChartData.length * 56)
   const platformChartHeight = Math.max(140, platformChartData.length * 52)
 
+  // ── Counted KPI values ───────────────────────────────────────────────────
+  const countActiveIssues   = useCountUp(kpis?.active_issues ?? 0)
+  const countHighRisk       = useCountUp(kpis?.high_risk_issues ?? 0)
+  const countRecurred       = useCountUp(kpis?.recurred_issues ?? 0)
+  const countTotalReviews   = useCountUp(kpis?.total_reviews ?? 0)
+  const countAvgRisk        = useCountUp(kpis?.average_reputation_risk_score ?? 0)
+  const countUntracked      = useCountUp(analytics?.action_leakage.review_count ?? 0)
+
   // ── Render ───────────────────────────────────────────────────────────────
 
   return (
@@ -379,6 +388,7 @@ function DashboardContent() {
               <section className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-5">
                 <Card
                   className={analytics ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined}
+                  style={{ animation: "card-enter 350ms ease-out both", animationDelay: "0ms" }}
                   onClick={() => analytics && drillTo(router, analytics.active_issues.drill_through)}
                 >
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -386,13 +396,14 @@ function DashboardContent() {
                     <SirenIcon className="size-4 text-amber-500" />
                   </CardHeader>
                   <CardContent>
-                    <div className="tabular-nums text-2xl font-bold">{kpis.active_issues}</div>
-                    <p className="text-xs text-muted-foreground">{kpis.recurred_issues} recurred</p>
+                    <div className="tabular-nums text-2xl font-bold">{countActiveIssues}</div>
+                    <p className="text-xs text-muted-foreground">{countRecurred} recurred</p>
                   </CardContent>
                 </Card>
 
                 <Card
                   className={analytics ? "cursor-pointer transition-colors hover:bg-muted/50" : undefined}
+                  style={{ animation: "card-enter 350ms ease-out both", animationDelay: "50ms" }}
                   onClick={() => analytics && drillTo(router, analytics.high_risk_issues.drill_through)}
                 >
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
@@ -400,32 +411,36 @@ function DashboardContent() {
                     <AlertTriangleIcon className="size-4 text-destructive" />
                   </CardHeader>
                   <CardContent>
-                    <div className="tabular-nums text-2xl font-bold">{kpis.high_risk_issues}</div>
+                    <div className="tabular-nums text-2xl font-bold">{countHighRisk}</div>
                     <p className="text-xs text-muted-foreground">Risk score ≥ 50</p>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card
+                  style={{ animation: "card-enter 350ms ease-out both", animationDelay: "100ms" }}
+                >
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-sm font-medium">Total Reviews</CardTitle>
                     <ClockIcon className="size-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
-                    <div className="tabular-nums text-2xl font-bold">{kpis.total_reviews}</div>
+                    <div className="tabular-nums text-2xl font-bold">{countTotalReviews}</div>
                     <p className="text-xs text-muted-foreground">
                       Avg rating: {kpis.average_rating?.toFixed(1) ?? "—"}
                     </p>
                   </CardContent>
                 </Card>
 
-                <Card>
+                <Card
+                  style={{ animation: "card-enter 350ms ease-out both", animationDelay: "150ms" }}
+                >
                   <CardHeader className="flex flex-row items-center justify-between pb-2">
                     <CardTitle className="text-sm font-medium">Avg Risk Score</CardTitle>
                     <TrendingUpIcon className="size-4 text-muted-foreground" />
                   </CardHeader>
                   <CardContent>
                     <div className="tabular-nums text-2xl font-bold">
-                      {kpis.average_reputation_risk_score}
+                      {countAvgRisk}
                     </div>
                     <p className="text-xs text-muted-foreground">0–100 across reviews</p>
                   </CardContent>
@@ -438,6 +453,7 @@ function DashboardContent() {
                         ? "cursor-pointer transition-colors hover:bg-muted/50"
                         : undefined
                     }
+                    style={{ animation: "card-enter 350ms ease-out both", animationDelay: "200ms" }}
                     onClick={() =>
                       analytics.action_leakage.review_count > 0
                         ? drillTo(router, analytics.action_leakage.drill_through)
@@ -456,7 +472,7 @@ function DashboardContent() {
                       {analytics.action_leakage.review_count > 0 ? (
                         <>
                           <div className="tabular-nums text-2xl font-bold">
-                            {analytics.action_leakage.review_count}
+                            {countUntracked}
                           </div>
                           <p className="text-xs text-muted-foreground">
                             High-risk reviews, no linked issue
@@ -476,7 +492,7 @@ function DashboardContent() {
               </section>
 
               {/* ── Donut Charts: Sentiment Mix + Risk Level ───────────── */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2" style={{ animation: "fade-in 400ms ease-out both", animationDelay: "320ms" }}>
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Sentiment Mix</CardTitle>
@@ -549,7 +565,7 @@ function DashboardContent() {
               </div>
 
               {/* ── Horizontal Bar Charts: Dept Issues + Priority ─────── */}
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 md:grid-cols-2" style={{ animation: "fade-in 400ms ease-out both", animationDelay: "400ms" }}>
                 <Card className="flex flex-col">
                   <CardHeader>
                     <CardTitle className="text-base">Department Issues</CardTitle>
@@ -639,7 +655,7 @@ function DashboardContent() {
               {analytics && (
                 <>
                   {/* ── Owner Pressure — grouped horizontal bar chart ──── */}
-                  <Card>
+                  <Card style={{ animation: "fade-in 400ms ease-out both", animationDelay: "480ms" }}>
                     <CardHeader>
                       <CardTitle className="text-base">Owner Pressure</CardTitle>
                     </CardHeader>
@@ -700,7 +716,7 @@ function DashboardContent() {
                   </Card>
 
                   {/* ── Platform Risk + Recent Issues ─────────────────── */}
-                  <div className="grid gap-4 md:grid-cols-2">
+                  <div className="grid gap-4 md:grid-cols-2" style={{ animation: "fade-in 400ms ease-out both", animationDelay: "560ms" }}>
                     <Card>
                       <CardHeader>
                         <CardTitle className="text-base">Platform Risk</CardTitle>
