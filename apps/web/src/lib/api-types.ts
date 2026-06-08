@@ -119,6 +119,7 @@ export type IssueEvent = {
 export type DetectedIssueCompact = {
   id: number
   title: string
+  description: string | null
   department_code: string
   status: string
   priority: string

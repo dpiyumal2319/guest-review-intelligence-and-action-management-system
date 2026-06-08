@@ -13,7 +13,7 @@ from typing import Any
 from urllib import request
 
 
-DEFAULT_MODEL = "dolphin-llama3:latest"
+DEFAULT_MODEL = "llama3.1:latest"
 DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
 DEFAULT_TOTAL_REVIEWS = 2000
 DEFAULT_DATE_WINDOW_START = datetime(2025, 6, 5, 0, 0, tzinfo=UTC)
@@ -44,21 +44,141 @@ STAR_RATING_NAMES = {
     5: "FIVE",
 }
 
-ISSUE_WAVES = (
-    "slow check-in queues during weekend arrivals",
-    "bathroom drainage and worn fittings on upper floors",
-    "breakfast buffet replenishment delays during peak hours",
-    "late-night event noise reaching guest rooms",
-    "room air conditioning taking too long to cool",
-    "housekeeping follow-up delays after guest requests",
+# --------------------------------------------------------------------------------------------
+# Scenario library.
+#
+# The old generator only had 6 vague themes, so every review was generic ("AC not working")
+# and the downstream issue pipeline could never produce pinpointed issues. We instead drive
+# generation from CONCRETE incidents: each scenario template carries placeholders that get
+# filled with specific facts (room/floor/item/amount/time). Putting the specifics in the
+# scenario - not relying on the model to invent them - makes even a small local model produce
+# specific, varied reviews.
+#
+# Recurring scenarios (high weight) appear many times with DIFFERENT specifics -> the pipeline
+# can consolidate them into one issue while still citing the specifics. Sporadic severe
+# scenarios (low weight) appear occasionally and stay as their own pinpointed issue.
+# --------------------------------------------------------------------------------------------
+
+_FOOD_ITEMS = (
+    "scrambled eggs", "pancakes", "the omelette", "string hoppers", "the fruit platter",
+    "fried rice", "the chicken curry", "the morning coffee", "toast", "the pastries",
+)
+_FIXTURES = (
+    "hair dryer", "room safe", "shower mixer", "electric kettle", "minibar fridge",
+    "TV remote", "bathroom door lock", "reading lamp", "air conditioner remote", "shower head",
+)
+_STAFF_ROLES = (
+    "front desk agent", "duty manager", "housekeeping supervisor", "breakfast waiter",
+    "concierge", "night receptionist", "bell desk staff",
+)
+_TIMES = ("7:30am", "9pm", "1am", "2am", "midnight", "6am", "11pm", "check-out", "8:15am")
+
+
+def _room(rng: random.Random) -> str:
+    floor = rng.randint(2, 18)
+    return f"{floor}{rng.randint(1, 40):02d}"
+
+
+def _fill(template: str, rng: random.Random) -> str:
+    room = _room(rng)
+    floor = int(room[:-2]) if len(room) >= 3 else int(room[0])
+    floor_word = {1: "1st", 2: "2nd", 3: "3rd"}.get(floor, f"{floor}th")
+    return template.format(
+        room=room,
+        floor=floor_word,
+        room_type=rng.choice(ROOM_NAMES).lower(),
+        temp=rng.randint(26, 31),
+        nights=rng.choice(("one", "two", "three")),
+        hours=rng.randint(1, 6),
+        minutes=rng.randint(20, 80),
+        amount=rng.randint(15, 130),
+        item=rng.choice(_FOOD_ITEMS),
+        fixture=rng.choice(_FIXTURES),
+        staff=rng.choice(_STAFF_ROLES),
+        time=rng.choice(_TIMES),
+    )
+
+
+# Each scenario: department (for our own reference only - NOT written into reviews), the star
+# ratings it can carry, a sampling weight, and one or more fact-bearing templates.
+SCENARIOS: tuple[dict[str, Any], ...] = (
+    # --- Recurring operational problems (consolidate into one issue each) ---
+    {"key": "ac_not_cooling", "weight": 9, "ratings": (1, 2, 3), "templates": (
+        "the air conditioning in {room_type} {room} on the {floor} floor barely cooled the room, it stayed around {temp} degrees for {nights} nights",
+        "AC in room {room} stopped cooling overnight and we waited {hours} hours for someone from maintenance to look at it",
+        "room {room} never got cold, the air conditioner ran all night but it was still {temp} degrees when we woke up",
+    )},
+    {"key": "slow_checkin", "weight": 8, "ratings": (2, 3), "templates": (
+        "check-in took about {minutes} minutes with only one person at reception when we arrived at {time}",
+        "we queued at the front desk for roughly {minutes} minutes at {time}, the line barely moved",
+    )},
+    {"key": "noise", "weight": 8, "ratings": (1, 2, 3), "templates": (
+        "loud music from an event downstairs kept us awake until {time} in room {room}",
+        "we could hear thumping bass and shouting from a function until {time}, room {room} on the {floor} floor had no sound proofing",
+        "noise from the room next door and the corridor went on past {time}, impossible to sleep",
+    )},
+    {"key": "breakfast_quality", "weight": 7, "ratings": (2, 3), "templates": (
+        "{item} at breakfast was cold and was not refilled when it ran out during the morning rush",
+        "the breakfast buffet was nearly empty by 9:30am, {item} was finished and nobody topped it up",
+    )},
+    {"key": "housekeeping_dirty", "weight": 7, "ratings": (1, 2, 3), "templates": (
+        "room {room} was not cleaned properly, there were used towels and hair in the bathroom when we checked in",
+        "the sheets in room {room} had stains and the bin had not been emptied from the previous guest",
+        "housekeeping skipped room {room} on day {hours} of our stay even after we requested service",
+    )},
+    {"key": "plumbing", "weight": 6, "ratings": (1, 2, 3), "templates": (
+        "the shower in room {room} drained very slowly and flooded the bathroom floor every morning",
+        "no hot water in room {room} on the {floor} floor for about {hours} hours in the morning",
+        "the toilet in room {room} kept running and the {fixture} was broken",
+    )},
+    {"key": "broken_fixture", "weight": 5, "ratings": (2, 3), "templates": (
+        "the {fixture} in room {room} did not work and was not fixed during our {nights}-night stay",
+        "the {fixture} in room {room} was broken, we reported it but nobody came",
+    )},
+    {"key": "wifi", "weight": 5, "ratings": (2, 3), "templates": (
+        "the wifi kept dropping in room {room} on the {floor} floor, I could not join a work call",
+        "internet was unusably slow in room {room}, it disconnected every few minutes",
+    )},
+    {"key": "billing_dispute", "weight": 5, "ratings": (1, 2), "templates": (
+        "we were charged ${amount} for minibar items we never used and it took {minutes} minutes to sort out at {time}",
+        "an extra ${amount} appeared on the bill at check-out and the {staff} could not explain it",
+    )},
+    {"key": "rude_staff", "weight": 5, "ratings": (1, 2), "templates": (
+        "the {staff} was dismissive when we reported the problem in room {room} and walked away",
+        "the {staff} was rude at {time} when we asked for help, no apology at all",
+    )},
+    {"key": "ac_smell", "weight": 4, "ratings": (2, 3), "templates": (
+        "room {room} had a damp musty smell from the air conditioning that never went away",
+    )},
+    # --- Sporadic, severe, materially distinct incidents (stay as their own pinpointed issue) ---
+    {"key": "pest_in_food", "weight": 2, "ratings": (1,), "templates": (
+        "there was a cockroach in {item} at breakfast, I lost my appetite completely",
+        "I found an insect crawling in {item} at the buffet, absolutely unacceptable for the price",
+    )},
+    {"key": "bedbugs", "weight": 1, "ratings": (1,), "templates": (
+        "we woke up with bites all over and found bed bugs in the mattress of room {room}",
+    )},
+    {"key": "theft", "weight": 1, "ratings": (1,), "templates": (
+        "${amount} went missing from room {room} after housekeeping visited and the {staff} was no help",
+    )},
+    {"key": "safety_alarm", "weight": 1, "ratings": (1, 2), "templates": (
+        "the fire alarm in room {room} went off three times after {time} with no explanation from staff",
+    )},
+    {"key": "dirty_pool", "weight": 2, "ratings": (2, 3), "templates": (
+        "the swimming pool was cloudy and full of leaves and was closed without notice on day {hours}",
+    )},
 )
 
-POSITIVE_THEMES = (
-    "friendly front-office team and smooth arrival",
-    "comfortable rooms with a strong ocean view",
-    "helpful restaurant staff during breakfast",
-    "clean public areas and attentive housekeeping",
-    "good location for business meetings and city visits",
+_SCENARIO_BAG: tuple[dict[str, Any], ...] = tuple(
+    scenario for scenario in SCENARIOS for _ in range(int(scenario["weight"]))
+)
+
+POSITIVE_TEMPLATES = (
+    "the {staff} made check-in at {time} smooth and friendly, room {room} was spotless and comfortable",
+    "breakfast was excellent, {item} was fresh and the {staff} was attentive",
+    "room {room} on the {floor} floor was quiet and clean with a great view, housekeeping was thorough",
+    "the {staff} went out of their way to help us, and the {room_type} room was very comfortable",
+    "great location and a lovely calm stay, the {fixture} and everything in room {room} worked perfectly",
 )
 
 COUNTRIES = ("LK", "IN", "GB", "AU", "AE", "SG", "FR", "DE", "PK", "MV")
@@ -157,20 +277,27 @@ def parse_review_draft(raw_response: str, *, fallback_rating: int) -> ReviewDraf
     return ReviewDraft(text=text, title=title, rating=rating)
 
 
-def build_prompt(*, platform: str, theme: str, rating: int, index: int) -> str:
+def build_prompt(*, platform: str, directive: str, rating: int, positive: bool, index: int) -> str:
+    intent = (
+        "Write a POSITIVE guest review about this good experience"
+        if positive
+        else "Write a guest review that complains about this specific problem"
+    )
     return (
         "Generate one realistic hotel guest review for a connector fixture file.\n"
         "Return JSON only with exactly these keys: "
         '{"title":"optional short title", "text":"review body", "rating": 1}\n'
         f"Platform: {platform}\n"
-        f"Scenario theme: {theme}\n"
+        f"What happened (write the review about THIS exact incident): {directive}\n"
         f"Target rating: {rating}\n"
         f"Fixture row: {index}\n"
         "Rules:\n"
-        "- Write natural guest feedback about a hotel stay.\n"
-        "- Keep text between 25 and 140 words.\n"
-        "- Reuse the scenario theme enough that repeated issue waves are visible across records.\n"
-        "- Vary traveller type, wording, tone, and stay context.\n"
+        f"- {intent}.\n"
+        "- KEEP every concrete detail from the incident (room number, floor, item, amount, time, "
+        "duration) in your review - these specifics are the whole point. Do not generalise them away.\n"
+        "- You may add natural surrounding context, but do not invent a DIFFERENT problem.\n"
+        "- Keep text between 25 and 130 words. Write in first person like a real guest.\n"
+        "- Vary traveller type, wording, and tone.\n"
         "- Do not mention any hotel name, brand, property name, or city.\n"
         "- Do not include private identifiers, emails, phone numbers, reservation IDs, labels, or analysis.\n"
         "- Do not include sentiment labels, issue categories, department labels, reputation risk, or risk scores.\n"
@@ -182,19 +309,20 @@ def normalize_text(text: str) -> str:
     return re.sub(r"\s+", " ", text.strip())
 
 
-def fallback_draft(*, platform: str, theme: str, rating: int, index: int) -> ReviewDraft:
-    positive = rating >= 4
-    title = "Memorable stay" if positive else "Stay needs attention"
+def fallback_draft(*, directive: str, rating: int, positive: bool, index: int) -> ReviewDraft:
+    # Deterministic fallback when the local model is unavailable or returns bad JSON. It still
+    # carries the scenario specifics so the fixture is never generic.
     if positive:
-        theme = POSITIVE_THEMES[index % len(POSITIVE_THEMES)]
+        title = "Memorable stay"
         text = (
-            f"Our stay at The Kingsbury felt polished, especially the {theme}. "
-            "The team was attentive without being intrusive, and the room was comfortable after a long day in Colombo."
+            f"Really enjoyed this stay. {directive[0].upper() + directive[1:]}. "
+            "The team was attentive without being intrusive and everything felt well looked after."
         )
     else:
+        title = "Stay needs attention"
         text = (
-            f"The stay was affected by {theme}. Staff were polite, but the same problem came up more than once "
-            "and made the visit feel less organised than expected."
+            f"Our stay was let down by one thing: {directive}. "
+            "We raised it during the stay, and while staff were polite it affected how the visit went."
         )
     return ReviewDraft(text=text, title=title, rating=rating)
 
@@ -202,25 +330,23 @@ def fallback_draft(*, platform: str, theme: str, rating: int, index: int) -> Rev
 def build_review_draft(
     *,
     platform: str,
-    theme: str,
+    directive: str,
     rating: int,
+    positive: bool,
     index: int,
     request_text: Callable[[str], str] | None,
     model: str,
     ollama_url: str,
 ) -> ReviewDraft:
+    prompt = build_prompt(platform=platform, directive=directive, rating=rating, positive=positive, index=index)
     if request_text is None:
-        raw_response = ollama_request(
-            build_prompt(platform=platform, theme=theme, rating=rating, index=index),
-            model=model,
-            ollama_url=ollama_url,
-        )
+        raw_response = ollama_request(prompt, model=model, ollama_url=ollama_url)
     else:
-        raw_response = request_text(build_prompt(platform=platform, theme=theme, rating=rating, index=index))
+        raw_response = request_text(prompt)
     try:
         draft = parse_review_draft(raw_response, fallback_rating=rating)
     except (json.JSONDecodeError, ValueError):
-        draft = fallback_draft(platform=platform, theme=theme, rating=rating, index=index)
+        draft = fallback_draft(directive=directive, rating=rating, positive=positive, index=index)
     return ReviewDraft(text=normalize_text(draft.text), title=draft.title, rating=draft.rating)
 
 
@@ -486,12 +612,16 @@ def namespace_payload_ids(platform: str, payload: dict[str, Any], namespace: str
     raise ValueError(f"Unsupported platform {platform!r}")
 
 
-def scenario_for_index(index: int, rng: random.Random) -> tuple[str, int]:
-    if index % 5 == 0:
-        return POSITIVE_THEMES[index % len(POSITIVE_THEMES)], rng.choice((4, 5))
-    theme = ISSUE_WAVES[index % len(ISSUE_WAVES)]
-    rating = rng.choices((1, 2, 3, 4), weights=(2, 5, 4, 1), k=1)[0]
-    return theme, rating
+def scenario_for_index(index: int, rng: random.Random) -> tuple[str, int, bool]:
+    """Return (directive, rating, positive). Roughly 1 in 4 reviews is positive; the rest draw a
+    weighted negative scenario and fill it with concrete specifics."""
+    if index % 4 == 0:
+        directive = _fill(rng.choice(POSITIVE_TEMPLATES), rng)
+        return directive, rng.choice((4, 5)), True
+    scenario = rng.choice(_SCENARIO_BAG)
+    directive = _fill(rng.choice(scenario["templates"]), rng)
+    rating = rng.choice(scenario["ratings"])
+    return directive, rating, False
 
 
 def contains_analysis_fields(value: Any) -> bool:
@@ -538,11 +668,12 @@ def generate_connector_fixtures(
         payloads: list[dict[str, Any]] = []
         for local_index in range(1, counts[platform] + 1):
             global_index = sum(counts[prior] for prior in PLATFORMS[: PLATFORMS.index(platform)]) + local_index
-            theme, rating = scenario_for_index(global_index, rng)
+            directive, rating, positive = scenario_for_index(global_index, rng)
             draft = build_review_draft(
                 platform=platform,
-                theme=theme,
+                directive=directive,
                 rating=rating,
+                positive=positive,
                 index=global_index,
                 request_text=request_text,
                 model=model,

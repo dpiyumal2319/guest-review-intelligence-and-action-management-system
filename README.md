@@ -23,8 +23,16 @@ The recommended local workflow is:
 The current product model is:
 
 - Raw/normalized reviews are imported from connector-shaped payloads.
-- Review analysis stores sentiment, department, reputation risk, and embeddings.
-- Detected Issues are concrete operational problems such as `AC not cooling` or `Bathroom mold`, owned by departments.
+- Review analysis stores sentiment, department, reputation risk, and embeddings (local Hugging Face models).
+- **Issue detection is LLM-driven**: it reads negative/mixed reviews, extracts the concrete problems,
+  and dynamically consolidates them into deduplicated, department-owned Issues such as
+  `Air conditioning not cooling rooms` or `Cockroach in breakfast food`. Each Issue carries an
+  evidence-grounded description. Issues with a single supporting review are surfaced as **emerging**
+  candidates. See `apps/api/app/issue_detection.py`.
+- The Issue LLM is provider-agnostic (`apps/api/app/llm_client.py`): **Gemini 2.5 Flash** by default,
+  with a deterministic offline **stub** provider for tests / no-key runs.
+- Review fixtures are generated locally with **Ollama** (the specificity of the generated reviews is
+  what makes the Issues specific — see §9).
 - Tickets and category-based issue taxonomies have been removed from the runtime workflow.
 
 ## 2. Prerequisites
@@ -34,13 +42,26 @@ Install these on your machine:
 - Docker and Docker Compose
 - Python 3.12 or newer
 - Node.js 20 or newer
+- [Ollama](https://ollama.com) with a chat model pulled (`ollama pull llama3.1`) — only needed to
+  **generate** review fixtures (§9), not to run the app against the committed fixtures.
 
 All setup, import, and verification commands are npm scripts — you don't need
 `psql`, `curl`, or `jq` to follow this runbook.
 
-NLP model artifacts are loaded with `local_files_only=True`. The
-`npm run api:download-models` step (see §3.2) downloads everything to
-`~/.cache/huggingface/` automatically.
+NLP model artifacts (sentiment, department, embeddings) are loaded with `local_files_only=True`. The
+`npm run api:download-models` step (see §3.2) downloads everything to `~/.cache/huggingface/`
+automatically. These run on CPU during ingestion.
+
+### LLM provider for Issue detection
+
+Issue detection calls an LLM. Configure it in `apps/api/.env` (see `apps/api/.env.example`):
+
+- `GEMINI_API_KEY=...` — uses **Gemini 2.5 Flash** (default; ~$0.25 per full detection run over
+  ~1000 reviews). Get a key at <https://aistudio.google.com/apikey>.
+- `LLM_PROVIDER=stub` — deterministic offline provider, no network/key. Lower quality (used by tests
+  and for plumbing checks); fine to smoke-test the pipeline without a key.
+
+If unset, the app uses Gemini when `GEMINI_API_KEY` is present, otherwise the stub.
 
 ## 3. Bootstrap: Docker DB with Local API/Web
 
@@ -131,8 +152,7 @@ The script:
 
 1. imports the small seed review batch as raw connector-shaped data;
 2. runs analysis during ingestion;
-3. verifies the embedding model is available;
-4. triggers dynamic Issue detection.
+3. triggers LLM Issue detection (set `GEMINI_API_KEY`, or run with `LLM_PROVIDER=stub` offline).
 
 Expected result:
 
@@ -142,10 +162,15 @@ Expected result:
 
 ### 4.2 Pregenerated fixture datasets
 
-The pregenerated fixture sets committed in this repo are:
+Two fixture sets are committed, each 1000 reviews across three connectors, with non-colliding ID
+namespaces so both can be imported together:
 
-- `apps/api/data/generated-fixtures/connectors-dolphin` (generated with `dolphin-llama3:latest`)
-- `apps/api/data/generated-fixtures/connectors-llama` (generated with `llama3.1:latest`)
+- `apps/api/data/generated-fixtures/connectors-dolphin`
+- `apps/api/data/generated-fixtures/connectors-llama`
+
+Both are generated from a **specific-incident scenario library** (room/floor/item/amount/time), so the
+reviews contain concrete details (`AC dead in room 412 for two nights`, `cockroach in the breakfast
+pancake`) — that specificity is what lets detection produce pinpointed Issues. To regenerate them, see §9.
 
 Validate fixture identities before importing both sets:
 
@@ -159,27 +184,20 @@ Expected:
 validated 2 fixture directories without identity collisions
 ```
 
-Import the llama fixture set:
-
-```bash
-npm run api:import:llama
-```
-
-Then trigger detection:
-
-```bash
-npm run api:detect
-```
-
-### 4.3 Load both fixture sets
-
-If you want the larger combined demo dataset:
+### 4.3 Load both fixture sets and detect
 
 ```bash
 npm run api:import:all
 ```
 
-This wipes any existing demo data, imports all six connector sets (dolphin + llama), and triggers issue detection.
+This wipes existing demo data, imports both sets (six connector files), and triggers Issue detection.
+Detection needs an LLM provider configured (§2): `GEMINI_API_KEY` for real quality, or
+`LLM_PROVIDER=stub` for an offline plumbing run. To import one set or detect on its own:
+
+```bash
+npm run api:import:dolphin   # or api:import:llama
+npm run api:detect
+```
 
 ## 5. Verify Data
 
@@ -196,15 +214,18 @@ Example output:
   tripadvisor: 666
 
 === Issues by department/status ===
-  engineering (active): 13
-  food_beverage (active): 20
-  front_office (active): 48
-  guest_relations (active): 72
-  housekeeping (active): 71
-  management (active): 15
+  engineering (active): 8
+  food_beverage (active): 5
+  front_office (active): 6
+  guest_relations (active): 4
+  housekeeping (active): 9
+  management (active): 3
 
-=== Evidence links: 1385 ===
+=== Evidence links: 1500+ ===
 ```
+
+Issue counts are now small (tens, not hundreds): detection consolidates synonymous complaints into one
+Issue each, so the same problem no longer fragments. Exact numbers depend on the fixtures and the LLM.
 
 ## 6. Main UI Routes
 
@@ -227,9 +248,11 @@ Recommended demo flow:
 
 Notes about current behavior:
 
-- Issues are created dynamically from semantically similar negative/mixed review sentences or a single critical review.
+- Issues are created by LLM extraction + dynamic consolidation over negative/mixed reviews. Detection
+  is a full rebuild; manual state (resolved/assignee) is preserved across runs by the issue's stable key.
+- Issues with a single supporting review appear as **emerging** candidates, not active Issues.
+- Emerging candidates are precomputed during detection and served instantly (no realtime ML on page load).
 - Resolution is manual only.
-- Recurrence is automatic when a new matching sentence arrives after resolution.
 - The old `/tickets` workflow is intentionally removed.
 
 ## 7. Full Docker Run
@@ -300,9 +323,9 @@ This removes operational demo data such as detected Issues, issue events, issue-
 
 `POST /issues/detect` returns `503`
 
-- the embedding model is unavailable locally
-- run `npm run api:download-models` to download all required models
-- `npm run api:install:nlp` installs only the Python packages, not the model weights
+- no LLM provider is configured for Issue detection
+- set `GEMINI_API_KEY` in `apps/api/.env`, or run with `LLM_PROVIDER=stub` for an offline run
+- with `LLM_PROVIDER=gemini` but no key, the provider reports unavailable (hence the 503)
 
 API ingestion fails with model/runtime errors
 
@@ -316,71 +339,81 @@ npm run api:install:nlp
 npm run api:download-models
 ```
 
-## 9. Secondary Workflow: Generate New Review Fixtures with Ollama
+## 9. Generate Review Fixtures with Ollama
 
-This is not the main teammate workflow. Use it only when you intentionally want new generated review corpora.
+Fixture generation runs a **local** Ollama model (free, offline) outside the product runtime. The
+generator is driven by a specific-incident scenario library in
+`apps/api/app/connector_fixture_generator.py` — each generated review is about a concrete incident
+(room/floor/item/amount/time), which is what makes detected Issues specific and pinpointed. The local
+model just phrases the incident naturally; the facts come from the scenario, so even a small model
+produces specific reviews.
 
-Ollama is used only for fixture generation outside the product runtime.
+> Generating 2000 reviews calls the model once per review, so a full run takes a while (tens of
+> minutes). It is free. Detection afterwards needs an LLM provider (§2).
 
-### 9.1 Check Ollama
+### 9.1 Prerequisites
 
 ```bash
-ollama list
+ollama pull llama3.1     # or any chat model; pass it via --model
+ollama list              # confirm it is available
 ```
 
-Examples:
+### 9.2 Regenerate both committed sets (recommended)
 
-- `dolphin-llama3:latest`
-- `llama3.1:latest`
-
-### 9.2 Generate a new dolphin dataset
-
-When `--output-dir` is omitted, the script creates
-`apps/api/data/generated-fixtures/connectors-<model>-<timestamp>` automatically:
+This overwrites `connectors-dolphin` and `connectors-llama` in place, each with 1000 reviews and its
+own ID namespace, then validates there are no ID collisions:
 
 ```bash
-python3 apps/api/scripts/generate_connector_fixtures.py \
-  --total-reviews 1000 \
-  --model dolphin-llama3:latest \
-  --seed 202607
+npm run api:generate:all
 ```
 
-### 9.3 Generate a new llama dataset with namespaced IDs
+Or generate one set at a time:
 
 ```bash
-python3 apps/api/scripts/generate_connector_fixtures.py \
-  --total-reviews 1000 \
+npm run api:generate:dolphin
+npm run api:generate:llama
+```
+
+Both default to `--model llama3.1:latest` with different seeds so the two sets differ. Edit the
+`api:generate:*` scripts in `package.json` to change the model, review count, or seed.
+
+### 9.3 Custom runs
+
+Call the generator directly for ad-hoc datasets. With `--output-dir` omitted it writes to
+`apps/api/data/generated-fixtures/connectors-<model>-<timestamp>`:
+
+```bash
+cd apps/api && .venv/bin/python scripts/generate_connector_fixtures.py \
+  --total-reviews 500 \
   --model llama3.1:latest \
-  --seed 202607 \
-  --id-namespace llama
+  --id-namespace experiment \
+  --output-dir data/generated-fixtures/connectors-experiment
 ```
 
-To write to a specific location (e.g. outside the repo):
+Then validate and import:
 
 ```bash
-python3 apps/api/scripts/generate_connector_fixtures.py \
-  --total-reviews 1000 \
-  --model llama3.1:latest \
-  --seed 202607 \
-  --id-namespace llama \
-  --output-dir /tmp/guest-review-fixtures-llama
+.venv/bin/python scripts/validate_fixture_identity.py \
+  data/generated-fixtures/connectors-dolphin \
+  data/generated-fixtures/connectors-llama
+sh scripts/import_fixture_set.sh data/generated-fixtures/connectors-experiment
 ```
 
-### 9.4 Validate before importing
+### 9.4 Tune Issue prompts cheaply
+
+Before a full detection run, dry-run the extract + consolidate passes on a small sample (no DB writes,
+prints the resulting Issues + descriptions):
 
 ```bash
-python3 apps/api/scripts/validate_fixture_identity.py \
-  /tmp/guest-review-fixtures-dolphin \
-  /tmp/guest-review-fixtures-llama
+cd apps/api && .venv/bin/python scripts/test_issue_subset.py --topic "air condition" --limit 30
 ```
 
-### 9.5 Import generated datasets
-
-Use `npm run api:import:dolphin` and `npm run api:import:llama`, or point the
-helper script directly at your new directory:
+### 9.5 Full refresh end to end
 
 ```bash
-sh apps/api/scripts/import_fixture_set.sh apps/api/data/generated-fixtures/connectors-mynewset-20260705-143022
+npm run api:generate:all      # regenerate fixtures (Ollama; slow, free)
+npm run api:import:all         # wipe + import + detect (needs GEMINI_API_KEY)
+npm run api:verify             # review/issue counts
 ```
 
 ## 10. Canonical Supporting Docs

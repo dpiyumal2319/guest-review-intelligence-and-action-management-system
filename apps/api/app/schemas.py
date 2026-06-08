@@ -206,6 +206,7 @@ class DetectedIssueCompactResponse(BaseModel):
 
     id: int
     title: str
+    description: str | None = None
     department_code: str
     status: str
     priority: str
@@ -228,6 +229,7 @@ class DetectedIssueDetailResponse(BaseModel):
 
     id: int
     title: str
+    description: str | None = None
     department_code: str
     status: str
     priority: str

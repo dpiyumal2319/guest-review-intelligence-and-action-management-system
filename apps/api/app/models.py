@@ -219,6 +219,7 @@ class DetectedIssue(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
