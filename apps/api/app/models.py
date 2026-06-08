@@ -219,6 +219,7 @@ class DetectedIssue(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text)
     department_code: Mapped[str] = mapped_column(
         String(64),
         ForeignKey("departments.code", ondelete="RESTRICT"),
@@ -239,6 +240,9 @@ class DetectedIssue(Base):
     title_generated_by: Mapped[str] = mapped_column(String(32), nullable=False)
     title_generation_model: Mapped[str | None] = mapped_column(String(120))
     title_confidence: Mapped[float | None] = mapped_column(Float)
+    keywords: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    title_quality_score: Mapped[float | None] = mapped_column(Float)
+    merged_from_id: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

@@ -20,13 +20,16 @@ except Exception:
     print("API not available, running detection in-process ...")
     from app.database import SessionLocal
     from app.issue_detection import detect_issues
-    from app.semantic_similarity import get_semantic_similarity_analyzer
+    from app.llm_client import get_llm_client
 
-    runtime = get_semantic_similarity_analyzer()
-    if not runtime.is_available():
-        print("ERROR: Embedding model is not available. Run npm run api:download-models first.")
+    client = get_llm_client()
+    if not client.is_available():
+        print("ERROR: No LLM provider configured. Set GEMINI_API_KEY or LLM_PROVIDER=stub.")
         sys.exit(1)
 
     with SessionLocal() as session:
         result = detect_issues(session, force=True)
-        print(f"In-process detection: Created {result['created']}, Updated {result['updated']}, Linked {result['linked']}")
+        print(
+            f"In-process detection ({client.provider_name}): Created {result['created']}, "
+            f"Emerging {result.get('emerging', 0)}, Linked {result['linked']}"
+        )

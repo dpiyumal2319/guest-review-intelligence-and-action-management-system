@@ -11,7 +11,7 @@ from app.analysis_runtime import AnalysisRuntimeUnavailableError
 from app.connectors.registry import CONNECTORS
 from app.database import get_session
 from app.ingestion import run_mock_connector_by_key
-from app.issue_detection import detect_issues, get_emerging_candidates, resolve_issue
+from app.issue_detection import detect_issues, list_emerging_candidates, resolve_issue
 from app.models import (
     DemoRole,
     Department,
@@ -340,6 +340,9 @@ async def list_issues(
     query = select(DetectedIssue)
     if status is not None:
         query = query.where(DetectedIssue.status == status)
+    else:
+        # Emerging issues are low-confidence candidates surfaced via /issues/emerging only.
+        query = query.where(DetectedIssue.status != "emerging")
     if department_code is not None:
         query = query.where(DetectedIssue.department_code == department_code)
     if priority is not None:
@@ -375,7 +378,7 @@ async def list_issues(
 async def emerging_issues(
     session: Session = Depends(get_session),
 ) -> list[IssueEmergingResponse]:
-    candidates = get_emerging_candidates(session)
+    candidates = list_emerging_candidates(session)
     return candidates
 
 
@@ -384,13 +387,16 @@ async def detect_issues_endpoint(
     force: bool = Query(default=False),
     session: Session = Depends(get_session),
 ) -> IssueDetectResponse:
-    from app.semantic_similarity import get_semantic_similarity_analyzer
+    from app.llm_client import get_llm_client
 
-    similarity_runtime = get_semantic_similarity_analyzer()
-    if not similarity_runtime.is_available():
+    client = get_llm_client()
+    if not client.is_available():
         raise HTTPException(
             status_code=503,
-            detail="Embedding model is not available. Issue detection requires a working embedding model.",
+            detail=(
+                "LLM provider is not configured. Set GEMINI_API_KEY (LLM_PROVIDER=gemini) "
+                "or LLM_PROVIDER=stub for an offline run."
+            ),
         )
 
     result = detect_issues(session, force=force)
@@ -405,6 +411,7 @@ async def detect_issues_endpoint(
         created=result["created"],
         updated=result["updated"],
         linked=result["linked"],
+        merged=result.get("merged", 0),
         issues=issues,
     )
 

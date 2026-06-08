@@ -206,6 +206,7 @@ class DetectedIssueCompactResponse(BaseModel):
 
     id: int
     title: str
+    description: str | None = None
     department_code: str
     status: str
     priority: str
@@ -216,6 +217,9 @@ class DetectedIssueCompactResponse(BaseModel):
     resolved_at: datetime | None
     recurred_at: datetime | None
     assignee_name: str | None
+    keywords: list[str] = []
+    title_quality_score: float | None = None
+    merged_from_id: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -225,6 +229,7 @@ class DetectedIssueDetailResponse(BaseModel):
 
     id: int
     title: str
+    description: str | None = None
     department_code: str
     status: str
     priority: str
@@ -241,6 +246,9 @@ class DetectedIssueDetailResponse(BaseModel):
     title_generated_by: str
     title_generation_model: str | None
     title_confidence: float | None
+    keywords: list[str] = []
+    title_quality_score: float | None = None
+    merged_from_id: int | None = None
     created_at: datetime
     updated_at: datetime
     review_links: list[IssueReviewLinkResponse] = []
@@ -270,6 +278,7 @@ class IssueDetectResponse(BaseModel):
     created: int
     updated: int
     linked: int
+    merged: int = 0
     issues: list[DetectedIssueCompactResponse]
 
 

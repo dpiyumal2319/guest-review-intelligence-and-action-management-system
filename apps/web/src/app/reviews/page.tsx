@@ -173,7 +173,7 @@ function ReviewsContent() {
                                   {review.analysis.sentiment_label}
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">\u2014</span>
+                                <span className="text-xs text-muted-foreground">{"\u2014"}</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -182,7 +182,7 @@ function ReviewsContent() {
                                   {review.analysis.reputation_risk_label} ({review.analysis.reputation_risk_score})
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">\u2014</span>
+                                <span className="text-xs text-muted-foreground">{"\u2014"}</span>
                               )}
                             </TableCell>
                             <TableCell className="text-xs">
@@ -198,7 +198,7 @@ function ReviewsContent() {
                                   </Badge>
                                 ))}
                                 {review.issue_links.length === 0 && (
-                                  <span className="text-xs text-muted-foreground">\u2014</span>
+                                  <span className="text-xs text-muted-foreground">{"\u2014"}</span>
                                 )}
                               </div>
                             </TableCell>

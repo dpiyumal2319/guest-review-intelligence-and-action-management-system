@@ -74,6 +74,10 @@ function IssueDetailSheet({
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
 
+        {issue.description && (
+          <p className="text-sm mb-4 leading-relaxed">{issue.description}</p>
+        )}
+
         <div className="flex flex-wrap gap-2 mb-4">
           <Badge variant={statusBadgeVariant(issue.status)}>{issue.status}</Badge>
           <Badge variant={riskBadgeVariant(issue.reputation_risk_score)}>
@@ -82,6 +86,16 @@ function IssueDetailSheet({
           <Badge variant="outline">Priority: {issue.priority}</Badge>
           <Badge variant="outline">Recurrence: {issue.recurrence_count}x</Badge>
         </div>
+
+        {issue.keywords && issue.keywords.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {issue.keywords.map((kw) => (
+              <Badge key={kw} variant="secondary" className="text-xs font-normal">
+                {kw}
+              </Badge>
+            ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
           <div>
@@ -319,8 +333,13 @@ function IssuesContent() {
                               className="cursor-pointer hover:bg-muted/50"
                               onClick={() => loadIssueDetail(issue.id)}
                             >
-                              <TableCell className="font-medium text-sm max-w-48 truncate">
-                                {issue.title}
+                              <TableCell className="text-sm max-w-72">
+                                <div className="font-medium truncate">{issue.title}</div>
+                                {issue.description && (
+                                  <div className="text-xs text-muted-foreground line-clamp-2">
+                                    {issue.description}
+                                  </div>
+                                )}
                               </TableCell>
                               <TableCell className="text-sm">
                                 {departmentNameByCode[issue.department_code] ?? issue.department_code}

@@ -1,16 +1,22 @@
-"""Behavior tests for issue detection pipeline.
+"""Behavior tests for the LLM-driven issue detection pipeline.
 
-These tests verify externally observable detection behaviour.
-They require a running PostgreSQL database configured via DATABASE_URL.
+These run against a PostgreSQL test database and use the deterministic offline ``stub`` LLM
+provider (no network), so they assert the pipeline's structural behaviour rather than model
+quality:
 
-Tests are isolated in a dedicated test database. This module only cleans up
-rows created through its own prefixed fixtures.
+* synonymous complaints consolidate into ONE issue,
+* a materially distinct incident (pest/hygiene) stays its own issue,
+* a single supporting review becomes an ``emerging`` candidate (not ``active``),
+* manual state (resolved) survives a rebuild via the stable cluster_key.
+
+Detection is a full rebuild, so tests query the issues linked to their own seeded reviews
+rather than global counts.
 """
 
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
 import pytest
+import sqlalchemy as sa
 
 from app.database import SessionLocal
 from app.models import (
@@ -21,50 +27,26 @@ from app.models import (
     NormalizedReview,
     RawReview,
     ReviewAnalysis,
-    ReviewSource,
 )
-from app.issue_detection import (
-    SINGLE_CRITICAL_RISK_THRESHOLD,
-    detect_issues,
-    resolve_issue,
-)
-from app.semantic_similarity import (
-    get_semantic_similarity_analyzer,
-)
+from app.issue_detection import detect_issues, resolve_issue
+from app import llm_client
 
 
 _TEST_PREFIX = "test-z-"
 
 
-class _DeterministicDepartmentClassifier:
-    def classify(self, text: str):
-        lowered = text.lower()
-        if any(term in lowered for term in ["air conditioner", "room temperature", "hot"]):
-            department_code = "engineering"
-        elif any(term in lowered for term in ["bathroom", "mold", "dirty", "cleaned", "floor"]):
-            department_code = "housekeeping"
-        elif any(term in lowered for term in ["reservation", "charged", "refund"]):
-            department_code = "front_office"
-        else:
-            department_code = "guest_relations"
-        return [SimpleNamespace(department_code=department_code, confidence=0.99)]
-
-    def classify_batch(self, texts: list[str]):
-        return [self.classify(t) for t in texts]
-
-
 @pytest.fixture(autouse=True)
-def _deterministic_sentence_classifier(monkeypatch):
-    monkeypatch.setattr(
-        "app.issue_detection.get_department_classifier",
-        lambda: _DeterministicDepartmentClassifier(),
-    )
+def _use_stub_provider(monkeypatch):
+    monkeypatch.setenv("LLM_PROVIDER", "stub")
+    llm_client.reset_llm_client_cache()
+    yield
+    llm_client.reset_llm_client_cache()
 
 
 def _db_available() -> bool:
     try:
         session = SessionLocal()
-        session.execute(__import__('sqlalchemy').text("SELECT 1"))
+        session.execute(sa.text("SELECT 1"))
         session.close()
         return True
     except Exception:
@@ -77,16 +59,16 @@ def _require_db():
         pytest.skip("PostgreSQL database not available")
 
 
-@pytest.fixture(autouse=True, scope="module")
-def _cleanup_prefixed_test_data():
-    if not _db_available():
-        yield
-        return
-
+@pytest.fixture(autouse=True)
+def _cleanup():
     session = SessionLocal()
     try:
         _cleanup_test_data(session)
-        yield
+    finally:
+        session.close()
+    yield
+    session = SessionLocal()
+    try:
         _cleanup_test_data(session)
     finally:
         session.close()
@@ -97,31 +79,18 @@ def _cleanup_test_data(session):
         NormalizedReview.external_review_id.like(f"{_TEST_PREFIX}%")
     ).all()]
 
-    linked_issue_ids: list[int] = []
+    issue_ids: list[int] = []
     if test_review_ids:
-        linked_issue_ids = [r[0] for r in session.query(IssueReviewLink.issue_id).filter(
+        issue_ids = [r[0] for r in session.query(IssueReviewLink.issue_id).filter(
             IssueReviewLink.review_id.in_(test_review_ids)
         ).all()]
 
-    if linked_issue_ids:
-        session.query(IssueEvent).filter(
-            IssueEvent.issue_id.in_(linked_issue_ids)
-        ).delete(synchronize_session=False)
-
+    if issue_ids:
+        session.query(IssueEvent).filter(IssueEvent.issue_id.in_(issue_ids)).delete(synchronize_session=False)
+        session.query(IssueReviewLink).filter(IssueReviewLink.issue_id.in_(issue_ids)).delete(synchronize_session=False)
+        session.query(DetectedIssue).filter(DetectedIssue.id.in_(issue_ids)).delete(synchronize_session=False)
     if test_review_ids:
-        session.query(IssueReviewLink).filter(
-            IssueReviewLink.review_id.in_(test_review_ids)
-        ).delete(synchronize_session=False)
-
-    if linked_issue_ids:
-        session.query(DetectedIssue).filter(
-            DetectedIssue.id.in_(linked_issue_ids)
-        ).delete(synchronize_session=False)
-
-    if test_review_ids:
-        session.query(ReviewAnalysis).filter(
-            ReviewAnalysis.review_id.in_(test_review_ids)
-        ).delete(synchronize_session=False)
+        session.query(ReviewAnalysis).filter(ReviewAnalysis.review_id.in_(test_review_ids)).delete(synchronize_session=False)
         session.query(NormalizedReview).filter(
             NormalizedReview.external_review_id.like(f"{_TEST_PREFIX}%")
         ).delete(synchronize_session=False)
@@ -149,65 +118,47 @@ def _ensure_ingestion_run(session) -> int:
     return run.id
 
 
-def _seed_review(
-    session,
-    *,
-    external_review_id: str,
-    title: str,
-    body: str,
-    rating: float,
-    sentiment_label: str,
-    sentiment_score: float,
-    department_code: str,
-    reputation_risk_score: int,
-    embedding: list[float] | None = None,
-) -> NormalizedReview:
+def _seed_review(session, *, suffix: str, body: str, risk: int = 60) -> NormalizedReview:
     now = datetime.now(UTC)
-
+    external = f"{_TEST_PREFIX}{suffix}"
     raw = RawReview(
         source_code="google_business_profile",
-        external_review_id=external_review_id,
+        external_review_id=external,
         ingestion_run_id=_ensure_ingestion_run(session),
         raw_payload={"test": True},
-        payload_hash=external_review_id,
+        payload_hash=external,
         ingested_at=now,
     )
     session.add(raw)
     session.flush()
-
     review = NormalizedReview(
         source_code="google_business_profile",
-        external_review_id=external_review_id,
+        external_review_id=external,
         raw_review_id=raw.id,
         reviewer_name="Test Reviewer",
         review_date=now,
-        rating=rating,
+        rating=2.0,
         language="en",
-        title=title,
+        title=None,
         body=body,
-        content_hash=external_review_id,
+        content_hash=external,
         normalized_payload={},
         updated_at=now,
     )
     session.add(review)
     session.flush()
-
     analysis = ReviewAnalysis(
         review_id=review.id,
-        sentiment_label=sentiment_label,
-        sentiment_score=sentiment_score,
+        sentiment_label="negative",
+        sentiment_score=-0.7,
         sentiment_confidence=0.9,
-        department_code=department_code,
+        department_code="guest_relations",
         department_confidence=0.8,
         department_model_name="test",
-        reputation_risk_score=reputation_risk_score,
-        reputation_risk_label=(
-            "critical" if reputation_risk_score >= 75
-            else "high" if reputation_risk_score >= 50
-            else "low"
-        ),
-        embedding=embedding,
-        embedding_model_name="test",
+        reputation_risk_score=risk,
+        reputation_risk_label="high" if risk >= 50 else "low",
+        embedding=None,
+        embedding_model_name=None,
         embedding_generated_at=now,
         analysis_version="test-v3",
         explanation_factors={},
@@ -219,304 +170,107 @@ def _seed_review(
     return review
 
 
-def _get_embedding(text: str) -> list[float]:
-    runtime = get_semantic_similarity_analyzer()
-    if not runtime.is_available():
-        pytest.skip("Embedding model not available")
-    result = runtime.embed_batch([text])
-    if result.embeddings:
-        return result.embeddings[0]
-    return []
+def _issues_for(session, review_ids: list[int]) -> list[DetectedIssue]:
+    issue_ids = {
+        r[0]
+        for r in session.query(IssueReviewLink.issue_id).filter(
+            IssueReviewLink.review_id.in_(review_ids)
+        ).all()
+    }
+    return [session.get(DetectedIssue, i) for i in issue_ids]
 
 
-class TestThresholdPromotion:
-    """Two similar reviews in the same department within 30 days should create an Issue."""
-
-    def test_two_similar_reviews_create_issue(self):
+class TestConsolidation:
+    def test_synonymous_complaints_form_one_issue(self):
         session = SessionLocal()
         try:
-            text_a = "The air conditioner was broken and the room was very hot."
-            text_b = "The air conditioner was broken and my room was extremely hot."
-            emb_a = _get_embedding(text_a)
-            emb_b = _get_embedding(text_b)
-            assert emb_a and emb_b
-
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}threshold-a",
-                title=f"{_TEST_PREFIX}AC not cooling",
-                body=text_a,
-                rating=2.0,
-                sentiment_label="negative",
-                sentiment_score=-0.7,
-                department_code="engineering",
-                reputation_risk_score=60,
-                embedding=emb_a,
-            )
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}threshold-b",
-                title=f"{_TEST_PREFIX}AC broken",
-                body=text_b,
-                rating=1.0,
-                sentiment_label="negative",
-                sentiment_score=-0.8,
-                department_code="engineering",
-                reputation_risk_score=70,
-                embedding=emb_b,
-            )
+            ids = [
+                _seed_review(session, suffix="ac-1", body="The air conditioning in room 412 did not cool, it stayed hot all night.").id,
+                _seed_review(session, suffix="ac-2", body="AC in room 905 never got cold, the room would not cool down.").id,
+                _seed_review(session, suffix="ac-3", body="Air conditioning broken in room 220, it was too hot and would not cool.").id,
+            ]
             session.commit()
 
-            result = detect_issues(session, force=True)
-            assert result["created"] >= 1
-        finally:
-            _cleanup_test_data(session)
-            session.close()
+            detect_issues(session, force=True)
 
-
-class TestSingleCriticalReview:
-    """A single review with reputation_risk_score >= 75 should create an Issue."""
-
-    def test_single_critical_review_creates_issue(self):
-        session = SessionLocal()
-        try:
-            text = "The hotel lost our reservation and charged us twice with no refund for three weeks."
-            emb = _get_embedding(text)
-            assert emb
-
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}critical-solo",
-                title=f"{_TEST_PREFIX}Double charged",
-                body=text,
-                rating=1.0,
-                sentiment_label="negative",
-                sentiment_score=-0.95,
-                department_code="front_office",
-                reputation_risk_score=80,
-                embedding=emb,
-            )
-            session.commit()
-
-            result = detect_issues(session, force=True)
-            assert result["created"] >= 1
-        finally:
-            _cleanup_test_data(session)
-            session.close()
-
-
-class TestBelowThresholdNoIssue:
-    """A single non-critical review should not create an Issue."""
-
-    def test_single_low_risk_review_no_issue(self):
-        session = SessionLocal()
-        try:
-            text = "The hotel was fine, nothing special."
-            emb = _get_embedding(text)
-            assert emb
-
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}lowrisk-solo",
-                title=f"{_TEST_PREFIX}Fine stay",
-                body=text,
-                rating=3.0,
-                sentiment_label="mixed",
-                sentiment_score=0.1,
-                department_code="guest_relations",
-                reputation_risk_score=20,
-                embedding=emb,
-            )
-            session.commit()
-
-            result = detect_issues(session, force=True)
-            assert result["created"] == 0
-        finally:
-            _cleanup_test_data(session)
-            session.close()
-
-
-class TestPerDepartmentBoundary:
-    """Reviews in different departments should not be clustered together."""
-
-    def test_different_departments_do_not_cluster(self):
-        session = SessionLocal()
-        try:
-            text_ac = "The air conditioner was broken and the room was very hot."
-            text_room = "The bathroom was dirty and the floor was not cleaned."
-            emb_ac = _get_embedding(text_ac)
-            emb_room = _get_embedding(text_room)
-            assert emb_ac and emb_room
-
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}dept-boundary-a",
-                title=f"{_TEST_PREFIX}AC broken",
-                body=text_ac,
-                rating=2.0,
-                sentiment_label="negative",
-                sentiment_score=-0.6,
-                department_code="engineering",
-                reputation_risk_score=55,
-                embedding=emb_ac,
-            )
-            _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}dept-boundary-b",
-                title=f"{_TEST_PREFIX}Dirty bathroom",
-                body=text_room,
-                rating=2.0,
-                sentiment_label="negative",
-                sentiment_score=-0.6,
-                department_code="housekeeping",
-                reputation_risk_score=55,
-                embedding=emb_room,
-            )
-            session.commit()
-
-            issues_before = session.query(DetectedIssue).count()
-            result = detect_issues(session, force=True)
-            issues_after = session.query(DetectedIssue).count()
-
-            assert result["created"] == 0
-            assert issues_after == issues_before
-        finally:
-            _cleanup_test_data(session)
-            session.close()
-
-
-class TestResolvedIssueRecurrence:
-    """A resolved Issue should re-open when a new matching review arrives."""
-
-    def test_resolved_issue_reopens_on_matching_review(self):
-        session = SessionLocal()
-        try:
-            text_a = "The air conditioner was broken and the room was very hot."
-            text_b = "The air conditioner was broken and my room was extremely hot."
-            emb_a = _get_embedding(text_a)
-            emb_b = _get_embedding(text_b)
-            assert emb_a and emb_b
-
-            r1 = _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}recur-a",
-                title=f"{_TEST_PREFIX}AC noisy",
-                body=text_a,
-                rating=2.0,
-                sentiment_label="negative",
-                sentiment_score=-0.65,
-                department_code="engineering",
-                reputation_risk_score=62,
-                embedding=emb_a,
-            )
-            r2 = _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}recur-b",
-                title=f"{_TEST_PREFIX}AC still broken",
-                body=text_b,
-                rating=1.0,
-                sentiment_label="negative",
-                sentiment_score=-0.80,
-                department_code="engineering",
-                reputation_risk_score=78,
-                embedding=emb_b,
-            )
-            session.commit()
-
-            result = detect_issues(session, force=True)
-            assert result["created"] >= 1
-
-            issues = session.query(DetectedIssue).all()
-            assert len(issues) >= 1
+            issues = _issues_for(session, ids)
+            assert len(issues) == 1
             issue = issues[0]
+            assert issue.department_code == "engineering"
+            assert issue.status == "active"
+            assert issue.recurrence_count == 3
+            assert issue.description  # description was generated
+        finally:
+            _cleanup_test_data(session)
+            session.close()
+
+
+class TestSpecificIncidentStaysSeparate:
+    def test_pest_incident_not_folded_into_other_issue(self):
+        session = SessionLocal()
+        try:
+            ac_ids = [
+                _seed_review(session, suffix="s-ac-1", body="The air conditioning in room 301 did not cool the room at all.").id,
+                _seed_review(session, suffix="s-ac-2", body="AC would not cool in room 808, far too hot to sleep.").id,
+            ]
+            pest_ids = [
+                _seed_review(session, suffix="s-bug-1", body="There was a cockroach in the pancakes at breakfast, disgusting.").id,
+                _seed_review(session, suffix="s-bug-2", body="Found an insect crawling in the food at the buffet.").id,
+            ]
+            session.commit()
+
+            detect_issues(session, force=True)
+
+            ac_issues = _issues_for(session, ac_ids)
+            pest_issues = _issues_for(session, pest_ids)
+            assert len(ac_issues) == 1
+            assert len(pest_issues) == 1
+            assert ac_issues[0].id != pest_issues[0].id
+            assert ac_issues[0].department_code == "engineering"
+            assert pest_issues[0].department_code == "housekeeping"
+        finally:
+            _cleanup_test_data(session)
+            session.close()
+
+
+class TestEmergingSingleton:
+    def test_single_review_is_emerging_not_active(self):
+        session = SessionLocal()
+        try:
+            rid = _seed_review(session, suffix="solo-ac", body="The air conditioning in room 117 did not cool at all.").id
+            session.commit()
+
+            result = detect_issues(session, force=True)
+
+            issues = _issues_for(session, [rid])
+            assert len(issues) == 1
+            assert issues[0].status == "emerging"
+            assert result.get("emerging", 0) >= 1
+        finally:
+            _cleanup_test_data(session)
+            session.close()
+
+
+class TestResolvedStatePreserved:
+    def test_resolved_issue_stays_resolved_after_rebuild(self):
+        session = SessionLocal()
+        try:
+            ids = [
+                _seed_review(session, suffix="r-ac-1", body="The air conditioning in room 410 did not cool, stayed hot.").id,
+                _seed_review(session, suffix="r-ac-2", body="AC in room 511 would not cool down at all.").id,
+            ]
+            session.commit()
+
+            detect_issues(session, force=True)
+            issue = _issues_for(session, ids)[0]
             assert issue.status == "active"
 
             resolve_issue(session, issue.id)
             session.commit()
-            session.refresh(issue)
-            assert issue.status == "resolved"
 
-            text_c = "The air conditioner was broken and the room temperature was unbearable."
-            emb_c = _get_embedding(text_c)
-            assert emb_c
-
-            r3 = _seed_review(
-                session,
-                external_review_id=f"{_TEST_PREFIX}recur-c",
-                title=f"{_TEST_PREFIX}AC broken again",
-                body=text_c,
-                rating=1.0,
-                sentiment_label="negative",
-                sentiment_score=-0.85,
-                department_code="engineering",
-                reputation_risk_score=82,
-                embedding=emb_c,
-            )
-            session.commit()
-
-            result2 = detect_issues(session, force=True)
-            session.commit()
-            session.refresh(issue)
-
-            assert issue.status == "recurred"
-        finally:
-            _cleanup_test_data(session)
-            session.close()
-
-
-class TestCrossDepartmentSentenceLinking:
-    """A review with sentences in different departments should link to
-    multiple Issues across departments."""
-
-    def test_multi_sentence_review_links_multiple_issues(self):
-        session = SessionLocal()
-        try:
-            eng_text_a = "The air conditioner was broken and the room was very hot."
-            eng_text_b = "The air conditioner was broken and my room was extremely hot."
-            hk_text_a = "The bathroom was not cleaned and there was mold in the shower."
-            hk_text_b = "The bathroom was dirty with mold in the shower area."
-
-            eng_emb_a = _get_embedding(eng_text_a)
-            eng_emb_b = _get_embedding(eng_text_b)
-            hk_emb_a = _get_embedding(hk_text_a)
-            hk_emb_b = _get_embedding(hk_text_b)
-
-            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-eng-a", title=f"{_TEST_PREFIX}AC broken a", body=eng_text_a, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=eng_emb_a)
-            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-eng-b", title=f"{_TEST_PREFIX}AC broken b", body=eng_text_b, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=eng_emb_b)
-            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-hk-a", title=f"{_TEST_PREFIX}Bathroom dirty a", body=hk_text_a, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="housekeeping", reputation_risk_score=62, embedding=hk_emb_a)
-            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-hk-b", title=f"{_TEST_PREFIX}Bathroom dirty b", body=hk_text_b, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="housekeeping", reputation_risk_score=62, embedding=hk_emb_b)
-            session.commit()
-
-            result1 = detect_issues(session, force=True)
-            assert result1["created"] >= 2
-
-            issues_before = session.query(DetectedIssue).count()
-
-            multi_text = "The air conditioner was broken and my room was extremely hot. The bathroom was dirty with mold in the shower area."
-            multi_emb = _get_embedding(multi_text)
-
-            _seed_review(session, external_review_id=f"{_TEST_PREFIX}xdept-multi", title=f"{_TEST_PREFIX}AC and bathroom", body=multi_text, rating=2.0, sentiment_label="negative", sentiment_score=-0.6, department_code="engineering", reputation_risk_score=62, embedding=multi_emb)
-            session.commit()
-
-            result2 = detect_issues(session, force=True)
-            session.commit()
-
-            multi_review = session.query(NormalizedReview).filter(
-                NormalizedReview.external_review_id == f"{_TEST_PREFIX}xdept-multi"
-            ).first()
-            assert multi_review is not None
-
-            links = session.query(IssueReviewLink).filter(
-                IssueReviewLink.review_id == multi_review.id
-            ).all()
-
-            linked_depts: set[str] = set()
-            for l in links:
-                issue = session.get(DetectedIssue, l.issue_id)
-                if issue is not None:
-                    linked_depts.add(issue.department_code)
-
-            assert {"engineering", "housekeeping"}.issubset(linked_depts)
+            detect_issues(session, force=True)
+            rebuilt = _issues_for(session, ids)[0]
+            assert rebuilt.status == "resolved"
         finally:
             _cleanup_test_data(session)
             session.close()
