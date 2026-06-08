@@ -7,6 +7,14 @@ import { SiteHeader } from "@/components/site-header"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   Table,
   TableBody,
@@ -201,6 +209,28 @@ function IssuesContent() {
   const page = parseInt(searchParams.get("page") ?? "1", 10)
   const perPage = 25
 
+  const filterStatus = searchParams.get("status") ?? ""
+  const filterDepartment = searchParams.get("department") ?? ""
+  const filterPriority = searchParams.get("priority") ?? ""
+  const filterMinRisk = searchParams.get("min_risk") ?? ""
+
+  function pushFilter(key: string, value: string) {
+    const params = new URLSearchParams(searchParams.toString())
+    if (value) {
+      params.set(key, value)
+    } else {
+      params.delete(key)
+    }
+    params.set("page", "1")
+    router.push(`?${params.toString()}`)
+  }
+
+  function clearFilters() {
+    router.push("?")
+  }
+
+  const hasActiveFilters = filterStatus || filterDepartment || filterPriority || filterMinRisk
+
   const loadConfig = useCallback(async () => {
     const res = await fetch(`${apiBaseUrl}/config`)
     if (!res.ok) return
@@ -212,8 +242,14 @@ function IssuesContent() {
     setIsLoading(true)
     setError(null)
     try {
+      const qs = new URLSearchParams({ page: String(page), per_page: String(perPage) })
+      if (filterStatus) qs.set("status", filterStatus)
+      if (filterDepartment) qs.set("department_code", filterDepartment)
+      if (filterPriority) qs.set("priority", filterPriority)
+      if (filterMinRisk) qs.set("min_risk", filterMinRisk)
+
       const [issuesRes, emergingRes] = await Promise.all([
-        fetch(`${apiBaseUrl}/issues?page=${page}&per_page=${perPage}`),
+        fetch(`${apiBaseUrl}/issues?${qs.toString()}`),
         fetch(`${apiBaseUrl}/issues/emerging`),
       ])
       if (!issuesRes.ok) throw new Error("Failed to load issues")
@@ -229,7 +265,7 @@ function IssuesContent() {
     } finally {
       setIsLoading(false)
     }
-  }, [page])
+  }, [page, filterStatus, filterDepartment, filterPriority, filterMinRisk])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadData() }, [loadData])
@@ -276,6 +312,63 @@ function IssuesContent() {
                 </div>
               )}
             </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={filterStatus || "all"} onValueChange={(v) => pushFilter("status", !v || v === "all" ? "" : v)}>
+              <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectValue placeholder="Status" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All statuses</SelectItem>
+                <SelectItem value="active">Active</SelectItem>
+                <SelectItem value="recurred">Recurred</SelectItem>
+                <SelectItem value="resolved">Resolved</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <Select value={filterDepartment || "all"} onValueChange={(v) => pushFilter("department", !v || v === "all" ? "" : v)}>
+              <SelectTrigger className="h-8 w-40 text-xs">
+                <SelectValue placeholder="Department" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All departments</SelectItem>
+                {departments.map((d) => (
+                  <SelectItem key={d.code} value={d.code}>{d.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Select value={filterPriority || "all"} onValueChange={(v) => pushFilter("priority", !v || v === "all" ? "" : v)}>
+              <SelectTrigger className="h-8 w-36 text-xs">
+                <SelectValue placeholder="Priority" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All priorities</SelectItem>
+                <SelectItem value="urgent">Urgent</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="low">Low</SelectItem>
+              </SelectContent>
+            </Select>
+
+            <div className="relative">
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                placeholder="Min risk score"
+                value={filterMinRisk}
+                onChange={(e) => pushFilter("min_risk", e.target.value)}
+                className="h-8 w-36 text-xs"
+              />
+            </div>
+
+            {hasActiveFilters && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs" onClick={clearFilters}>
+                Clear filters
+              </Button>
+            )}
           </div>
 
           <Tabs value={activeTab} onValueChange={setActiveTab}>
