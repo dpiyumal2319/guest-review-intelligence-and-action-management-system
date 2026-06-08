@@ -36,9 +36,10 @@ from app.models import (
 )
 from app.semantic_similarity import compute_centroid
 from app.llm_client import (
-    TASK_CONSOLIDATE,
+    TASK_ASSIGN,
     TASK_DESCRIBE,
     TASK_EXTRACT,
+    TASK_TAXONOMY,
     LLMClient,
     get_llm_client,
 )
@@ -56,7 +57,10 @@ VALID_DEPARTMENTS = {
 }
 DEFAULT_DEPARTMENT = "guest_relations"
 
-CONSOLIDATION_CHUNK_SIZE = 120
+# Pass B consolidation: how many of the most-frequent labels seed the taxonomy, and how many
+# labels are assigned to it per LLM call.
+TAXONOMY_MAX_LABELS = 800
+ASSIGN_BATCH_SIZE = 100
 
 
 def _env_int(name: str, default: int) -> int:
@@ -202,129 +206,122 @@ def _extract_prompt(payload: list[dict]) -> str:
 # ============================================================================================
 # Pass B - consolidation
 # ============================================================================================
-_CONSOLIDATE_SYSTEM = (
-    "You group hotel complaint labels into canonical operational issue types. You MERGE labels "
-    "that describe the same root problem (e.g. 'AC not cooling', 'air con takes forever', 'room "
-    "stayed hot' -> one issue). You KEEP SEPARATE any severe or materially distinct incident "
-    "(pest/hygiene like insects in food, theft or billing fraud, safety hazards) - never fold "
-    "those into a generic bucket. Each canonical title is specific and actionable."
+#
+# Done in two compact LLM steps so it scales to thousands of labels without the model having to
+# echo every member back (which truncates JSON and silently fragments the result):
+#   1. discover a small canonical taxonomy (titles only) from the unique complaint labels;
+#   2. assign each label to a taxonomy entry by index (or -1 = its own unique incident).
+_TAXONOMY_SYSTEM = (
+    "You define a concise catalog of canonical hotel operational issue types from raw complaint "
+    "labels. You MERGE labels describing the same root problem into one type, but you KEEP SEPARATE "
+    "severe or materially distinct incidents (insects/hair in food, theft, billing fraud, safety "
+    "hazards). Each type title is specific and actionable."
+)
+_ASSIGN_SYSTEM = (
+    "You assign each hotel complaint label to the single best-matching canonical issue type from a "
+    "numbered catalog, or -1 if none genuinely fits."
 )
 
 
-def _consolidate_problems(client: LLMClient, mentions: list[dict]) -> dict[tuple[str, str], tuple[str, str]]:
-    # Unique summaries with a department vote. Extraction (full review context) is the most
-    # reliable signal for department, so we keep these votes and let them decide the canonical
-    # issue's department later - not the consolidation step, which only sees short labels.
+def _consolidate_problems(
+    client: LLMClient, mentions: list[dict]
+) -> dict[str, tuple[str, str]]:
+    # Department votes from extraction (full review context = most reliable department signal).
     dept_votes: dict[str, Counter] = {}
     for m in mentions:
         dept_votes.setdefault(m["summary"].strip(), Counter())[m["department_code"]] += 1
-    summary_dept = {summary.lower(): votes.most_common(1)[0][0] for summary, votes in dept_votes.items()}
-    unique = [
-        {"summary": summary, "department_code": votes.most_common(1)[0][0]}
-        for summary, votes in dept_votes.items()
-    ]
+    summary_dept = {s.lower(): v.most_common(1)[0][0] for s, v in dept_votes.items()}
 
-    canonical_types = _consolidate_in_chunks(client, unique)
+    # Unique summaries, most frequent first (so the taxonomy prompt sees the common ones).
+    freq: Counter = Counter(m["summary"].strip() for m in mentions)
+    unique = [s for s, _ in freq.most_common()]
 
-    # Map each original summary (lowercased) -> (department, canonical_title). The department is
-    # the majority extraction-vote across the type's members (falls back to the model's label).
+    taxonomy = _discover_taxonomy(client, unique[:TAXONOMY_MAX_LABELS])
+    assignment = _assign_to_taxonomy(client, unique, taxonomy)
+
     summary_to_canonical: dict[str, tuple[str, str]] = {}
-    for ctype in canonical_types:
-        title = str(ctype.get("canonical_title", "")).strip()[:200]
-        if not title:
-            continue
-        members = [str(m).strip() for m in (ctype.get("member_summaries", []) or [])]
-        member_votes = Counter(
-            summary_dept[m.lower()] for m in members if m.lower() in summary_dept
-        )
-        dept = (
-            member_votes.most_common(1)[0][0]
-            if member_votes
-            else _normalize_department(ctype.get("department_code"))
-        )
-        for member in members:
-            summary_to_canonical[member.lower()] = (dept, title)
+    for summary in unique:
+        key = summary.lower()
+        idx = assignment.get(key)
+        if idx is not None and 0 <= idx < len(taxonomy):
+            dept, title = taxonomy[idx]["department_code"], taxonomy[idx]["title"]
+        else:
+            # No matching type -> keep it as its own (a genuinely unique/specific incident).
+            dept, title = summary_dept.get(key, DEFAULT_DEPARTMENT), summary[:200]
+        summary_to_canonical[key] = (dept, title)
 
-    # Any summary the model dropped becomes its own canonical type (no data loss).
-    for item in unique:
-        key = item["summary"].strip().lower()
-        if key not in summary_to_canonical:
-            summary_to_canonical[key] = (item["department_code"], item["summary"].strip()[:200])
+    # Set each canonical type's department from the majority extraction vote of its members.
+    members_by_title: dict[str, list[str]] = {}
+    for key, (_dept, title) in summary_to_canonical.items():
+        members_by_title.setdefault(title, []).append(key)
+    dept_by_title: dict[str, str] = {}
+    for title, keys in members_by_title.items():
+        votes = Counter(summary_dept[k] for k in keys if k in summary_dept)
+        if votes:
+            dept_by_title[title] = votes.most_common(1)[0][0]
+    for key, (dept, title) in list(summary_to_canonical.items()):
+        summary_to_canonical[key] = (dept_by_title.get(title, dept), title)
 
     return summary_to_canonical
 
 
-def _consolidate_in_chunks(client: LLMClient, unique: list[dict]) -> list[dict]:
-    chunks = [
-        unique[i : i + CONSOLIDATION_CHUNK_SIZE]
-        for i in range(0, len(unique), CONSOLIDATION_CHUNK_SIZE)
-    ] or [[]]
-    collected: list[dict] = []
-    for chunk in chunks:
-        collected.extend(_consolidate_call(client, chunk))
-    if len(chunks) > 1 and collected:
-        # Second pass merges canonical titles produced across chunks.
-        merge_input = [
-            {"summary": c["canonical_title"], "department_code": _normalize_department(c.get("department_code"))}
-            for c in collected
-            if c.get("canonical_title")
-        ]
-        merged = _consolidate_call(client, merge_input)
-        # Re-expand: map first-pass member summaries through the merged titles.
-        title_to_merged: dict[str, dict] = {}
-        for m in merged:
-            for member in m.get("member_summaries", []) or []:
-                title_to_merged[str(member).strip().lower()] = m
-        remapped: dict[tuple[str, str], dict] = {}
-        for c in collected:
-            outer = title_to_merged.get(str(c.get("canonical_title", "")).strip().lower())
-            if outer is None:
-                target_title = c["canonical_title"]
-                target_dept = _normalize_department(c.get("department_code"))
-            else:
-                target_title = outer["canonical_title"]
-                target_dept = _normalize_department(outer.get("department_code"))
-            bucket = remapped.setdefault((target_dept, target_title), {
-                "canonical_title": target_title,
-                "department_code": target_dept,
-                "member_summaries": [],
-            })
-            bucket["member_summaries"].extend(c.get("member_summaries", []) or [])
-        return list(remapped.values())
-    return collected
-
-
-def _consolidate_call(client: LLMClient, items: list[dict]) -> list[dict]:
-    if not items:
+def _discover_taxonomy(client: LLMClient, labels: list[str]) -> list[dict]:
+    if not labels:
         return []
-    prompt = _consolidate_prompt(items)
-    try:
-        result = client.generate_json(
-            system=_CONSOLIDATE_SYSTEM, user=prompt, task=TASK_CONSOLIDATE,
-            payload=[i["summary"] for i in items],
-        )
-    except Exception:  # noqa: BLE001 - degrade to one-type-per-label rather than abort
-        return [
-            {"canonical_title": i["summary"][:200], "department_code": i["department_code"], "member_summaries": [i["summary"]]}
-            for i in items
-        ]
-    return (result or {}).get("types", []) or []
-
-
-def _consolidate_prompt(items: list[dict]) -> str:
-    labels_block = "\n".join(f'- ({i["department_code"]}) {i["summary"]}' for i in items)
-    return (
-        "Group these hotel complaint labels into canonical operational issue types.\n\n"
+    prompt = (
+        "Build a concise catalog of canonical operational issue types covering these guest complaint labels.\n\n"
         "Rules:\n"
         "- Merge labels describing the same root problem into ONE type.\n"
-        "- Keep severe/distinct incidents (insects or hair in food, theft, billing fraud, safety) as their own type.\n"
-        "- `canonical_title` = a specific, actionable issue title (e.g. 'Air conditioning fails to cool guest rooms').\n"
-        "- `member_summaries` MUST list the exact input labels you assigned to that type.\n"
-        "- Every input label must appear in exactly one type.\n\n"
-        "Return ONLY JSON of this shape:\n"
-        '{"types":[{"canonical_title":"...","department_code":"engineering","member_summaries":["label a","label b"]}]}\n\n'
-        f"Labels:\n{labels_block}"
+        "- Keep severe/distinct incidents (insects/hair in food, theft, billing fraud, safety) as their own type.\n"
+        "- Each `canonical_title` is specific and actionable (e.g. 'Air conditioning fails to cool guest rooms').\n"
+        "- Aim for the smallest catalog that stays specific (typically 25-70 types).\n\n"
+        'Return ONLY JSON: {"types":[{"canonical_title":"...","department_code":"engineering"}]}\n\n'
+        "Labels:\n" + "\n".join(f"- {label}" for label in labels)
     )
+    try:
+        result = client.generate_json(system=_TAXONOMY_SYSTEM, user=prompt, task=TASK_TAXONOMY, payload=labels)
+    except Exception:  # noqa: BLE001 - fall back to one-type-per-label below if discovery fails
+        result = None
+    taxonomy: list[dict] = []
+    for t in (result or {}).get("types", []) or []:
+        title = str(t.get("canonical_title", "")).strip()[:200]
+        if title:
+            taxonomy.append({"title": title, "department_code": _normalize_department(t.get("department_code"))})
+    return taxonomy
+
+
+def _assign_to_taxonomy(
+    client: LLMClient, summaries: list[str], taxonomy: list[dict]
+) -> dict[str, int | None]:
+    assignment: dict[str, int | None] = {}
+    if not taxonomy:
+        return assignment
+    titles = [t["title"] for t in taxonomy]
+    catalog = "\n".join(f"{i}: {title}" for i, title in enumerate(titles))
+    for start in range(0, len(summaries), ASSIGN_BATCH_SIZE):
+        batch = summaries[start : start + ASSIGN_BATCH_SIZE]
+        labels_block = "\n".join(f"{i}: {s}" for i, s in enumerate(batch))
+        prompt = (
+            "Assign each complaint label to the best-matching canonical type by number, or -1 if none truly fits.\n\n"
+            f"Canonical types:\n{catalog}\n\n"
+            f"Labels:\n{labels_block}\n\n"
+            'Return ONLY JSON: {"assignments":[{"s":0,"t":3}]}  (s = label number, t = type number or -1)'
+        )
+        try:
+            result = client.generate_json(
+                system=_ASSIGN_SYSTEM, user=prompt, task=TASK_ASSIGN,
+                payload={"summaries": batch, "taxonomy_titles": titles},
+            )
+        except Exception:  # noqa: BLE001 - unassigned labels become their own type
+            result = None
+        for a in (result or {}).get("assignments", []) or []:
+            try:
+                s, t = int(a["s"]), int(a["t"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            if 0 <= s < len(batch):
+                assignment[batch[s].lower()] = t if t >= 0 else None
+    return assignment
 
 
 # ============================================================================================
@@ -345,7 +342,13 @@ def _build_issues(client: LLMClient, groups: dict[tuple[str, str], dict], review
         if not reviews:
             continue
         evidence = [s for s in group["evidence"] if s][:12]
-        description = _describe_issue(client, title, evidence, len(reviews))
+        # Only spend an LLM call describing real (active) issues; single-review emerging
+        # candidates don't warrant one (and there can be many of them).
+        description = (
+            _describe_issue(client, title, evidence, len(reviews))
+            if len(reviews) >= MIN_EVIDENCE_FOR_PROMOTION
+            else None
+        )
         built.append({
             "department_code": dept,
             "title": title,
@@ -399,9 +402,9 @@ def _replace_issue_set(session: Session, built: list[dict], client: LLMClient) -
         cluster_key = _canonical_cluster_key(item["department_code"], item["title"])
         risk_scores = [r.analysis.reputation_risk_score for r in reviews if r.analysis is not None]
         max_risk = max(risk_scores) if risk_scores else 0
-        centroid = compute_centroid(
+        centroid = _safe_centroid(
             [r.analysis.embedding for r in reviews if r.analysis is not None and r.analysis.embedding]
-        ) or []
+        )
         embedding_model_name = next(
             (r.analysis.embedding_model_name for r in reviews if r.analysis is not None and r.analysis.embedding_model_name),
             "none",
@@ -571,6 +574,22 @@ def _priority_from_risk(risk_score: int) -> str:
     if risk_score >= 30:
         return "medium"
     return "low"
+
+
+def _safe_centroid(embeddings: list[list[float]]) -> list[float]:
+    """Average embeddings into a centroid, tolerating stray mismatched dimensions.
+
+    Embeddings should all share one dimension, but a single malformed/short vector must not break
+    the whole detection run (compute_centroid indexes by the first vector's length). We keep only
+    vectors of the most common length.
+    """
+    vectors = [v for v in embeddings if v]
+    if not vectors:
+        return []
+    lengths = Counter(len(v) for v in vectors)
+    target_len = lengths.most_common(1)[0][0]
+    consistent = [v for v in vectors if len(v) == target_len]
+    return compute_centroid(consistent) if consistent else []
 
 
 def _canonical_cluster_key(department_code: str, title: str) -> str:

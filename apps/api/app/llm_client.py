@@ -38,6 +38,8 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 # decide what deterministic shape to return.
 TASK_EXTRACT = "extract"
 TASK_CONSOLIDATE = "consolidate"
+TASK_TAXONOMY = "taxonomy"
+TASK_ASSIGN = "assign"
 TASK_DESCRIBE = "describe"
 
 
@@ -85,6 +87,9 @@ class _GeminiProvider:
             system_instruction=system or None,
             response_mime_type="application/json",
             temperature=0.2,
+            # Allow large structured responses (assignment/extraction batches) so JSON does not
+            # truncate mid-array, which would fail parsing.
+            max_output_tokens=16384,
             # Disable "thinking" - those tokens bill as output on 2.5 Flash. Extraction /
             # consolidation are structured tasks that don't need it, so keep cost predictable.
             thinking_config=types.ThinkingConfig(thinking_budget=0),
@@ -140,6 +145,10 @@ class _StubProvider:
             return self._extract(payload)
         if task == TASK_CONSOLIDATE:
             return self._consolidate(payload)
+        if task == TASK_TAXONOMY:
+            return self._taxonomy(payload)
+        if task == TASK_ASSIGN:
+            return self._assign(payload)
         if task == TASK_DESCRIBE:
             return self._describe(payload)
         return {}
@@ -177,6 +186,26 @@ class _StubProvider:
             for (dept, canonical), members in groups.items()
         ]
         return {"types": types_out}
+
+    def _taxonomy(self, payload: Any) -> dict:
+        # payload = list of summary strings. Build the unique (dept, canonical) buckets.
+        seen: dict[tuple[str, str], None] = {}
+        for summary in payload or []:
+            match = self._classify(summary) or ("guest_relations", str(summary)[:60] or "General guest concern")
+            seen.setdefault((match[0], match[1]), None)
+        return {"types": [{"canonical_title": title, "department_code": dept} for (dept, title) in seen]}
+
+    def _assign(self, payload: Any) -> dict:
+        # payload = {"summaries": [...], "taxonomy_titles": [...]}.
+        summaries = (payload or {}).get("summaries", [])
+        titles = (payload or {}).get("taxonomy_titles", [])
+        index_by_title = {t: i for i, t in enumerate(titles)}
+        assignments = []
+        for i, summary in enumerate(summaries):
+            match = self._classify(summary)
+            t = index_by_title.get(match[1], -1) if match else -1
+            assignments.append({"s": i, "t": t})
+        return {"assignments": assignments}
 
     def _describe(self, payload: Any) -> dict:
         title = payload.get("title", "Issue")
