@@ -7,13 +7,13 @@
   "date_window_end": "2026-06-05T23:59:59+00:00",
   "date_window_start": "2025-06-05T00:00:00+00:00",
   "files": {
-    "booking_com": "apps/api/data/generated-fixtures/connectors-dolphin/booking_com.json",
-    "google_business_profile": "apps/api/data/generated-fixtures/connectors-dolphin/google_business_profile.json",
-    "tripadvisor": "apps/api/data/generated-fixtures/connectors-dolphin/tripadvisor.json"
+    "booking_com": "data/generated-fixtures/connectors-dolphin/booking_com.json",
+    "google_business_profile": "data/generated-fixtures/connectors-dolphin/google_business_profile.json",
+    "tripadvisor": "data/generated-fixtures/connectors-dolphin/tripadvisor.json"
   },
-  "generated_at": "2026-06-07T22:28:32.578182+00:00",
+  "generated_at": "2026-06-08T16:37:29.964077+00:00",
   "id_namespace": "dolphin",
-  "model": "dolphin-llama3:latest",
+  "model": "llama3.1:latest",
   "ollama_url": "http://127.0.0.1:11434/api/generate",
   "product_runtime": "not used; generation is a local data-preparation step",
   "total_reviews": 1000

@@ -85,6 +85,9 @@ class _GeminiProvider:
             system_instruction=system or None,
             response_mime_type="application/json",
             temperature=0.2,
+            # Disable "thinking" - those tokens bill as output on 2.5 Flash. Extraction /
+            # consolidation are structured tasks that don't need it, so keep cost predictable.
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         )
         last_exc: Exception | None = None
         for attempt in range(max_retries):
