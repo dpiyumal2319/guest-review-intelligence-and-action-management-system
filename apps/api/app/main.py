@@ -41,7 +41,7 @@ from app.schemas import (
     IngestionRunsResponse,
     IngestionSourceStatusesResponse,
     IssueDetectResponse,
-    IssueEmergingResponse,
+    IssueEmergingListResponse,
     IssueUpdateRequest,
     IssuesResponse,
     OverviewActionAnalyticsResponse,
@@ -374,12 +374,14 @@ async def list_issues(
     )
 
 
-@app.get("/issues/emerging", tags=["issues"], response_model=list[IssueEmergingResponse])
+@app.get("/issues/emerging", tags=["issues"], response_model=IssueEmergingListResponse)
 async def emerging_issues(
+    all: bool = Query(default=False),
     session: Session = Depends(get_session),
-) -> list[IssueEmergingResponse]:
-    candidates = list_emerging_candidates(session)
-    return candidates
+) -> IssueEmergingListResponse:
+    return list_emerging_candidates(
+        session, high_risk_only=not all, limit=None if all else 50
+    )
 
 
 @app.post("/issues/detect", tags=["issues"], response_model=IssueDetectResponse)
@@ -425,7 +427,9 @@ async def get_issue(
         select(DetectedIssue)
         .where(DetectedIssue.id == issue_id)
         .options(
-            selectinload(DetectedIssue.review_links),
+            selectinload(DetectedIssue.review_links)
+            .selectinload(IssueReviewLink.review)
+            .selectinload(NormalizedReview.source),
             selectinload(DetectedIssue.events),
         )
     )

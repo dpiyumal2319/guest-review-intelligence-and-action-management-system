@@ -113,6 +113,14 @@ class IssueReviewLinkResponse(BaseModel):
     linked_at: datetime
     is_triggering_evidence: bool
     evidence_snippet: str | None = None
+    review_source_code: str | None = None
+    review_source_name: str | None = None
+    review_external_id: str | None = None
+    review_reviewer_name: str | None = None
+    review_date: datetime | None = None
+    review_rating: float | None = None
+    review_body: str | None = None
+    review_url: str | None = None
 
 
 class ReviewResponse(BaseModel):
@@ -264,14 +272,24 @@ class IssuesResponse(BaseModel):
 
 
 class IssueEmergingResponse(BaseModel):
+    id: int
+    title: str
     department_code: str
-    review_count: int
-    avg_similarity: float | None
-    risk_scores: list[int]
+    priority: str
+    reputation_risk_score: int
+    recurrence_count: int
     representative_snippet: str
-    review_ids: list[int]
+    review_id: int | None
+    source_code: str | None
+    keywords: list[str] = []
     first_seen_at: datetime
     last_seen_at: datetime
+
+
+class IssueEmergingListResponse(BaseModel):
+    items: list[IssueEmergingResponse]
+    total_high_risk: int
+    total_emerging: int
 
 
 class IssueDetectResponse(BaseModel):

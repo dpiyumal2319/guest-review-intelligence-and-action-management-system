@@ -25,6 +25,14 @@ export type IssueReviewLink = {
   linked_at: string
   is_triggering_evidence: boolean
   evidence_snippet: string | null
+  review_source_code: string | null
+  review_source_name: string | null
+  review_external_id: string | null
+  review_reviewer_name: string | null
+  review_date: string | null
+  review_rating: number | null
+  review_body: string | null
+  review_url: string | null
 }
 
 export type Review = {
@@ -157,14 +165,24 @@ export type IssuesResponse = {
 }
 
 export type IssueEmerging = {
+  id: number
+  title: string
   department_code: string
-  review_count: number
-  avg_similarity: number | null
-  risk_scores: number[]
+  priority: string
+  reputation_risk_score: number
+  recurrence_count: number
   representative_snippet: string
-  review_ids: number[]
+  review_id: number | null
+  source_code: string | null
+  keywords: string[]
   first_seen_at: string
   last_seen_at: string
+}
+
+export type IssueEmergingList = {
+  items: IssueEmerging[]
+  total_high_risk: number
+  total_emerging: number
 }
 
 export type IssueDetectResponse = {

@@ -3,8 +3,19 @@
 import { useCallback, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 
-export const DEFAULT_DATE_FROM = "2025-06-05"
-export const DEFAULT_DATE_TO = "2026-06-05"
+function toYmd(date: Date): string {
+  const month = String(date.getMonth() + 1).padStart(2, "0")
+  const day = String(date.getDate()).padStart(2, "0")
+  return `${date.getFullYear()}-${month}-${day}`
+}
+
+// Rolling window: default to the last year (one year ago .. today). This keeps the newest reviews
+// (including the re-stamped real crawled reviews) always in view without hardcoding a fixed range.
+const ONE_YEAR_AGO = new Date()
+ONE_YEAR_AGO.setFullYear(ONE_YEAR_AGO.getFullYear() - 1)
+
+export const DEFAULT_DATE_FROM = toYmd(ONE_YEAR_AGO)
+export const DEFAULT_DATE_TO = toYmd(new Date())
 
 export type DashboardFilters = {
   source_code: string

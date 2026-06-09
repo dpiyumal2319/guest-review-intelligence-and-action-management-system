@@ -283,6 +283,52 @@ class IssueReviewLink(Base):
     issue: Mapped[DetectedIssue] = relationship(back_populates="review_links")
     review: Mapped[NormalizedReview] = relationship(back_populates="issue_links")
 
+    # --- Convenience views of the linked review, surfaced on the issue detail API so the UI can
+    #     show who/where/when and link to the full (and, when real, the original) review. ---
+    @property
+    def review_source_code(self) -> str | None:
+        return self.review.source_code if self.review is not None else None
+
+    @property
+    def review_source_name(self) -> str | None:
+        review = self.review
+        if review is None or review.source is None:
+            return None
+        return review.source.name
+
+    @property
+    def review_external_id(self) -> str | None:
+        return self.review.display_external_review_id if self.review is not None else None
+
+    @property
+    def review_reviewer_name(self) -> str | None:
+        return self.review.display_reviewer_name if self.review is not None else None
+
+    @property
+    def review_date(self) -> datetime | None:
+        return self.review.review_date if self.review is not None else None
+
+    @property
+    def review_rating(self) -> float | None:
+        return self.review.rating if self.review is not None else None
+
+    @property
+    def review_body(self) -> str | None:
+        return self.review.display_body if self.review is not None else None
+
+    @property
+    def review_url(self) -> str | None:
+        """Original review URL, only for real crawled reviews (synthetic URLs are fabricated)."""
+        review = self.review
+        if review is None:
+            return None
+        external_id = review.external_review_id or ""
+        if external_id.startswith("dolphin-") or external_id.startswith("llama-"):
+            return None
+        payload = review.normalized_payload or {}
+        url = payload.get("provider_url")
+        return url if isinstance(url, str) and url.startswith("http") else None
+
 
 class IssueEvent(Base):
     __tablename__ = "issue_events"

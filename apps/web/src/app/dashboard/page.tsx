@@ -30,6 +30,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDemoRole } from "@/hooks/use-demo-role"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
+import { getPlatformMeta } from "@/lib/platform-meta"
 import type {
   DashboardDrillThrough,
   Department,
@@ -69,9 +70,6 @@ const ownerConfig: ChartConfig = {
   high_risk_issues: { label: "High Risk Issues", color: "#ef4444" },
 }
 
-const platformConfig: ChartConfig = {
-  high_risk_reviews: { label: "High Risk Reviews", color: "#ef4444" },
-}
 
 const PRIORITY_FILL: Record<string, string> = {
   urgent: "#ef4444",
@@ -311,14 +309,19 @@ function DashboardContent() {
   const platformChartData = useMemo(() => {
     if (!analytics?.platform_risk_spread) return []
     return analytics.platform_risk_spread.map((item) => ({
+      source_code: item.source_code,
       name: sourceNameByCode[item.source_code] ?? item.source_code,
       high_risk_reviews: item.high_risk_reviews,
       drill_through: item.drill_through,
     }))
   }, [analytics, sourceNameByCode])
 
+  const maxPlatformRisk = useMemo(
+    () => Math.max(...platformChartData.map((d) => d.high_risk_reviews), 1),
+    [platformChartData]
+  )
+
   const ownerChartHeight = Math.max(200, ownerChartData.length * 56)
-  const platformChartHeight = Math.max(140, platformChartData.length * 52)
 
   // ── Counted KPI values ───────────────────────────────────────────────────
   const countActiveIssues   = useCountUp(kpis?.active_issues ?? 0)
@@ -725,39 +728,44 @@ function DashboardContent() {
                         {platformChartData.length === 0 ? (
                           <p className="text-sm text-muted-foreground">No platform data</p>
                         ) : (
-                          <ChartContainer
-                            config={platformConfig}
-                            className="aspect-auto w-full"
-                            style={{ height: platformChartHeight }}
-                          >
-                            <BarChart
-                              data={platformChartData}
-                              layout="vertical"
-                              margin={{ top: 0, right: 12, bottom: 0, left: 0 }}
-                            >
-                              <YAxis
-                                type="category"
-                                dataKey="name"
-                                width={140}
-                                tick={{ fontSize: 11 }}
-                                tickLine={false}
-                                axisLine={false}
-                              />
-                              <XAxis type="number" hide />
-                              <ChartTooltip content={<ChartTooltipContent />} />
-                              <Bar
-                                dataKey="high_risk_reviews"
-                                fill="var(--color-high_risk_reviews)"
-                                radius={[0, 4, 4, 0]}
-                                cursor="pointer"
-                                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                                onClick={(entry: any) => {
-                                  if (entry?.drill_through)
-                                    drillTo(router, entry.drill_through)
-                                }}
-                              />
-                            </BarChart>
-                          </ChartContainer>
+                          <div className="space-y-3 py-1">
+                            {platformChartData.map((item) => {
+                              const meta = getPlatformMeta(item.source_code)
+                              const pct = (item.high_risk_reviews / maxPlatformRisk) * 100
+                              return (
+                                <button
+                                  key={item.source_code}
+                                  className="flex w-full items-center gap-3 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                  onClick={() => drillTo(router, item.drill_through)}
+                                >
+                                  <div className="flex w-36 shrink-0 items-center gap-2">
+                                    {meta?.logo ? (
+                                      <img
+                                        src={meta.logo}
+                                        alt={item.name}
+                                        className="size-5 shrink-0 object-contain"
+                                      />
+                                    ) : (
+                                      <div className="size-5 shrink-0 rounded-sm bg-muted" />
+                                    )}
+                                    <span className="truncate text-xs">{item.name}</span>
+                                  </div>
+                                  <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                                    <div
+                                      className="absolute inset-y-0 left-0 rounded-full transition-all duration-500"
+                                      style={{
+                                        width: `${pct}%`,
+                                        backgroundColor: meta?.colorVar ?? "var(--destructive)",
+                                      }}
+                                    />
+                                  </div>
+                                  <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums">
+                                    {item.high_risk_reviews}
+                                  </span>
+                                </button>
+                              )
+                            })}
+                          </div>
                         )}
                       </CardContent>
                     </Card>

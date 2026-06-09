@@ -104,6 +104,10 @@
     --chart-4: oklch(0.60 0.09 152);
     --chart-5: oklch(0.45 0.035 265);
     --radius: 0.625rem;
+    /* Platform brand colors */
+    --platform-google: oklch(0.56 0.19 264);
+    --platform-booking: oklch(0.27 0.12 264);
+    --platform-tripadvisor: oklch(0.63 0.17 161);
     --sidebar: oklch(0.975 0.006 88);
     --sidebar-foreground: oklch(0.25 0.012 65);
     --sidebar-primary: oklch(0.47 0.085 72);
@@ -137,6 +141,10 @@
     --chart-3: oklch(0.70 0.15 42);
     --chart-4: oklch(0.72 0.12 152);
     --chart-5: oklch(0.66 0.06 265);
+    /* Platform brand colors (lightened for dark backgrounds) */
+    --platform-google: oklch(0.72 0.17 264);
+    --platform-booking: oklch(0.63 0.17 264);
+    --platform-tripadvisor: oklch(0.78 0.18 161);
     --sidebar: oklch(0.16 0.008 62);
     --sidebar-foreground: oklch(0.95 0.006 90);
     --sidebar-primary: oklch(0.74 0.11 78);

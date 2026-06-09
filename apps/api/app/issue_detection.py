@@ -24,7 +24,7 @@ import json
 import os
 import re
 
-from sqlalchemy import and_, select
+from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -482,40 +482,60 @@ def _replace_issue_set(session: Session, built: list[dict], client: LLMClient) -
 # ============================================================================================
 # Emerging candidates (precomputed -> served from DB)
 # ============================================================================================
-def list_emerging_candidates(session: Session) -> list[dict]:
-    """Return precomputed emerging issues shaped for IssueEmergingResponse."""
-    issues = list(
-        session.scalars(
-            select(DetectedIssue)
-            .where(DetectedIssue.status == "emerging")
-            .order_by(DetectedIssue.reputation_risk_score.desc(), DetectedIssue.last_seen_at.desc())
-        )
+EMERGING_HIGH_RISK_THRESHOLD = 50  # matches the dashboard high-risk rule (reputation_risk_score >= 50)
+
+
+def list_emerging_candidates(
+    session: Session, *, high_risk_only: bool = True, limit: int | None = 50
+) -> dict:
+    """Return precomputed emerging issues (single-review early-warning candidates) ranked by risk.
+
+    Emerging issues carry no description (skipped at detection time), so the representative review
+    quote is surfaced instead. Defaults to the high-risk subset, capped, to keep the view actionable.
+    """
+    query = (
+        select(DetectedIssue)
+        .where(DetectedIssue.status == "emerging")
+        .order_by(DetectedIssue.reputation_risk_score.desc(), DetectedIssue.last_seen_at.desc())
     )
-    candidates: list[dict] = []
+    if high_risk_only:
+        query = query.where(DetectedIssue.reputation_risk_score >= EMERGING_HIGH_RISK_THRESHOLD)
+    if limit is not None:
+        query = query.limit(limit)
+
+    issues = list(session.scalars(query))
+    items: list[dict] = []
     for issue in issues:
-        links = issue.review_links
-        risk_scores = []
-        review_ids = []
-        snippet = issue.description or issue.title
-        for link in links:
-            review_ids.append(link.review_id)
-            if link.review is not None and link.review.analysis is not None:
-                risk_scores.append(link.review.analysis.reputation_risk_score)
-            if link.evidence_snippet and snippet == issue.title:
-                snippet = link.evidence_snippet
-        candidates.append(
+        link = issue.review_links[0] if issue.review_links else None
+        review = link.review if link is not None else None
+        snippet = (link.evidence_snippet if link else None) or (review.body if review else None) or issue.title
+        items.append(
             {
+                "id": issue.id,
+                "title": issue.title,
                 "department_code": issue.department_code,
-                "review_count": issue.recurrence_count,
-                "avg_similarity": None,
-                "risk_scores": risk_scores,
-                "representative_snippet": (snippet or issue.title)[:240],
-                "review_ids": review_ids,
+                "priority": issue.priority,
+                "reputation_risk_score": issue.reputation_risk_score,
+                "recurrence_count": issue.recurrence_count,
+                "representative_snippet": snippet[:240],
+                "review_id": link.review_id if link is not None else None,
+                "source_code": review.source_code if review is not None else None,
+                "keywords": issue.keywords or [],
                 "first_seen_at": issue.first_seen_at,
                 "last_seen_at": issue.last_seen_at,
             }
         )
-    return candidates
+
+    total_emerging = session.scalar(
+        select(func.count(DetectedIssue.id)).where(DetectedIssue.status == "emerging")
+    ) or 0
+    total_high_risk = session.scalar(
+        select(func.count(DetectedIssue.id)).where(
+            DetectedIssue.status == "emerging",
+            DetectedIssue.reputation_risk_score >= EMERGING_HIGH_RISK_THRESHOLD,
+        )
+    ) or 0
+    return {"items": items, "total_high_risk": total_high_risk, "total_emerging": total_emerging}
 
 
 # ============================================================================================

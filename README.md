@@ -190,14 +190,66 @@ validated 2 fixture directories without identity collisions
 npm run api:import:all
 ```
 
-This wipes existing demo data, imports both sets (six connector files), and triggers Issue detection.
-Detection needs an LLM provider configured (§2): `GEMINI_API_KEY` for real quality, or
-`LLM_PROVIDER=stub` for an offline plumbing run. To import one set or detect on its own:
+This wipes existing demo data, imports both synthetic sets **and the real crawled reviews** (§4.4), then
+triggers Issue detection. Detection needs an LLM provider configured (§2): `GEMINI_API_KEY` for real
+quality, or `LLM_PROVIDER=stub` for an offline plumbing run. To import one set or detect on its own:
 
 ```bash
-npm run api:import:dolphin   # or api:import:llama
+npm run api:import:dolphin   # or api:import:llama / api:import:real
 npm run api:detect
 ```
+
+> **Teammates: don't re-ingest.** A full ingestion runs local ML over ~5k reviews and bills a Gemini
+> detection pass. If you only need the demo data, **restore the committed DB snapshot instead** (§4.5).
+
+### 4.4 Real reviews (Google Places + TripAdvisor)
+
+Real crawled reviews live in `apps/api/data/real-reviews/` and are ingested through the existing
+`google_business_profile` and `tripadvisor` connectors — no new connector or subsystem. A one-off
+transform cleans and reshapes them:
+
+```bash
+npm run api:transform:real   # clean + build connector fixtures (run once after dropping new crawl files)
+npm run api:import:real       # ingest via the existing connectors
+```
+
+`api:transform:real` (`apps/api/scripts/transform_real_reviews.py`):
+
+- **Cleans the Google Places file in place**, dropping owner-reply-only and non-English records (the raw
+  crawl files are not needed afterwards). All cleaned text reviews stay in the raw file for reference.
+- Ingests only the **low (≤3★) Google Places reviews** (`GP_FIXTURE_MAX_STARS`). The 4–5★ positives only
+  add dashboard sentiment bulk — already provided by the synthetic fixtures — while each one costs a full
+  local-ML ingestion pass (~6s on a 6 GB GPU). TripAdvisor is already filtered to 1–3★. (Positives also
+  never reach Gemini regardless: Issue detection only sends **negative/mixed** reviews to the LLM.)
+- Re-stamps every real review into the newest date window (just above the synthetic fixtures), so the real
+  reviews surface at the top of detection's candidate cap and the dashboards — highlighting them without
+  any UI change.
+- Writes connector fixtures to `apps/api/data/real-reviews/connectors/{google_business_profile,tripadvisor}.json`
+  (≈939 reviews: ~255 GP + 684 TripAdvisor).
+
+`api:import:all` already runs `api:import:real` as part of the full rebuild; run the two commands above
+directly only when you add or refresh the raw crawl files. The full run raises `ISSUE_MAX_REVIEWS`
+(default `2500`) so the real reviews are processed alongside the synthetic ones rather than evicting them.
+
+### 4.5 Restore the demo database from a snapshot (no re-ingestion)
+
+A versioned, gzipped `pg_dump` of the fully-ingested database is committed under
+`apps/api/data/db-snapshots/`. Restoring it gives you the exact demo data — reviews, analyses, and
+detected Issues — **without re-ingesting or spending any Gemini credits**:
+
+```bash
+docker compose up -d postgres        # ensure the DB is running (§3.1)
+npm run api:db:restore               # restores the newest snapshot in db-snapshots/
+# or: npm run api:db:restore apps/api/data/db-snapshots/guest_reviews_YYYYMMDD.sql.gz
+```
+
+To produce a fresh snapshot after a full ingestion:
+
+```bash
+npm run api:db:dump                  # writes apps/api/data/db-snapshots/guest_reviews_<date>.sql.gz
+```
+
+The dump uses `--clean --if-exists`, so a restore is idempotent on a non-empty database.
 
 ## 5. Verify Data
 

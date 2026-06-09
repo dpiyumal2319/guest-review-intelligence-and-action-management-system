@@ -19,13 +19,14 @@ import {
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { useDashboardFilters } from "@/hooks/use-dashboard-filters"
 import { useDemoRole } from "@/hooks/use-demo-role"
+import { getPlatformMeta } from "@/lib/platform-meta"
 import type { Department, ReviewSource, ReviewsResponse } from "@/lib/api-types"
 import type React from "react"
 
 const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000"
 
 function formatDate(value: string | null) {
-  if (!value) return "\u2014"
+  if (!value) return "—"
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
@@ -164,16 +165,27 @@ function ReviewsContent() {
                               {formatDate(review.review_date)}
                             </TableCell>
                             <TableCell className="text-xs">
-                              {sourceNameByCode[review.source_code] ?? review.source_code}
+                              {(() => {
+                                const meta = getPlatformMeta(review.source_code)
+                                const name = sourceNameByCode[review.source_code] ?? review.source_code
+                                return (
+                                  <span className="flex items-center gap-1.5">
+                                    {meta?.logo && (
+                                      <img src={meta.logo} alt="" className="size-3.5 shrink-0 object-contain" />
+                                    )}
+                                    {name}
+                                  </span>
+                                )
+                              })()}
                             </TableCell>
-                            <TableCell className="text-xs">{review.rating ?? "\u2014"}</TableCell>
+                            <TableCell className="text-xs">{review.rating ?? "—"}</TableCell>
                             <TableCell>
                               {review.analysis ? (
                                 <Badge variant={sentimentVariant(review.analysis.sentiment_label)} className="text-xs">
                                   {review.analysis.sentiment_label}
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">{"\u2014"}</span>
+                                <span className="text-xs text-muted-foreground">{"—"}</span>
                               )}
                             </TableCell>
                             <TableCell>
@@ -182,13 +194,13 @@ function ReviewsContent() {
                                   {review.analysis.reputation_risk_label} ({review.analysis.reputation_risk_score})
                                 </Badge>
                               ) : (
-                                <span className="text-xs text-muted-foreground">{"\u2014"}</span>
+                                <span className="text-xs text-muted-foreground">{"—"}</span>
                               )}
                             </TableCell>
                             <TableCell className="text-xs">
                               {review.analysis
                                 ? (departmentNameByCode[review.analysis.department_code] ?? review.analysis.department_code)
-                                : "\u2014"}
+                                : "—"}
                             </TableCell>
                             <TableCell>
                               <div className="flex flex-wrap gap-1">
@@ -198,13 +210,13 @@ function ReviewsContent() {
                                   </Badge>
                                 ))}
                                 {review.issue_links.length === 0 && (
-                                  <span className="text-xs text-muted-foreground">{"\u2014"}</span>
+                                  <span className="text-xs text-muted-foreground">{"—"}</span>
                                 )}
                               </div>
                             </TableCell>
                             <TableCell className="max-w-64">
                               <p className="text-xs font-medium truncate">
-                                {review.display_title || "\u2014"}
+                                {review.display_title || "—"}
                               </p>
                               <p className="text-xs text-muted-foreground line-clamp-1">
                                 {review.display_body}

@@ -3,6 +3,7 @@
 import { SearchIcon, XIcon } from "lucide-react"
 import { type Department, type ReviewSource, REPUTATION_RISK_LABELS } from "@/lib/api-types"
 import { type DashboardFilters } from "@/hooks/use-dashboard-filters"
+import { getPlatformMeta } from "@/lib/platform-meta"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -107,9 +108,19 @@ export function DashboardFilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value={NONE}>All platforms</SelectItem>
-              {sources.map((s) => (
-                <SelectItem key={s.code} value={s.code}>{s.name}</SelectItem>
-              ))}
+              {sources.map((s) => {
+                const meta = getPlatformMeta(s.code)
+                return (
+                  <SelectItem key={s.code} value={s.code}>
+                    <span className="flex items-center gap-2">
+                      {meta?.logo && (
+                        <img src={meta.logo} alt="" className="size-3.5 shrink-0 object-contain" />
+                      )}
+                      {s.name}
+                    </span>
+                  </SelectItem>
+                )
+              })}
             </SelectContent>
           </Select>
         </div>

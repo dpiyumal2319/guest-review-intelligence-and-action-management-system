@@ -30,6 +30,7 @@ import type {
   Department,
   DetectedIssue,
   IssueEmerging,
+  IssueEmergingList,
   IssuesResponse,
 } from "@/lib/api-types"
 import type React from "react"
@@ -49,7 +50,7 @@ function statusBadgeVariant(status: string): "default" | "secondary" | "destruct
 }
 
 function formatDate(value: string | null) {
-  if (!value) return "\u2014"
+  if (!value) return "—"
   return new Intl.DateTimeFormat("en", {
     month: "short",
     day: "numeric",
@@ -116,15 +117,15 @@ function IssueDetailSheet({
           </div>
           <div>
             <span className="text-muted-foreground">Resolved:</span>{" "}
-            {issue.resolved_at ? formatDate(issue.resolved_at) : "\u2014"}
+            {issue.resolved_at ? formatDate(issue.resolved_at) : "—"}
           </div>
           <div>
             <span className="text-muted-foreground">Recurred:</span>{" "}
-            {issue.recurred_at ? formatDate(issue.recurred_at) : "\u2014"}
+            {issue.recurred_at ? formatDate(issue.recurred_at) : "—"}
           </div>
           <div>
             <span className="text-muted-foreground">Assignee:</span>{" "}
-            {issue.assignee_name ?? "\u2014"}
+            {issue.assignee_name ?? "—"}
           </div>
           <div>
             <span className="text-muted-foreground">Title by:</span>{" "}
@@ -146,22 +147,41 @@ function IssueDetailSheet({
         {issue.review_links.length > 0 && (
           <div className="mb-4">
             <h3 className="text-sm font-semibold mb-2">Linked Reviews ({issue.review_links.length})</h3>
-            <div className="space-y-2 max-h-64 overflow-auto">
+            <div className="space-y-2 max-h-80 overflow-auto">
               {issue.review_links.map((link) => (
-                <div key={link.id} className="rounded border p-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">Review #{link.review_id}</span>
-                    <span className="text-muted-foreground">
-                      Similarity: {(link.similarity_score * 100).toFixed(0)}%
+                <div key={link.id} className="rounded border p-2.5 text-xs">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span className="font-medium">
+                      {link.review_source_name ?? link.review_source_code ?? "Review"}
                     </span>
+                    {link.review_reviewer_name && (
+                      <span className="text-muted-foreground">· {link.review_reviewer_name}</span>
+                    )}
+                    {link.review_rating != null && (
+                      <span className="text-muted-foreground">· ★ {link.review_rating}</span>
+                    )}
+                    {link.review_date && (
+                      <span className="text-muted-foreground">· {formatDate(link.review_date)}</span>
+                    )}
                     {link.is_triggering_evidence && (
                       <Badge variant="secondary" className="text-[10px]">Trigger</Badge>
                     )}
                   </div>
-                  {link.evidence_snippet && (
-                    <p className="mt-1 text-muted-foreground line-clamp-2">
-                      {link.evidence_snippet}
+                  {(link.review_body || link.evidence_snippet) && (
+                    <p className="mt-1.5 leading-relaxed whitespace-pre-line text-muted-foreground">
+                      {link.review_body || link.evidence_snippet}
                     </p>
+                  )}
+                  {link.review_url && (
+                    <a
+                      href={link.review_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="mt-1.5 inline-flex items-center gap-1 font-medium text-primary hover:underline"
+                    >
+                      View original review ↗
+                    </a>
                   )}
                 </div>
               ))}
@@ -201,6 +221,8 @@ function IssuesContent() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [activeIssues, setActiveIssues] = useState<IssuesResponse | null>(null)
   const [emergingIssues, setEmergingIssues] = useState<IssueEmerging[]>([])
+  const [emergingTotals, setEmergingTotals] = useState({ total_high_risk: 0, total_emerging: 0 })
+  const [showAllEmerging, setShowAllEmerging] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [selectedIssue, setSelectedIssue] = useState<DetectedIssue | null>(null)
@@ -250,22 +272,26 @@ function IssuesContent() {
 
       const [issuesRes, emergingRes] = await Promise.all([
         fetch(`${apiBaseUrl}/issues?${qs.toString()}`),
-        fetch(`${apiBaseUrl}/issues/emerging`),
+        fetch(`${apiBaseUrl}/issues/emerging${showAllEmerging ? "?all=true" : ""}`),
       ])
       if (!issuesRes.ok) throw new Error("Failed to load issues")
       const issuesData = await issuesRes.json()
       setActiveIssues(issuesData)
 
       if (emergingRes.ok) {
-        const emergingData = await emergingRes.json()
-        setEmergingIssues(emergingData)
+        const emergingData: IssueEmergingList = await emergingRes.json()
+        setEmergingIssues(emergingData.items)
+        setEmergingTotals({
+          total_high_risk: emergingData.total_high_risk,
+          total_emerging: emergingData.total_emerging,
+        })
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load")
     } finally {
       setIsLoading(false)
     }
-  }, [page, filterStatus, filterDepartment, filterPriority, filterMinRisk])
+  }, [page, filterStatus, filterDepartment, filterPriority, filterMinRisk, showAllEmerging])
 
   useEffect(() => { loadConfig() }, [loadConfig])
   useEffect(() => { loadData() }, [loadData])
@@ -383,9 +409,9 @@ function IssuesContent() {
                 </TabsTrigger>
               <TabsTrigger value="emerging">
                 Emerging
-                {emergingIssues.length > 0 && (
+                {emergingTotals.total_emerging > 0 && (
                   <Badge variant="outline" className="ml-2 text-xs">
-                    {emergingIssues.length}
+                    {emergingTotals.total_emerging}
                   </Badge>
                 )}
               </TabsTrigger>
@@ -455,7 +481,7 @@ function IssuesContent() {
                                 {formatDate(issue.last_seen_at)}
                               </TableCell>
                               <TableCell className="text-sm text-muted-foreground">
-                                {issue.assignee_name ?? "\u2014"}
+                                {issue.assignee_name ?? "—"}
                               </TableCell>
                             </TableRow>
                           ))}
@@ -500,6 +526,26 @@ function IssuesContent() {
             </TabsContent>
 
             <TabsContent value="emerging" className="space-y-4">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                <div>
+                  <p className="text-sm font-medium">Early warning — new one-off problems not yet recurring</p>
+                  <p className="text-xs text-muted-foreground">
+                    {showAllEmerging
+                      ? `Showing all ${emergingTotals.total_emerging} single-review candidates, ranked by risk`
+                      : `Showing top ${emergingIssues.length} of ${emergingTotals.total_high_risk} high-risk · ${emergingTotals.total_emerging} total`}
+                  </p>
+                </div>
+                {emergingTotals.total_emerging > emergingTotals.total_high_risk && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setShowAllEmerging((v) => !v)}
+                  >
+                    {showAllEmerging ? "Show high-risk only" : `Show all ${emergingTotals.total_emerging}`}
+                  </Button>
+                )}
+              </div>
+
               {isLoading ? (
                 <p className="text-sm text-muted-foreground">Loading emerging candidates...</p>
               ) : emergingIssues.length === 0 ? (
@@ -509,46 +555,37 @@ function IssuesContent() {
                   </CardContent>
                 </Card>
               ) : (
-                <Card>
-                  <CardContent className="p-0">
-                    <div className="overflow-x-auto">
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Department</TableHead>
-                            <TableHead className="text-right">Reviews</TableHead>
-                            <TableHead className="text-right">Avg Similarity</TableHead>
-                            <TableHead>Risk Scores</TableHead>
-                            <TableHead>Snippet</TableHead>
-                            <TableHead>Date Range</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {emergingIssues.map((item, idx) => (
-                            <TableRow key={idx}>
-                              <TableCell className="text-sm font-medium">
-                                {departmentNameByCode[item.department_code] ?? item.department_code}
-                              </TableCell>
-                              <TableCell className="text-right text-sm">{item.review_count}</TableCell>
-                              <TableCell className="text-right text-sm">
-                                {item.avg_similarity != null ? (item.avg_similarity * 100).toFixed(0) + "%" : "\u2014"}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {item.risk_scores.join(", ")}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground max-w-64 truncate">
-                                {item.representative_snippet}
-                              </TableCell>
-                              <TableCell className="text-xs text-muted-foreground">
-                                {formatDate(item.first_seen_at)} \u2013 {formatDate(item.last_seen_at)}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  </CardContent>
-                </Card>
+                <div className="space-y-2">
+                  {emergingIssues.map((item) => (
+                    <Card
+                      key={item.id}
+                      className="cursor-pointer transition-colors hover:bg-muted/50"
+                      onClick={() => loadIssueDetail(item.id)}
+                    >
+                      <CardContent className="flex items-start justify-between gap-4 py-3">
+                        <div className="min-w-0 space-y-1">
+                          <div className="font-medium text-sm truncate">{item.title}</div>
+                          <p className="text-xs italic text-muted-foreground line-clamp-2">
+                            &ldquo;{item.representative_snippet}&rdquo;
+                          </p>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                            <span>{departmentNameByCode[item.department_code] ?? item.department_code}</span>
+                            <span>·</span>
+                            <span>{item.source_code ?? "—"}</span>
+                            <span>·</span>
+                            <span>{formatDate(item.last_seen_at)}</span>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                          <Badge variant={riskBadgeVariant(item.reputation_risk_score)} className="text-xs tabular-nums">
+                            risk {item.reputation_risk_score}
+                          </Badge>
+                          <Badge variant="outline" className="text-xs">{item.priority}</Badge>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
               )}
             </TabsContent>
           </Tabs>
