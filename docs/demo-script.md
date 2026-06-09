@@ -6,12 +6,12 @@ This script demonstrates the complete MVP path:
 
 1. start the stack;
 2. migrate and seed reference configuration;
-3. explain source-policy boundaries and review-removal constraints;
+3. explain source-policy boundaries;
 4. generate or import connector-shaped review fixtures;
 5. inspect reviews, search, redaction, and analysis outputs;
-6. discover recurring Reputation Risk issues;
-7. create action tickets manually;
-8. update, resolve, and verify tickets.
+6. trigger LLM-driven issue detection;
+7. review discovered issues and emerging candidates;
+8. resolve an issue and inspect event history.
 
 The script uses local/demo data only.
 
@@ -90,23 +90,22 @@ curl "$API/config"
 What to show:
 
 - review sources are Google Business Profile, Booking.com, and Tripadvisor only;
-- departments are seeded;
-- issue categories are seeded;
-- category-to-department mappings are visible;
-- Reputation Risk thresholds and demo roles are visible.
+- departments are seeded with risk weights and service levels;
+- demo roles are visible (admin, operations_manager, department_head, analyst).
 
 ## 3. Generate Connector Fixtures
 
 For a full demo dataset:
 
 ```bash
-python3 apps/api/scripts/generate_connector_fixtures.py
+npm run api:generate:all
 ```
 
 For a fast smoke dataset:
 
 ```bash
-python3 apps/api/scripts/generate_connector_fixtures.py \
+cd apps/api
+.venv/bin/python scripts/generate_connector_fixtures.py \
   --total-reviews 9 \
   --output-dir /tmp/kingsbury-connector-fixtures
 ```
@@ -114,13 +113,13 @@ python3 apps/api/scripts/generate_connector_fixtures.py \
 What to explain:
 
 - fixture generation is outside the product boundary;
-- generated files are provider-shaped platform payloads;
+- generated files are provider-shaped platform payloads (GBP, Booking.com, TripAdvisor);
 - generated fixtures intentionally contain repeated issue waves;
-- fixtures must not contain precomputed sentiment, category, department, or Reputation Risk labels.
+- fixtures must not contain precomputed sentiment, department, or Reputation Risk labels.
 
 ## 4. Import Review Data Through Connectors
 
-Built-in connector records:
+Built-in connector records (minimal sample):
 
 ```bash
 curl -X POST "$API/ingestion/connectors/google_business_profile"
@@ -136,14 +135,10 @@ curl -X POST "$API/ingestion/connectors/google_business_profile" \
   -d '{"fixture_path":"apps/api/data/generated-fixtures/connectors-dolphin/google_business_profile.json"}'
 ```
 
-Equivalent backend job commands:
+Import all fixtures (wipes data first):
 
 ```bash
-cd apps/api
-python3 -m app.jobs connector google_business_profile
-python3 -m app.jobs connector booking_com
-python3 -m app.jobs connector tripadvisor
-python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors-dolphin/google_business_profile.json
+npm run api:import:all
 ```
 
 Inspect run history:
@@ -156,14 +151,14 @@ curl "$API/ingestion/source-status"
 What to show:
 
 - status;
-- records seen/created/skipped;
+- records seen/created/updated/skipped;
 - duplicate flags;
-- row-level errors if any;
+- error counts;
 - analysis runs immediately after successful review ingestion.
 
 ## 5. Inspect Reviews and Analysis
 
-Default reviews:
+Default reviews (latest 25, one-year rolling date window):
 
 ```bash
 curl "$API/reviews"
@@ -174,176 +169,165 @@ Filter examples:
 ```bash
 curl "$API/reviews?sentiment_label=negative"
 curl "$API/reviews?reputation_risk=high"
-curl "$API/reviews?issue_category_code=cleanliness"
-curl "$API/reviews?department_code=housekeeping"
+curl "$API/reviews?department_code=engineering"
 curl "$API/reviews?search=check-in&department_code=front_office"
+curl "$API/reviews?risk_group=high_or_critical"
+curl "$API/reviews?has_issues=true"
 ```
 
 What to show:
 
 - normalized source platform fields;
-- search works through the shared filter bar in the web UI and through the `search` API query parameter;
-- display-safe review fields, including email/phone redaction metadata when applicable;
-- active analysis;
-- sentiment label and score;
-- issue category predictions;
-- Reputation Risk label and score;
-- department ownership;
-- operational explanation factors.
+- platform attribution (Google / Booking.com / TripAdvisor);
+- display-safe review fields with email/phone redaction metadata;
+- active analysis: sentiment label and score, department, Reputation Risk label and score;
+- issue link badges when reviews are linked to detected issues.
 
 In the web UI, open Reviews and:
 
 - search for `check-in`;
-- filter by platform, department, category, or Reputation Risk;
-- create a ticket manually from a high-risk review.
+- filter by platform, department, sentiment, or Reputation Risk;
+- toggle the "has issues" filter.
 
-## 6. Overview KPIs
+## 6. Trigger Issue Detection
+
+```bash
+curl -X POST "$API/ingestion/connectors/google_business_profile" \
+  -H "Content-Type: application/json" \
+  -d '{"fixture_path":"apps/api/data/generated-fixtures/connectors-dolphin/google_business_profile.json"}'
+
+curl -X POST "http://localhost:8000/issues/detect?force=true"
+```
+
+Or quickly with seed reviews:
+
+```bash
+npm run api:demo
+```
+
+What to explain:
+
+- detection uses an LLM (Gemini by default, or `LLM_PROVIDER=stub` for offline);
+- three passes: extract problems → consolidate taxonomy → assemble issues;
+- issues with ≥2 supporting reviews become active; single-review issues are emerging candidates.
+
+## 7. Review Discovered Issues
+
+Active issues:
+
+```bash
+curl "$API/issues"
+```
+
+Filtered:
+
+```bash
+curl "$API/issues?status=active&department_code=engineering"
+curl "$API/issues?priority=high"
+curl "$API/issues?min_risk=50"
+```
+
+Emerging candidates (single-review, high-risk only by default):
+
+```bash
+curl "$API/issues/emerging"
+curl "$API/issues/emerging?all=true"
+```
+
+Issue detail with linked reviews and event history:
+
+```bash
+curl "$API/issues/1"
+```
+
+What to show:
+
+- issue title and LLM-generated description with concrete specifics;
+- department, status, priority, risk score, recurrence count;
+- keywords extracted from evidence;
+- linked reviews with evidence snippets, platform attribution, and triggering-evidence flags;
+- event history (created, priority_changed, etc.);
+- state preservation across detection rebuilds (resolved issues stay resolved).
+
+In the web UI, open Issues:
+
+- switch between Active Issues and Emerging tabs;
+- click an issue row to open the detail sheet with linked reviews and event history.
+
+## 8. Manage Issue Lifecycle
+
+Update issue assignee and priority:
+
+```bash
+curl -X PATCH "$API/issues/1" \
+  -H "Content-Type: application/json" \
+  -d '{"assignee_name": "Engineering Manager", "priority": "high"}'
+```
+
+Resolve an issue:
+
+```bash
+curl -X PATCH "$API/issues/1/resolve"
+```
+
+Verify the event was recorded:
+
+```bash
+curl "$API/issues/1"
+```
+
+What to show:
+
+- issue events: `created`, `assignee_changed`, `priority_changed`, `resolved`;
+- old/new values;
+- notes and timestamps.
+
+In the web UI, open an issue detail sheet and:
+
+- click "Mark Resolved" to resolve it;
+- observe the status change and event history update.
+
+## 9. Overview KPIs and Dashboard
 
 ```bash
 curl "$API/overview/kpis"
+curl "$API/overview/action-analytics"
 ```
 
 Filter examples:
 
 ```bash
 curl "$API/overview/kpis?source_code=google_business_profile"
-curl "$API/overview/kpis?issue_category_code=booking_checkin"
-curl "$API/overview/kpis?department_code=front_office"
+curl "$API/overview/kpis?department_code=engineering"
 ```
 
 What to explain:
 
 - KPIs are scoped to the three MVP review platforms;
-- API returns dashboard-ready aggregates;
-- Reputation Risk is the only risk/severity concept shown to staff.
+- action analytics provide owner pressure, platform risk, action leakage, and recent issues;
+- drill-through paths are included for UI navigation.
 
-In the web UI, open Overview and apply the same filters through the filter bar.
+In the web UI, open Dashboard (Overview) and:
 
-## 7. Discover Recurring Issues
+- apply date/platform/department/risk filters through the filter bar;
+- observe KPI cards, donut charts (sentiment/risk), bar charts (department/priority);
+- see owner pressure by department and platform risk spread;
+- click charts to drill through to filtered Reviews/Issues views.
 
-Category/department recurrence summary:
-
-```bash
-curl "$API/issues/summary"
-```
-
-Semantic clusters:
+## 10. Semantic Clusters (Optional)
 
 ```bash
-curl "$API/analysis/semantic-clusters?similarity_threshold=0.30"
-```
-
-What to show:
-
-- repeated issue categories by count;
-- average and highest Reputation Risk;
-- primary department;
-- source platform mix;
-- representative review IDs;
-- semantic near-duplicate pairs and clusters where useful.
-
-In the web UI, open Issues and show category/department rows. Create a ticket manually from a recurring issue group.
-
-## 8. Create Tickets
-
-### From a Single Review
-
-Pick a review ID from `/reviews`, then:
-
-```bash
-curl -X POST "$API/reviews/1/tickets" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "department_code": "housekeeping",
-    "priority": "high",
-    "assignee_name": "Housekeeping Manager",
-    "notes": "Investigate repeated cleanliness complaint."
-  }'
-```
-
-### From a Recurring Issue Group
-
-Pick a category/department pair from `/issues/summary`, then:
-
-```bash
-curl -X POST "$API/issues/groups/cleanliness/housekeeping/tickets" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "priority": "high",
-    "notes": "Created from recurring cleanliness complaints."
-  }'
-```
-
-### From a Semantic Cluster
-
-Pick a cluster ID from `/analysis/semantic-clusters`, then:
-
-```bash
-curl -X POST "$API/analysis/semantic-clusters/semantic-1/tickets?similarity_threshold=0.30" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "priority": "urgent",
-    "notes": "Created from semantically similar repeated complaints."
-  }'
+curl "$API/analysis/semantic-clusters"
+curl "$API/analysis/semantic-clusters?similarity_threshold=0.30&min_cluster_size=2"
 ```
 
 What to show:
 
-- created ticket;
-- source review IDs for recurring issue tickets;
-- department ownership;
-- initial `created` event;
-- source reviews marked `ticket_created`;
-- ticket priority defaulting from Reputation Risk when priority is omitted.
+- embedding strategy used (sentence-transformer, TF-IDF fallback, or token overlap);
+- near-duplicate pairs and semantic clusters;
+- cluster representative text, department, source mix, and average similarity.
 
-## 9. Update, Resolve, and Verify Tickets
-
-List tickets:
-
-```bash
-curl "$API/tickets"
-```
-
-Get one ticket:
-
-```bash
-curl "$API/tickets/1"
-```
-
-Move to in progress:
-
-```bash
-curl -X PATCH "$API/tickets/1" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"in_progress","notes":"Department manager accepted the ticket."}'
-```
-
-Resolve:
-
-```bash
-curl -X PATCH "$API/tickets/1" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"resolved","notes":"Corrective action completed by the owning department."}'
-```
-
-Verify:
-
-```bash
-curl -X PATCH "$API/tickets/1" \
-  -H "Content-Type: application/json" \
-  -d '{"status":"verified","notes":"Management verified the resolution."}'
-```
-
-What to show:
-
-- ticket status changes;
-- `ticket_events` history;
-- old/new values;
-- notes and timestamps.
-
-In the web UI, open Tickets and click a ticket row to show the event history sheet. Use the ticket detail controls to change status, priority, department, assignee, due date, and notes.
-
-## 10. Reanalysis
+## 11. Reanalysis
 
 ```bash
 curl -X POST "$API/analysis/reanalyze"
@@ -361,9 +345,10 @@ What to show:
 - The source policy is explicit: only review-platform connectors are in the MVP.
 - The same connector import can be shown through API routes or backend job commands.
 - Demo fixture generation is outside the product runtime.
-- Raw payloads are preserved for audit, while normalized reviews power dashboards and tickets.
+- Raw payloads are preserved for audit, while normalized reviews power dashboards and issue detection.
 - NLP outputs are real model-backed outputs, not pre-baked fixture labels.
 - Reputation Risk is the single user-facing risk metric.
-- Recurring issue detection supports the claim that the hotel can act before patterns keep damaging future guest perception.
-- Ticket workflow records event history through creation, updates, resolution, and verification.
-- The stack is reproducible with Docker Compose, migrations, seed data, current repo verification commands, and local model artifacts.
+- LLM-driven issue detection consolidates synonymous complaints across reviews into actionable issues.
+- Emerging candidates provide early warning for single-review problems.
+- Issue lifecycle records event history through creation, assignment, and resolution.
+- The stack is reproducible with Docker Compose, migrations, seed data, and local model artifacts.

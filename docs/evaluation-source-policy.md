@@ -33,7 +33,7 @@ Demo review data is generated outside the product using local Ollama and saved a
 
 Allowed:
 
-- local fixture generation with `dolphin-llama3:latest`;
+- local fixture generation with `llama3.1:latest` (configurable via `--model`);
 - provider-shaped Google Business Profile, Booking.com, and Tripadvisor JSON files;
 - importing fixture files through the normal connector ingestion path;
 - preserving raw fixture payloads for audit.
@@ -45,7 +45,7 @@ Not allowed in the product runtime:
 - Reddit/social listening;
 - CSV import UX;
 - manual labelling or classifier training as a demo workflow;
-- precomputed sentiment, category, department, or Reputation Risk labels in connector fixtures.
+- precomputed sentiment, department, or Reputation Risk labels in connector fixtures.
 
 ## Reputation-Risk Problem Framing
 
@@ -81,19 +81,21 @@ Do not implement:
 Evaluate dashboard behavior through these questions:
 
 - Do Overview KPIs use only Google Business Profile, Booking.com, and Tripadvisor review records?
-- Do Reviews, Issues, Tickets, and Overview use consistent platform source-code filters?
+- Do Reviews, Issues, and Overview use consistent platform source-code filters?
 - Does the UI use one user-facing metric, Reputation Risk?
-- Can a manager identify high Reputation Risk reviews, recurring categories, and department load?
-- Can a manager manually convert a risky review or recurring issue into an action ticket?
+- Can a manager identify high Reputation Risk reviews, active/emerging issues, and department load?
+- Can a manager resolve a discovered issue and verify the event history?
+- Do dashboard charts support drill-through to filtered Reviews and Issues views?
 
 Relevant endpoints:
 
-```text
+```
 GET /overview/kpis
+GET /overview/action-analytics
 GET /reviews
-GET /issues/summary
+GET /issues
+GET /issues/emerging
 GET /analysis/semantic-clusters
-GET /tickets
 ```
 
 ## Ingestion Evaluation
@@ -105,12 +107,12 @@ Evaluate ingestion behavior through:
 - `records_created`, `records_updated`, `records_skipped`, and `records_duplicate_flagged` counts;
 - raw payload preservation;
 - normalized review creation;
-- automatic analysis after ingestion;
+- automatic NLP analysis after ingestion;
 - run status and error reporting.
 
 Relevant endpoints:
 
-```text
+```
 POST /ingestion/connectors/{connector_key}
 GET /ingestion/runs
 GET /ingestion/source-status
@@ -120,10 +122,10 @@ Backend job commands use the same services as the API routes:
 
 ```bash
 cd apps/api
-python3 -m app.jobs connector google_business_profile
-python3 -m app.jobs connector booking_com
-python3 -m app.jobs connector tripadvisor
-python3 -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors-dolphin/google_business_profile.json
+.venv/bin/python -m app.jobs connector google_business_profile
+.venv/bin/python -m app.jobs connector booking_com
+.venv/bin/python -m app.jobs connector tripadvisor
+.venv/bin/python -m app.jobs connector google_business_profile --fixture-path data/generated-fixtures/connectors-dolphin/google_business_profile.json
 ```
 
 ## NLP Evaluation
@@ -133,32 +135,34 @@ Core NLP proof is product runtime behavior, not a mocked label workflow.
 Check that:
 
 - sentiment requires `nlptown/bert-base-multilingual-uncased-sentiment`;
-- issue categorization requires `facebook/bart-large-mnli`;
+- department classification requires `facebook/bart-large-mnli`;
 - missing required models fail clearly;
 - persisted analyses include model metadata and explanation factors;
-- staff-facing responses show operational explanations without requiring model internals.
+- staff-facing responses show operational explanations without requiring model internals;
+- issue detection can run with both Gemini (production quality) and the offline stub (tests/constrained envs) via `LLM_PROVIDER`.
 
-## Ticket Workflow Evaluation
+## Issue Lifecycle Evaluation
 
 Evaluate action management through:
 
-- creating a ticket from a single review;
-- creating a ticket from a recurring issue group;
-- creating a ticket from a semantic cluster where useful;
+- triggering issue detection via `POST /issues/detect?force=true` or `npm run api:detect`;
+- inspecting active issues and emerging candidates;
+- verifying issue descriptions cite concrete specifics from evidence reviews;
 - verifying department ownership;
-- updating status through `open`, `in_progress`, `blocked`, `resolved`, and `verified` as relevant;
-- checking `ticket_events` for lifecycle history;
-- checking source review `action_status = ticket_created`.
+- updating assignee and priority via `PATCH /issues/{id}`;
+- resolving an issue via `PATCH /issues/{id}/resolve`;
+- checking `issue_events` for lifecycle history (created, assignee_changed, resolved);
+- verifying that state (resolved, assignee) survives a detection rebuild.
 
 Relevant endpoints:
 
-```text
-POST /reviews/{review_id}/tickets
-POST /issues/groups/{category_code}/{department_code}/tickets
-POST /analysis/semantic-clusters/{cluster_id}/tickets
-GET /tickets
-GET /tickets/{ticket_id}
-PATCH /tickets/{ticket_id}
+```
+POST /issues/detect
+GET /issues
+GET /issues/emerging
+GET /issues/{issue_id}
+PATCH /issues/{issue_id}
+PATCH /issues/{issue_id}/resolve
 ```
 
 ## Privacy and Data Handling
@@ -169,7 +173,7 @@ The prototype minimizes sensitive data:
 - does not require email, phone, loyalty, payment, or reservation identifiers for reviews;
 - keeps raw platform payloads for audit, so connector fixtures should avoid private personal data;
 - redacts email-like and phone-like text in review API display fields while preserving raw payloads and normalized source fields for audit;
-- treats assignee email on tickets as optional prototype workflow metadata.
+- treats assignee name on issues as optional prototype workflow metadata.
 
 ## Assessment Checklist
 
@@ -178,5 +182,5 @@ The prototype minimizes sensitive data:
 - Raw and normalized records can be audited.
 - Analysis uses required local model artifacts and stores model metadata.
 - The UI uses Reputation Risk as the only risk/severity concept.
-- Ticket workflow records event history.
+- Issue lifecycle records event history through creation, assignment, and resolution.
 - Demo can be repeated from a clean database.

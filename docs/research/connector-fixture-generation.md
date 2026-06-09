@@ -18,7 +18,7 @@ python3 apps/api/scripts/generate_connector_fixtures.py
 
 Default behavior:
 
-- uses `dolphin-llama3:latest`;
+- uses `llama3.1:latest` (configurable via `--model`);
 - calls local Ollama at `http://127.0.0.1:11434/api/generate`;
 - generates 2,000 reviews split across the three platforms;
 - writes JSON files under `apps/api/data/generated-fixtures/connectors-dolphin/`;
