@@ -2,8 +2,8 @@
 
 **A reputation-protection investment, built on your real reviews.**
 
-A 15-minute pitch · 10 slides · every number on these slides is pulled live from analysis of
-real Kingsbury reviews crawled from Google, TripAdvisor, and Booking.com.
+A 15-minute pitch · 11 slides · built on live analysis of real Kingsbury reviews crawled from
+Google, TripAdvisor, and Booking.com (financials illustrative; flagged where used).
 
 > **How to read this document.** Each slide has four parts:
 > **On-slide** — what to put on the slide. **Narration** — what to say.
@@ -170,7 +170,7 @@ fifteen percent of your public reviews. This is one-seventh of the picture."
 | Slow / unstable WiFi | 114 | 85 | Engineering |
 | Poor food quality | 113 | 85 | Food & Beverage |
 
-- Side note: **54 issues are at critical risk (≥80).** Department load: F&B 222 · Front Office 172 · Engineering 97.
+- Side note: **54 issues are at critical risk (≥80).** Active issues by owner: **F&B 37 · Front Office 25 · Engineering 25** (of 117 total).
 
 **Narration**
 "Let me make this concrete with three examples. One — that noise issue, 201 separate guests, risk
@@ -193,9 +193,9 @@ four-point-zero. None of them is dramatic. All of them are fixable."
 
 **On-slide**
 - **The reputation lever (headline):**
-  - Kingsbury scale: 229 rooms · ~72% occupancy · ~$110 ADR → **≈ $6.6M annual room revenue** *(illustrative)*
-  - Industry benchmark (Cornell, Anderson 2012): **+1% reputation score → +1.42% RevPAR**
-  - → **A 1% reputation lift ≈ +$94,000 / year.** System cost: **cents per run.**
+  - Kingsbury scale: 229 rooms · ~72% occupancy · ~$130 ADR → **≈ $7.8M annual room revenue** *(illustrative)*
+  - Industry benchmark (Cornell Hospitality Report, Anderson 2012): **+1% reputation score → +1.42% RevPAR**
+  - → **Each 1% of reputation you protect ≈ +$111,000 / year.** System cost: **cents per run.**
 - **The efficiency lever:** ~3 min to triage a review × 2,939 = **~147 analyst-hours per cycle** eliminated.
 - **The speed lever:** every issue pre-routed & prioritized → faster time-to-fix, fewer recurrences.
 - **The retention lever:** an unresolved complaint costs the guest's *future* stays + word-of-mouth, not just one review.
@@ -203,19 +203,20 @@ four-point-zero. None of them is dramatic. All of them are fixable."
 
 **Narration**
 "So what's it worth? Start with reputation, because in hospitality reputation *is* revenue. With
-229 rooms, a five-star property like this turns over somewhere around 6.6 million dollars in room
-revenue a year. Cornell's research shows a one-percent lift in online reputation score drives a
-1.4-percent lift in RevPAR. So even a modest one-percent reputation improvement is worth roughly
-ninety-four thousand dollars a year — against a system that costs cents to run. That's not a
-marginal return; it's order-of-magnitude. Then add the obvious: no human team reads 2,900 reviews
-— that's 147 analyst-hours a cycle we eliminate. Faster fixes because every issue is already
-routed. And fewer lost repeat guests. The reputation lever alone pays for everything many times
-over."
+229 rooms, a five-star property like this turns over somewhere around 7.8 million dollars in room
+revenue a year. Cornell's research shows a one-percent move in online reputation score drives a
+1.4-percent move in RevPAR. So every one percent of reputation we help you *protect* is worth
+roughly a hundred and eleven thousand dollars a year — against a system that costs cents to run.
+Note the word *protect*: we don't promise to lift your score, we quantify the revenue you're
+defending. That's not a marginal return; it's order-of-magnitude. Then add the obvious: no human
+team reads 2,900 reviews — that's 147 analyst-hours a cycle we eliminate. Faster fixes because
+every issue is already routed. And fewer lost repeat guests. The reputation lever alone pays for
+everything many times over."
 
 **Must-say**
 > *"For the price of a cup of coffee per analysis, we protect a six-figure slice of your room revenue."*
 
-**Numbers used** — 229 rooms (real); 72%/$110 illustrative; $6.6M; Cornell +1% reputation → +1.42% RevPAR; ≈$94K/yr; ~147 analyst-hours; $0.25/run.
+**Numbers used** — 229 rooms (real); 72%/$130 illustrative; $7.8M; Cornell +1% reputation → +1.42% RevPAR; ≈$111K/yr; ~147 analyst-hours; $0.25/run.
 
 ---
 
@@ -232,20 +233,57 @@ over."
 | Early warning before bubble-up | ✗ | ✗ | **✓ (587 signals)** |
 
 **Narration**
-"Why not just keep doing what you do, or buy an off-the-shelf listening tool? Manual review can't
-scale — no one reads three thousand reviews and routes them. Generic AI tools give you sentiment
-dashboards and word clouds, but no ownership and no specifics — they tell you 'people mention
-food,' not 'breakfast buffet ran empty.' We're the only approach that combines hotel-specific
-detection, attached evidence down to the room number, department ownership, *and* early warning.
-Seventy-seven percent of every complaint is already traced to a fixable issue with its evidence
-attached. No human team and no generic tool matches that coverage."
+"You might be thinking: twenty thousand reviews is only fifteen or twenty a day — a staff member
+could just read those. And they could *read* them. But reading isn't the job. The job is
+*synthesis*: connecting one complaint today to two hundred others spread across twelve months,
+three platforms and several languages; scoring every one for risk *consistently*; and spotting
+the single emerging issue hiding among hundreds. A human reading fifteen a day forgets last
+month, never cross-links, and drifts. The cost was never the reading time — it's the pattern that
+gets missed and bubbles up, and one of those costs six figures. Generic AI tools don't fix this
+either: they give you sentiment dashboards and word clouds — 'people mention food,' not 'breakfast
+buffet ran empty' — with no ownership and no specifics. We're the only approach that combines
+hotel-specific detection, evidence down to the room number, department ownership, *and* early
+warning. Seventy-seven percent of every complaint is already traced to a fixable issue."
 
 **Must-say**
-> *"77% of every complaint is already traced to a fixable issue with its evidence attached — no human team can match that coverage."*
+> *"The job was never reading the reviews — it's connecting the one complaint today to the two hundred over the year. That's what no human team can match."*
+> *"77% of every complaint is already traced to a fixable issue with its evidence attached."*
 
 ---
 
-## Slide 10 — Close & The Ask
+## Slide 10 — Risks & How We've De-risked Them
+
+**On-slide** — a 4-row Risk → Mitigation table:
+
+| Risk | How we've de-risked it |
+|---|---|
+| **Data-source dependency** — reviews come from third-party platforms (terms, access limits) | Official-shaped, **modular connectors** — no scraping; a source can be swapped without touching the detection engine |
+| **LLM cost & scale** as review volume grows | Architecture already stores **cluster centroids** → path to **incremental detection**: match new reviews to existing clusters, call the LLM only for *novel* issues → **cost scales with new volume, not total** |
+| **Detection accuracy / false positives** | Every issue is **evidence-linked & confidence-scored**; human-in-the-loop resolve/dismiss — *the system proposes, staff decide* |
+| **Adoption** — "another dashboard nobody opens" | Not a raw feed — a **prioritized, department-owned action list** that fits existing ops; near-zero cost to trial |
+
+- Footer: *Our own **Reputation Risk score (0–100)** is the safeguard — it keeps the highest-damage issues surfaced first, even at full scale.*
+
+**Narration**
+"Quickly, the risks — because a real partnership means naming them. Four. One: we depend on
+review platforms. We use official-shaped, modular connectors — no scraping — so if a platform's
+access changes, we swap that one connector and the engine is untouched. Two, the one engineers
+ask: does feeding everything to an LLM blow up as volume grows? Today we deliberately rebuild the
+full picture each run for transparency and quality at this scale. But the design already stores a
+fingerprint of every issue cluster — so the production path is incremental: new reviews are
+matched to existing clusters cheaply, and the LLM is only invoked for genuinely new problems.
+Cost then tracks *new* reviews, not your whole history. Three: accuracy. Every issue carries its
+evidence and a confidence score, and a human resolves or dismisses it — the system proposes,
+staff decide. Four: adoption. This isn't another feed to ignore; it's a ranked, owned action
+list. And underneath it all, our Reputation Risk score guarantees the most damaging issues float
+to the top first."
+
+**Must-say**
+> *"A real partner names the risks. Ours each have an answer already built in — the system proposes, your staff decide."*
+
+---
+
+## Slide 11 — Close & The Ask
 
 **On-slide** — three numbers, large:
 - **20 : 1** — complaints compressed into action
@@ -274,4 +312,5 @@ hand your operations team their first prioritized action list next week."
   103; Booking.com 1,324 reviews; ~20,000 public reviews total.
 - **Published benchmark:** Cornell Hospitality Report (Anderson, 2012) — +1% reputation score →
   +1.42% RevPAR; +1 review point → ~+11% ADR.
-- **Illustrative assumptions (flagged on Slide 8):** 72% occupancy, $110 ADR.
+- **Illustrative assumptions (flagged on Slide 8):** 72% occupancy, $130 ADR → ~$7.8M room revenue → ~$111K per 1% reputation protected.
+- **Department reconciliation:** active issues by owner sum to 117 (F&B 37 · Front Office 25 · Engineering 25 · Housekeeping 15 · Management 9 · Guest Relations 6); the larger per-department totals seen elsewhere include the 587 emerging signals.
