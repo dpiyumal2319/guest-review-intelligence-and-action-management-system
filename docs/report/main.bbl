@@ -1,0 +1,70 @@
+\begin{thebibliography}{8}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Anderson(2012)]{anderson2012social}
+Chris~K. Anderson.
+\newblock The impact of social media on lodging performance.
+\newblock Cornell Hospitality Report Vol. 12, No. 15, Cornell University,
+  Center for Hospitality Research, November 2012.
+\newblock A 1\% improvement in a hotel's online reputation score is associated
+  with a 1.42\% increase in RevPAR.
+
+\bibitem[{Digital Travel APAC / Cambodge Mag}(2024)]{asia2024ota}
+{Digital Travel APAC / Cambodge Mag}.
+\newblock Direct bookings: Asia's hoteliers reclaim margins from {OTA}
+  dominance.
+\newblock Industry report, 2024.
+\newblock OTAs capture approximately 70\% of online hotel bookings across Asia,
+  with direct website bookings under 30\%. Intermediary commissions reach up to
+  30\% of room revenue.
+
+\bibitem[{Google DeepMind}(2025)]{google2025gemini}
+{Google DeepMind}.
+\newblock Gemini 2.5 flash: Model card and developer documentation.
+\newblock \url{https://ai.google.dev/gemini-api/docs}, 2025.
+
+\bibitem[Lewis et~al.(2020)Lewis, Liu, Goyal, Ghazvininejad, Mohamed, Levy,
+  Stoyanov, and Zettlemoyer]{lewis2020bart}
+Mike Lewis, Yinhan Liu, Naman Goyal, Marjan Ghazvininejad, Abdelrahman Mohamed,
+  Omer Levy, Veselin Stoyanov, and Luke Zettlemoyer.
+\newblock {BART}: Denoising sequence-to-sequence pre-training for natural
+  language generation, translation, and comprehension.
+\newblock In \emph{Proceedings of the 58th Annual Meeting of the Association
+  for Computational Linguistics (ACL)}, pages 7871--7880, 2020.
+
+\bibitem[Pontiki et~al.(2016)Pontiki, Galanis, Papageorgiou, Androutsopoulos,
+  Manandhar, et~al.]{pontiki2016semeval}
+Maria Pontiki, Dimitris Galanis, Haris Papageorgiou, Ion Androutsopoulos,
+  Suresh Manandhar, et~al.
+\newblock {SemEval-2016} task 5: Aspect based sentiment analysis.
+\newblock In \emph{Proceedings of the 10th International Workshop on Semantic
+  Evaluation (SemEval-2016)}, pages 19--30. Association for Computational
+  Linguistics, 2016.
+
+\bibitem[Reimers and Gurevych(2019)]{reimers2019sbert}
+Nils Reimers and Iryna Gurevych.
+\newblock {Sentence-BERT}: Sentence embeddings using siamese {BERT}-networks.
+\newblock In \emph{Proceedings of the 2019 Conference on Empirical Methods in
+  Natural Language Processing (EMNLP)}, pages 3982--3992, 2019.
+
+\bibitem[{ReputationDefender}(2023)]{reputationdefender2023stats}
+{ReputationDefender}.
+\newblock Statistics about online reviews that hoteliers need to know.
+\newblock Industry compilation, 2023.
+\newblock Over 80\% of travellers read reviews before booking, and 52\% would
+  not book a hotel with no reviews.
+
+\bibitem[{Tripadvisor}(2019)]{tripadvisor2019reviews}
+{Tripadvisor}.
+\newblock Online reviews remain a trusted source of information when booking
+  trips.
+\newblock Tripadvisor Press Release / Ipsos MORI study, 2019.
+\newblock 81\% of travellers report always or frequently reading reviews before
+  booking accommodation. Travellers read on average nine reviews before
+  deciding.
+
+\end{thebibliography}
