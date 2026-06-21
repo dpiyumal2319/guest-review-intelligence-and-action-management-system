@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025/Debian) (preloaded format=pdflatex 2026.6.20)  21 JUN 2026 14:37
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025/Debian) (preloaded format=pdflatex 2026.6.20)  21 JUN 2026 16:06
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1324,20 +1324,40 @@ File: figures/timeline.pdf Graphic file (type pdf)
 <use figures/timeline.pdf>
 Package pdftex.def Info: figures/timeline.pdf  used on input line 793.
 (pdftex.def)             Requested size: 452.98212pt x 201.66763pt.
- [19 <./figures/timeline.pdf>] (./main.bbl [20]) [21] (./main.aux)
+ [19 <./figures/timeline.pdf>]
+Underfull \hbox (badness 10000) in paragraph at lines 907--907
+[]|\T1/zpltlf/b/n/10.95 (+20) EKANAYAKA
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 907--907
+[]|\T1/zpltlf/b/n/10.95 (+20) FERNANDO N.P.A.
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 907--907
+[]|\T1/zpltlf/b/n/10.95 (+20) RATHNAYAKE
+ []
+
+
+Underfull \hbox (badness 10000) in paragraph at lines 907--907
+[]|\T1/zpltlf/b/n/10.95 (+20) WIJETHUNGA
+ []
+
+[20] (./main.bbl [21]) [22] (./main.aux)
  ***********
 LaTeX2e <2025-11-01>
 L3 programming layer <2020/03/25>
  ***********
 Package rerunfilecheck Info: File `main.out' has not changed.
-(rerunfilecheck)             Checksum: 6D35220E74DCDCDCF112FDC62738EF07;7291.
+(rerunfilecheck)             Checksum: E67B7B438A36985459CA8922ED09567B;7367.
  ) 
 Here is how much of TeX's memory you used:
- 30345 strings out of 469514
- 544414 string characters out of 5470072
- 948289 words of memory out of 5000000
- 58170 multiletter control sequences out of 15000+600000
- 714534 words of font info for 227 fonts, out of 8000000 for 9000
+ 30344 strings out of 469514
+ 544411 string characters out of 5470072
+ 948391 words of memory out of 5000000
+ 58172 multiletter control sequences out of 15000+600000
+ 714531 words of font info for 227 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
  84i,12n,117p,1193b,881s stack positions out of 10000i,1000n,20000p,200000b,200000s
 </usr/share/texlive/texmf-dist/fonts/type1/public/newpx/NewPXMI.pfb></usr/sha
@@ -1350,10 +1370,10 @@ xfonts/t1xtt.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/newtx/txexas
 are/texlive/texmf-dist/fonts/type1/public/newpx/zplb.pfb></usr/share/texlive/te
 xmf-dist/fonts/type1/public/newpx/zplr.pfb></usr/share/texlive/texmf-dist/fonts
 /type1/public/newpx/zplri.pfb>
-Output written on main.pdf (22 pages, 7105848 bytes).
+Output written on main.pdf (23 pages, 7108169 bytes).
 PDF statistics:
- 608 PDF objects out of 1000 (max. 8388607)
- 502 compressed objects within 6 object streams
- 109 named destinations out of 1000 (max. 500000)
+ 605 PDF objects out of 1000 (max. 8388607)
+ 499 compressed objects within 5 object streams
+ 106 named destinations out of 1000 (max. 500000)
  39860 words of extra memory for PDF output out of 42996 (max. 10000000)
 

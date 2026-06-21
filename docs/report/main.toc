@@ -46,9 +46,4 @@
 \contentsline {section}{\numberline {12}Community and Industry Impact}{20}{section.12}%
 \contentsline {section}{\numberline {13}Lessons Learned and Future Work}{20}{section.13}%
 \contentsline {section}{\numberline {14}Conclusion}{20}{section.14}%
-\contentsline {section}{\numberline {15}Individual Contributions}{20}{section.15}%
-\contentsline {paragraph}{EKANAYAKA D.M.Y.N.B. (220153R).}{20}{paragraph*.24}%
-\contentsline {paragraph}{FERNANDO N.P.A. (220168R).}{20}{paragraph*.25}%
-\contentsline {paragraph}{PRASANNA W.A.S.D. (220488X).}{20}{paragraph*.26}%
-\contentsline {paragraph}{RATHNAYAKE R.M.D.D. (220525K).}{20}{paragraph*.27}%
-\contentsline {paragraph}{WIJETHUNGA W.M.D.P. (220727G).}{20}{paragraph*.28}%
+\contentsline {section}{\numberline {A}Annex: Individual Contribution Summary}{20}{appendix.A}%

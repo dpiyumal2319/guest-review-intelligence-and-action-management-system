@@ -853,20 +853,66 @@ has already learned about its past, but for cents per analysis it can ensure tom
 become the next permanent caveat.
 
 % =========================================================================
-\section{Individual Contributions}
-\label{sec:contrib}
-\emph{This section is to be completed by each team member with a short reflective paragraph on their
-individual contribution.}
+\appendix
+\section{Annex: Individual Contribution Summary}
+\label{annex:contributions}
 
-\paragraph{EKANAYAKA D.M.Y.N.B. (220153R).} \textit{[Contribution to be added.]}
+The project was completed as an integrated team effort from initial problem discovery through to
+solution implementation and reporting. All team members contributed to brainstorming the hotel review
+intelligence concept, refining the scope around The Kingsbury case study, reviewing the final demo
+flow, and validating that the system remained an academic proof-of-concept rather than a claim of live
+production platform access. The table below records the main responsibility areas used to divide the
+work.
 
-\paragraph{FERNANDO N.P.A. (220168R).} \textit{[Contribution to be added.]}
+\begin{table}[H]
+\centering
+\caption{Team member contributions from ideation to implementation.}
+\label{tab:contributions}
+\renewcommand{\arraystretch}{1.28}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{4.0cm}X}
+\toprule
+\textbf{Team member} & \textbf{Primary contributions} \\
+\midrule
+EKANAYAKA D.M.Y.N.B. (220153R) &
+Led problem framing and business-domain analysis. Contributed to brainstorming the AI-era reputation
+risk concept, defining the hotel operations workflow, mapping review complaints to department-owned
+issues, preparing the commercial value argument, and writing the introduction, motivation, business
+analysis, limitations and conclusion sections of the report. \\
 
-\paragraph{PRASANNA W.A.S.D. (220488X).} \textit{[Contribution to be added.]}
+FERNANDO N.P.A. (220168R) &
+Led backend architecture and API implementation. Designed and implemented the FastAPI service
+structure, connector-shaped ingestion flow, canonical review storage, database migrations and seed
+data, REST endpoints for dashboard, review and issue screens, and operational scripts for migration,
+import, verification, database restore and demo execution. \\
 
-\paragraph{RATHNAYAKE R.M.D.D. (220525K).} \textit{[Contribution to be added.]}
+PRASANNA W.A.S.D. (220488X) &
+Led natural-language processing and issue-detection implementation. Worked on sentiment analysis,
+zero-shot department classification, embedding generation, reputation-risk scoring, LLM extraction and
+consolidation prompts, evidence linking, active versus emerging issue logic, and the provider-agnostic
+LLM client with Gemini and deterministic stub modes. \\
 
-\paragraph{WIJETHUNGA W.M.D.P. (220727G).} \textit{[Contribution to be added.]}
+RATHNAYAKE R.M.D.D. (220525K) &
+Led data preparation, evaluation and validation. Prepared connector fixtures and real-review
+transforms, validated fixture identity and import consistency, helped generate specificity-preserving
+incident datasets, verified review and issue counts, checked top issue findings against the database,
+documented data-source policy, evaluation caveats and risk mitigation, and handled communication with
+The Kingsbury for case-study coordination and project context. \\
+
+WIJETHUNGA W.M.D.P. (220727G) &
+Led frontend implementation and presentation material. Built and refined the Next.js/React operator
+interface for dashboard, reviews and issues, including filtering, issue status visibility, risk and
+department presentation, evidence badges and demo usability. Prepared screenshots, presentation flow,
+speaker notes and visual reporting material for the final submission. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\noindent
+In addition to these primary areas, final integration, testing, report review and presentation
+rehearsal were shared responsibilities. The team jointly checked that the delivered system could be
+run locally with PostgreSQL, FastAPI and Next.js, that review ingestion and detection produced the
+reported 2{,}939-review / 117-active-issue outcome, and that the final narrative remained consistent
+with the source-code implementation and project documentation.
 
 % =========================================================================
 \bibliography{references}
