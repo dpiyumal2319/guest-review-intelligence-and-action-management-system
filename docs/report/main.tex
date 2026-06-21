@@ -72,7 +72,7 @@
 % --- Screenshot placeholder: uses real file if present, else a labelled box ---
 \newcommand{\screenshot}[3]{%
   % #1 = filename (in figures/), #2 = caption, #3 = label
-  \begin{figure}[t]
+  \begin{figure}[H]
   \centering
   \IfFileExists{figures/#1}{%
     \includegraphics[width=0.92\linewidth]{figures/#1}%
@@ -271,7 +271,8 @@ clearly-flagged illustrative operating assumptions. At a representative 72\% occ
 average daily rate, the property turns roughly 60{,}000 occupied room-nights and about US\$7.8\,M of room
 revenue per year, and at an estimated average stay of about 2.5 nights it sees on the order of 65
 arrivals per day. Against its roughly 20{,}000 cumulative public reviews, current review velocity is on
-the order of 10 to 20 new reviews per day across platforms. In Asia, online travel agencies account for
+the order of 10 to 20 new reviews per day across platforms. In Asia, online travel agencies (OTAs), the
+commission booking channels such as Booking.com, account for
 roughly 70\% of \emph{online} hotel bookings \citep{asia2024ota}, and more than 80\% of travellers read
 reviews before booking on \emph{any} channel \citep{tripadvisor2019reviews}, so review pressure shapes a
 large share of demand for a property like this. These are not large numbers to \emph{read}, which is the
@@ -615,30 +616,40 @@ Ongoing annual (support + runtime) & $\approx$90{,}000 & $\approx$300 \\
 reputation gives +1.42\% RevPAR \citep{anderson2012social}, to the entire US\$7.8\,M room revenue, giving
 about US\$111k per 1\% of reputation protected. That overstates the effect, because not all revenue
 responds to online reputation, so we estimate the impact against only the revenue base that online
-reputation plausibly influences and present a range (Table~\ref{tab:revenue}). The floor attributes
+reputation plausibly influences and present a range (Table~\ref{tab:revenue}). The lower bound attributes
 impact only to OTA-booked room-nights, taken as about 25\% of total room-nights for a property with
-substantial direct and corporate business. The ceiling recognises that more than 80\% of travellers read
+substantial direct and corporate business. The upper bound recognises that more than 80\% of travellers read
 reviews before booking on any channel \citep{tripadvisor2019reviews,reputationdefender2023stats}, so
 reputation shapes demand well beyond the OTA slice. Each 1\% of reputation protected is therefore worth
 roughly US\$28k to US\$89k per year, that is about LKR\,8.4\,M to LKR\,26.7\,M, against a year-one cost
-near LKR\,440{,}000. Even on the floor, protecting half a percent of reputation repays the year-one cost
+near LKR\,440{,}000. Even on the lower bound, protecting half a percent of reputation repays the year-one cost
 many times over, and the elasticity cuts both ways, so this is also the revenue at risk from a 1\%
 erosion.
 
 \begin{table}[H]
 \centering
-\caption{Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied
-to the review-influenced revenue base, and all hotel financials are illustrative.}
+\caption{Annual value of protecting 1\% of online reputation, applying the Cornell RevPAR elasticity
+only to the share of room revenue that online reviews actually influence. All hotel financials are
+illustrative.}
 \label{tab:revenue}
 \begin{tabularx}{\linewidth}{Xccc}
 \toprule
-\textbf{Scenario} & \textbf{Influenced base} & \textbf{Value / 1\% (US\$)} & \textbf{Value / 1\% (LKR)} \\
+\textbf{Scenario} & \textbf{Influenced} & \textbf{Influenced revenue} & \textbf{Value of +1\%} \\
+ & \textbf{share} & \textbf{base (US\$)} & \textbf{(US\$ / LKR)} \\
 \midrule
-Floor (OTA room-nights only)        & $\approx$25\% & $\approx$28k & $\approx$8.4\,M \\
-Mid (all online bookings)           & $\approx$55\% & $\approx$61k & $\approx$18.3\,M \\
-Ceiling (all review-influenced demand) & $\approx$80\% & $\approx$89k & $\approx$26.7\,M \\
+Lower bound (OTA bookings only)        & $\approx$25\% & $\approx$2.0\,M & 28k / 8.4\,M \\
+Middle estimate (all online bookings)  & $\approx$55\% & $\approx$4.3\,M & 61k / 18.3\,M \\
+Upper bound (all review-influenced demand) & $\approx$80\% & $\approx$6.3\,M & 89k / 26.7\,M \\
 \bottomrule
 \end{tabularx}
+
+\smallskip
+{\footnotesize\itshape OTA means an online travel agency such as Booking.com, the commission channel a
+guest books through online, as opposed to direct website, corporate or walk-in bookings. The influenced
+share is the portion of the hotel's roughly US\$7.8\,M annual room revenue whose demand is shaped by
+online reviews. The value of +1\% is that influenced revenue base times the Cornell figure of 1.42\%
+RevPAR per 1\% of reputation, for example 1.42\% of US\$2.0\,M is about US\$28k, which is roughly
+LKR\,8.4\,M.}
 \end{table}
 
 \subsection{Technical feasibility}

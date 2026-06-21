@@ -44,22 +44,22 @@
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Issue detection through a three-pass LLM pipeline}{8}{subsection.4.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Data and evaluation methodology}{8}{subsection.4.4}\protected@file@percent }
 \newlabel{sec:data}{{4.4}{8}{Data and evaluation methodology}{subsection.4.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Implementation}{9}{section.5}\protected@file@percent }
+\newlabel{sec:impl}{{5}{9}{Implementation}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Main interfaces}{9}{subsection.5.1}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces The Dashboard, a product showcase of the operations overview.}}{9}{figure.caption.5}\protected@file@percent }
 \newlabel{fig:dashboard}{{3}{9}{The Dashboard, a product showcase of the operations overview}{figure.caption.5}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces The Reviews page, with per-review sentiment, reputation risk, department and issue links.}}{9}{figure.caption.6}\protected@file@percent }
 \newlabel{fig:reviews}{{4}{9}{The Reviews page, with per-review sentiment, reputation risk, department and issue links}{figure.caption.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {5}Implementation}{9}{section.5}\protected@file@percent }
-\newlabel{sec:impl}{{5}{9}{Implementation}{section.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Main interfaces}{9}{subsection.5.1}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces The Issues page, the active-issue queue ranked by reputation risk, with status, priority and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals.}}{10}{figure.caption.7}\protected@file@percent }
 \newlabel{fig:issues}{{5}{10}{The Issues page, the active-issue queue ranked by reputation risk, with status, priority and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals}{figure.caption.7}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces The issue detail side-sheet, showing the linked reviews, evidence snippets and the event history for one issue.}}{10}{figure.caption.8}\protected@file@percent }
 \newlabel{fig:issuedetail}{{6}{10}{The issue detail side-sheet, showing the linked reviews, evidence snippets and the event history for one issue}{figure.caption.8}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Database schema}{10}{subsection.5.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Key interaction flows}{10}{subsection.5.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Important implementation decisions}{10}{subsection.5.4}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces The Emerging candidates tab, listing single-mention early-warning signals ranked by reputation risk.}}{11}{figure.caption.9}\protected@file@percent }
 \newlabel{fig:emerging}{{7}{11}{The Emerging candidates tab, listing single-mention early-warning signals ranked by reputation risk}{figure.caption.9}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Database schema}{11}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Key interaction flows}{11}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Important implementation decisions}{11}{subsection.5.4}\protected@file@percent }
 \@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Database schema. The enrichment chain runs from \texttt  {raw\_reviews} to \texttt  {detected\_issues}, joined to the reviews that evidence them through \texttt  {issue\_review\_links}.}}{12}{figure.caption.10}\protected@file@percent }
 \newlabel{fig:erd}{{8}{12}{Database schema. The enrichment chain runs from \texttt {raw\_reviews} to \texttt {detected\_issues}, joined to the reviews that evidence them through \texttt {issue\_review\_links}}{figure.caption.10}{}}
 \@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Detection flow. A review is ingested, scored by the local models, and passed through the three LLM passes before issues are upserted by \texttt  {cluster\_key}.}}{13}{figure.caption.11}\protected@file@percent }
@@ -84,9 +84,9 @@
 \@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Proposed pricing under the recommended model, with indicative figures.}}{15}{table.caption.16}\protected@file@percent }
 \newlabel{tab:cost}{{4}{15}{Proposed pricing under the recommended model, with indicative figures}{table.caption.16}{}}
 \@writefile{toc}{\contentsline {paragraph}{Revenue impact and return.}{15}{paragraph*.17}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative.}}{15}{table.caption.18}\protected@file@percent }
-\newlabel{tab:revenue}{{5}{15}{Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative}{table.caption.18}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Technical feasibility}{15}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Annual value of protecting 1\% of online reputation, applying the Cornell RevPAR elasticity only to the share of room revenue that online reviews actually influence. All hotel financials are illustrative.}}{16}{table.caption.18}\protected@file@percent }
+\newlabel{tab:revenue}{{5}{16}{Annual value of protecting 1\% of online reputation, applying the Cornell RevPAR elasticity only to the share of room revenue that online reviews actually influence. All hotel financials are illustrative}{table.caption.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Technical feasibility}{16}{subsection.7.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Resource and time feasibility}{16}{subsection.7.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Social and legal feasibility}{16}{subsection.7.4}\protected@file@percent }
 \newlabel{sec:legal}{{7.4}{16}{Social and legal feasibility}{subsection.7.4}{}}

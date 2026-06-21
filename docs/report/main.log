@@ -1,4 +1,4 @@
-This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025/Debian) (preloaded format=pdflatex 2026.6.20)  21 JUN 2026 16:06
+This is pdfTeX, Version 3.141592653-2.6-1.40.28 (TeX Live 2025/Debian) (preloaded format=pdflatex 2026.6.20)  21 JUN 2026 16:21
 entering extended mode
  restricted \write18 enabled.
  %&-line parsing enabled.
@@ -1189,158 +1189,158 @@ l.188 \clearpage
 
 ]
 LaTeX Font Info:    Font shape `T1/zpltlf/b/n' will be
-(Font)              scaled to size 10.0pt on input line 286.
+(Font)              scaled to size 10.0pt on input line 287.
  [5]
 LaTeX Font Info:    Font shape `T1/zpltlf/m/n' will be
-(Font)              scaled to size 9.0pt on input line 332.
+(Font)              scaled to size 9.0pt on input line 333.
 LaTeX Font Info:    Trying to load font information for TS1+zpltlf on input lin
-e 362.
+e 363.
 
 (/usr/share/texlive/texmf-dist/tex/latex/newpx/ts1zpltlf.fd
 File: ts1zpltlf.fd 2021/11/24 v1.0 fd file for TS1/zpltlf
 )
 LaTeX Font Info:    Font shape `TS1/zpltlf/m/n' will be
-(Font)              scaled to size 10.95pt on input line 362.
+(Font)              scaled to size 10.95pt on input line 363.
  [6{/usr/share/texlive/texmf-dist/fonts/enc/dvips/newpx/px-lms.enc}{/usr/share/
 texlive/texmf-dist/fonts/enc/dvips/newpx/zpl_TOsF.enc}]
 LaTeX Font Info:    Font shape `T1/zpltlf/m/n' will be
-(Font)              scaled to size 8.0pt on input line 394.
+(Font)              scaled to size 8.0pt on input line 395.
 LaTeX Font Info:    Font shape `T1/zpltlf/m/n' will be
-(Font)              scaled to size 6.1pt on input line 394.
+(Font)              scaled to size 6.1pt on input line 395.
  [7{/usr/share/texlive/texmf-dist/fonts/enc/dvips/newtx/ntx-ot1-tlf.enc}]
 LaTeX Font Info:    Trying to load font information for T1+npxtt on input line 
-423.
+424.
 
 (/usr/share/texlive/texmf-dist/tex/latex/newpx/t1npxtt.fd
 File: t1npxtt.fd 2000/12/14 v1.0
 )
 LaTeX Font Info:    Font shape `T1/npxtt/m/n' will be
-(Font)              scaled to size 10.95pt on input line 423.
+(Font)              scaled to size 10.95pt on input line 424.
 Package microtype Info: Loading generic protrusion settings for font family
 (microtype)             `npxtt' (encoding: T1).
 (microtype)             For optimal results, create family-specific settings.
 (microtype)             See the microtype manual for details.
 LaTeX Font Info:    Font shape `OT1/minzpl/m/n' will be
-(Font)              scaled to size 9.0pt on input line 446.
+(Font)              scaled to size 9.0pt on input line 447.
 LaTeX Font Info:    Font shape `OT1/minzpl/m/n' will be
-(Font)              scaled to size 7.3pt on input line 446.
+(Font)              scaled to size 7.3pt on input line 447.
 LaTeX Font Info:    Font shape `OT1/minzpl/m/n' will be
-(Font)              scaled to size 5.5pt on input line 446.
+(Font)              scaled to size 5.5pt on input line 447.
 LaTeX Font Info:    Font shape `T1/zpltlf/m/it' will be
-(Font)              scaled to size 9.0pt on input line 446.
+(Font)              scaled to size 9.0pt on input line 447.
  [8]
-<figures/dashboard.png, id=339, 1678.27pt x 944.52875pt>
+<figures/dashboard.png, id=338, 1678.27pt x 944.52875pt>
 File: figures/dashboard.png Graphic file (type png)
 <use figures/dashboard.png>
-Package pdftex.def Info: figures/dashboard.png  used on input line 481.
+Package pdftex.def Info: figures/dashboard.png  used on input line 482.
 (pdftex.def)             Requested size: 416.72963pt x 234.53183pt.
-<figures/reviews.png, id=340, 1872.9975pt x 966.61125pt>
+<figures/reviews.png, id=339, 1872.9975pt x 966.61125pt>
 File: figures/reviews.png Graphic file (type png)
 <use figures/reviews.png>
-Package pdftex.def Info: figures/reviews.png  used on input line 483.
+Package pdftex.def Info: figures/reviews.png  used on input line 484.
 (pdftex.def)             Requested size: 416.72963pt x 215.05927pt.
-<figures/issues.png, id=341, 1872.9975pt x 966.61125pt>
+<figures/issues.png, id=340, 1872.9975pt x 966.61125pt>
 File: figures/issues.png Graphic file (type png)
 <use figures/issues.png>
-Package pdftex.def Info: figures/issues.png  used on input line 485.
+Package pdftex.def Info: figures/issues.png  used on input line 486.
 (pdftex.def)             Requested size: 416.72963pt x 215.05927pt.
-<figures/issue-detail.png, id=342, 1872.9975pt x 966.61125pt>
+<figures/issue-detail.png, id=341, 1872.9975pt x 966.61125pt>
 File: figures/issue-detail.png Graphic file (type png)
 <use figures/issue-detail.png>
-Package pdftex.def Info: figures/issue-detail.png  used on input line 487.
-(pdftex.def)             Requested size: 416.72963pt x 215.05927pt.
-<figures/emerging-issues.png, id=343, 1872.9975pt x 966.61125pt>
-File: figures/emerging-issues.png Graphic file (type png)
-<use figures/emerging-issues.png>
-Package pdftex.def Info: figures/emerging-issues.png  used on input line 489.
+Package pdftex.def Info: figures/issue-detail.png  used on input line 488.
 (pdftex.def)             Requested size: 416.72963pt x 215.05927pt.
  [9 <./figures/dashboard.png (PNG copy)> <./figures/reviews.png>]
-<figures/db-schema.pdf, id=355, 602.25pt x 753.77606pt>
+<figures/emerging-issues.png, id=352, 1872.9975pt x 966.61125pt>
+File: figures/emerging-issues.png Graphic file (type png)
+<use figures/emerging-issues.png>
+Package pdftex.def Info: figures/emerging-issues.png  used on input line 490.
+(pdftex.def)             Requested size: 416.72963pt x 215.05927pt.
+ [10 <./figures/issues.png> <./figures/issue-detail.png>]
+<figures/db-schema.pdf, id=360, 602.25pt x 753.77606pt>
 File: figures/db-schema.pdf Graphic file (type pdf)
 <use figures/db-schema.pdf>
-Package pdftex.def Info: figures/db-schema.pdf  used on input line 498.
+Package pdftex.def Info: figures/db-schema.pdf  used on input line 499.
 (pdftex.def)             Requested size: 447.76244pt x 560.41943pt.
 LaTeX Font Info:    Font shape `T1/npxtt/m/n' will be
-(Font)              scaled to size 10.0pt on input line 498.
-<figures/seq-detection.pdf, id=358, 602.25pt x 372.43138pt>
+(Font)              scaled to size 10.0pt on input line 499.
+<figures/seq-detection.pdf, id=363, 602.25pt x 372.43138pt>
 File: figures/seq-detection.pdf Graphic file (type pdf)
 <use figures/seq-detection.pdf>
-Package pdftex.def Info: figures/seq-detection.pdf  used on input line 505.
+Package pdftex.def Info: figures/seq-detection.pdf  used on input line 506.
 (pdftex.def)             Requested size: 452.98212pt x 280.12411pt.
-<figures/seq-resolve.pdf, id=359, 602.25pt x 422.53859pt>
+<figures/seq-resolve.pdf, id=364, 602.25pt x 422.53859pt>
 File: figures/seq-resolve.pdf Graphic file (type pdf)
 <use figures/seq-resolve.pdf>
-Package pdftex.def Info: figures/seq-resolve.pdf  used on input line 508.
+Package pdftex.def Info: figures/seq-resolve.pdf  used on input line 509.
 (pdftex.def)             Requested size: 419.34824pt x 294.21472pt.
 LaTeX Font Info:    Font shape `T1/npxtt/b/n' in size <10.95> not available
-(Font)              Font shape `T1/npxtt/bx/n' tried instead on input line 515.
+(Font)              Font shape `T1/npxtt/bx/n' tried instead on input line 516.
 
 LaTeX Font Info:    Font shape `T1/npxtt/bx/n' will be
-(Font)              scaled to size 10.95pt on input line 515.
- [10 <./figures/issues.png> <./figures/issue-detail.png>] [11 <./figures/emergi
-ng-issues.png>] [12 <./figures/db-schema.pdf>] [13 <./figures/seq-detection.pdf
-> <./figures/seq-resolve.pdf>]
+(Font)              scaled to size 10.95pt on input line 516.
+ [11 <./figures/emerging-issues.png>] [12 <./figures/db-schema.pdf>] [13 <./fig
+ures/seq-detection.pdf> <./figures/seq-resolve.pdf>]
 [14]
 LaTeX Font Info:    Font shape `T1/zpltlf/m/n' will be
-(Font)              scaled to size 7.3pt on input line 591.
+(Font)              scaled to size 7.3pt on input line 592.
  [15]
-Overfull \hbox (3.1396pt too wide) in paragraph at lines 701--701
+Overfull \hbox (3.1396pt too wide) in paragraph at lines 712--712
 []|\T1/zpltlf/b/n/10.95 (-20) Opportunities| 
  []
 
 [16]
-Underfull \hbox (badness 10000) in paragraph at lines 725--725
+Underfull \hbox (badness 10000) in paragraph at lines 736--736
 []|\T1/zpltlf/m/n/10.95 (+20) Moderate--
  []
 
 [17]
-Underfull \hbox (badness 10000) in paragraph at lines 774--774
+Underfull \hbox (badness 10000) in paragraph at lines 785--785
 []|\T1/zpltlf/m/n/10.95 (+20) High $\LMS/npxsy/m/n/10.95 ^^B$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 774--774
+Underfull \hbox (badness 10000) in paragraph at lines 785--785
 []|\T1/zpltlf/m/n/10.95 (+20) High $\LMS/npxsy/m/n/10.95 ^^B$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 774--774
+Underfull \hbox (badness 10000) in paragraph at lines 785--785
 []|\T1/zpltlf/m/n/10.95 (+20) Med $\LMS/npxsy/m/n/10.95 ^^B$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 774--774
+Underfull \hbox (badness 10000) in paragraph at lines 785--785
 []|\T1/zpltlf/m/n/10.95 (+20) Med $\LMS/npxsy/m/n/10.95 ^^B$
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 774--774
+Underfull \hbox (badness 10000) in paragraph at lines 785--785
 []|\T1/zpltlf/m/n/10.95 (+20) Low $\LMS/npxsy/m/n/10.95 ^^B$
  []
 
 [18]
-<figures/timeline.pdf, id=468, 602.25pt x 268.12169pt>
+<figures/timeline.pdf, id=467, 602.25pt x 268.12169pt>
 File: figures/timeline.pdf Graphic file (type pdf)
 <use figures/timeline.pdf>
-Package pdftex.def Info: figures/timeline.pdf  used on input line 793.
+Package pdftex.def Info: figures/timeline.pdf  used on input line 804.
 (pdftex.def)             Requested size: 452.98212pt x 201.66763pt.
  [19 <./figures/timeline.pdf>]
-Underfull \hbox (badness 10000) in paragraph at lines 907--907
+Underfull \hbox (badness 10000) in paragraph at lines 918--918
 []|\T1/zpltlf/b/n/10.95 (+20) EKANAYAKA
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 907--907
+Underfull \hbox (badness 10000) in paragraph at lines 918--918
 []|\T1/zpltlf/b/n/10.95 (+20) FERNANDO N.P.A.
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 907--907
+Underfull \hbox (badness 10000) in paragraph at lines 918--918
 []|\T1/zpltlf/b/n/10.95 (+20) RATHNAYAKE
  []
 
 
-Underfull \hbox (badness 10000) in paragraph at lines 907--907
+Underfull \hbox (badness 10000) in paragraph at lines 918--918
 []|\T1/zpltlf/b/n/10.95 (+20) WIJETHUNGA
  []
 
@@ -1353,10 +1353,10 @@ Package rerunfilecheck Info: File `main.out' has not changed.
 (rerunfilecheck)             Checksum: E67B7B438A36985459CA8922ED09567B;7367.
  ) 
 Here is how much of TeX's memory you used:
- 30344 strings out of 469514
- 544411 string characters out of 5470072
- 948391 words of memory out of 5000000
- 58172 multiletter control sequences out of 15000+600000
+ 30345 strings out of 469514
+ 544417 string characters out of 5470072
+ 948419 words of memory out of 5000000
+ 58173 multiletter control sequences out of 15000+600000
  714531 words of font info for 227 fonts, out of 8000000 for 9000
  14 hyphenation exceptions out of 8191
  84i,12n,117p,1193b,881s stack positions out of 10000i,1000n,20000p,200000b,200000s
@@ -1370,10 +1370,10 @@ xfonts/t1xtt.pfb></usr/share/texlive/texmf-dist/fonts/type1/public/newtx/txexas
 are/texlive/texmf-dist/fonts/type1/public/newpx/zplb.pfb></usr/share/texlive/te
 xmf-dist/fonts/type1/public/newpx/zplr.pfb></usr/share/texlive/texmf-dist/fonts
 /type1/public/newpx/zplri.pfb>
-Output written on main.pdf (23 pages, 7108169 bytes).
+Output written on main.pdf (23 pages, 7110845 bytes).
 PDF statistics:
- 605 PDF objects out of 1000 (max. 8388607)
- 499 compressed objects within 5 object streams
+ 604 PDF objects out of 1000 (max. 8388607)
+ 498 compressed objects within 5 object streams
  106 named destinations out of 1000 (max. 500000)
  39860 words of extra memory for PDF output out of 42996 (max. 10000000)
 
