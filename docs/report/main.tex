@@ -31,6 +31,7 @@
 \renewcommand{\floatpagefraction}{0.75}
 \usepackage{array}
 \usepackage{tabularx}
+\usepackage{longtable}
 \usepackage{xcolor}
 \usepackage{caption}
 \captionsetup{font=small,labelfont=bf,skip=6pt}
@@ -875,55 +876,85 @@ flow, and validating that the system remained an academic proof-of-concept rathe
 production platform access. The table below records the main responsibility areas used to divide the
 work.
 
-\begin{table}[H]
-\centering
-\caption{Team member contributions from ideation to implementation.}
-\label{tab:contributions}
 \renewcommand{\arraystretch}{1.28}
-\begin{tabularx}{\linewidth}{>{\bfseries}p{4.0cm}X}
+\begin{longtable}{>{\bfseries}p{4.0cm}p{10.8cm}}
+\caption{Team member contributions from ideation to implementation.}
+\label{tab:contributions}\\
 \toprule
 \textbf{Team member} & \textbf{Primary contributions} \\
 \midrule
+\endfirsthead
+\toprule
+\textbf{Team member} & \textbf{Primary contributions} \\
+\midrule
+\endhead
+\midrule
+\multicolumn{2}{r}{\small Continued on next page} \\
+\bottomrule
+\endfoot
+\bottomrule
+\endlastfoot
 EKANAYAKA D.M.Y.N.B. (220153R) &
-Led problem framing and business-domain analysis. Contributed to brainstorming the AI-era reputation
-risk concept, defining the hotel operations workflow, mapping review complaints to department-owned
-issues, preparing the commercial value argument, and writing the introduction, motivation, business
-analysis, limitations and conclusion sections of the report. \\
+Led the problem-framing and business-domain work that shaped the system as a reputation-protection
+tool rather than a generic review dashboard. Contributed to the initial brainstorming around how AI
+assistants and public reviews influence hotel reputation, helped define The Kingsbury case-study
+problem, and translated scattered guest complaints into the product concept of evidence-backed,
+department-owned operational issues. Prepared the commercial argument around reputation risk,
+review-driven revenue exposure, analyst time savings, pricing, ROI and future production value. Also
+contributed to the report sections on introduction, motivation, business analysis, limitations,
+conclusion and the final project narrative. \\
 
 FERNANDO N.P.A. (220168R) &
-Led backend architecture and API implementation. Designed and implemented the FastAPI service
-structure, connector-shaped ingestion flow, canonical review storage, database migrations and seed
-data, REST endpoints for dashboard, review and issue screens, and operational scripts for migration,
-import, verification, database restore and demo execution. \\
+Led the backend architecture and API implementation. Designed the FastAPI service around modular,
+official-shaped review connectors for Google Business Profile, TripAdvisor and Booking.com, and
+implemented the ingestion path that preserves raw review payloads while creating normalized review
+records for analysis. Worked on the PostgreSQL schema, SQLAlchemy/Alembic migrations, seed data,
+idempotent import behaviour, review-analysis persistence, issue-review evidence links and REST
+endpoints used by the dashboard, review list and issue-management screens. Also prepared operational
+scripts for migration, import, fixture validation, database restore, demo execution and end-to-end
+verification. \\
 
 PRASANNA W.A.S.D. (220488X) &
-Led natural-language processing and issue-detection implementation. Worked on sentiment analysis,
-zero-shot department classification, embedding generation, reputation-risk scoring, LLM extraction and
-consolidation prompts, evidence linking, active versus emerging issue logic, and the provider-agnostic
-LLM client with Gemini and deterministic stub modes. \\
+Led the natural-language analysis and issue-detection implementation. Worked on the local NLP pipeline
+for sentiment classification, zero-shot department classification, sentence/review embeddings and the
+0--100 Reputation Risk score used to prioritise operational damage. Designed and refined the
+specificity-preserving three-pass LLM detection flow: extracting concrete problems from negative and
+mixed reviews, consolidating repeated complaints into canonical issue types, and assembling
+evidence-grounded issue descriptions while retaining facts such as room, amount and time. Also
+contributed to active-versus-emerging issue logic, recurrence-ready cluster keys, issue evidence
+linking, confidence handling, and the provider-agnostic LLM client using Gemini with an offline stub
+for tests and no-key runs. \\
 
 RATHNAYAKE R.M.D.D. (220525K) &
-Led data preparation, evaluation and validation. Prepared connector fixtures and real-review
-transforms, validated fixture identity and import consistency, helped generate specificity-preserving
-incident datasets, verified review and issue counts, checked top issue findings against the database,
-documented data-source policy, evaluation caveats and risk mitigation, and handled communication with
-The Kingsbury for case-study coordination and project context. \\
+Led data preparation, evaluation, validation and external coordination. Handled communication with The
+Kingsbury for case-study coordination and project context, helping the team align the prototype with a
+real hotel operations setting. Prepared connector-shaped fixture datasets and real-review transforms,
+validated source identity and import consistency, and helped generate specificity-preserving incident
+data so the pipeline could be tested on concrete complaints rather than vague categories. Verified the
+reported corpus and outcome figures, including 2{,}939 analysed reviews, 2{,}294 negative/mixed
+reviews, 117 active issues, 587 emerging signals, 77\% complaint linkage and the top issue counts.
+Documented data-source policy, review authenticity caveats, evaluation limits, source-risk handling
+and strategic risk mitigations used in the report and presentation. \\
 
 WIJETHUNGA W.M.D.P. (220727G) &
-Led frontend implementation and presentation material. Built and refined the Next.js/React operator
-interface for dashboard, reviews and issues, including filtering, issue status visibility, risk and
-department presentation, evidence badges and demo usability. Prepared screenshots, presentation flow,
-speaker notes and visual reporting material for the final submission. \\
-\bottomrule
-\end{tabularx}
-\end{table}
+Led the frontend implementation and presentation material. Built and refined the Next.js/React
+operator interface as a calm, credible internal hotel operations tool rather than a marketing page,
+following the product principles of keeping evidence close to decisions and making ownership explicit.
+Worked on the dashboard KPIs, sentiment/risk visualisations, review browsing, issue queues, department
+and priority filters, active/emerging issue views, evidence badges, assignee/status visibility and
+demo usability. Prepared the visual materials for the final delivery, including screenshots,
+presentation flow, speaker notes and slide content explaining the problem, pipeline, findings, ROI,
+competitive edge and risk mitigations. \\
+\end{longtable}
 
 \noindent
 In addition to these primary areas, final integration, testing, report review and presentation
 rehearsal were shared responsibilities. The team jointly checked that the delivered system could be
-run locally with PostgreSQL, FastAPI and Next.js, that review ingestion and detection produced the
-reported 2{,}939-review / 117-active-issue outcome, and that the final narrative remained consistent
-with the source-code implementation and project documentation.
+run locally with PostgreSQL, FastAPI and Next.js; that local NLP models, Gemini-based issue detection
+and the deterministic stub mode matched the intended product boundary; that review ingestion and
+detection produced the reported 2{,}939-review / 117-active-issue outcome; and that the final report,
+presentation and risk analysis remained consistent with the source-code implementation and project
+documentation.
 
 % =========================================================================
 \bibliography{references}
