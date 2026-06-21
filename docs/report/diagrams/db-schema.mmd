@@ -1,0 +1,63 @@
+erDiagram
+    REVIEW_SOURCES ||--o{ RAW_REVIEWS : provides
+    RAW_REVIEWS ||--|| NORMALIZED_REVIEWS : normalises_to
+    NORMALIZED_REVIEWS ||--|| REVIEW_ANALYSES : analysed_by
+    NORMALIZED_REVIEWS ||--o{ ISSUE_REVIEW_LINKS : evidenced_in
+    DETECTED_ISSUES ||--o{ ISSUE_REVIEW_LINKS : supported_by
+    DETECTED_ISSUES ||--o{ ISSUE_EVENTS : audited_by
+    DEPARTMENTS ||--o{ DETECTED_ISSUES : owns
+
+    REVIEW_SOURCES {
+        string code PK
+        bool   is_verified_channel
+        string connector_key
+    }
+    RAW_REVIEWS {
+        int    id PK
+        string source_code FK
+        string external_review_id
+        json   raw_payload
+        string payload_hash
+    }
+    NORMALIZED_REVIEWS {
+        int    id PK
+        float  rating
+        string body
+        date   review_date
+        string language
+        string content_hash
+    }
+    REVIEW_ANALYSES {
+        int    review_id FK
+        string sentiment_label
+        string department_code
+        int    reputation_risk_score
+        json   embedding
+    }
+    DETECTED_ISSUES {
+        int    id PK
+        string title
+        string department_code FK
+        string status
+        int    reputation_risk_score
+        string cluster_key
+        json   cluster_centroid
+        string assignee_name
+    }
+    ISSUE_REVIEW_LINKS {
+        int    issue_id FK
+        int    review_id FK
+        bool   is_triggering_evidence
+        string evidence_snippet
+    }
+    ISSUE_EVENTS {
+        int    id PK
+        int    issue_id FK
+        string event_type
+        string actor
+    }
+    DEPARTMENTS {
+        string code PK
+        int    risk_weight
+        int    service_level_hours
+    }

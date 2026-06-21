@@ -3,86 +3,135 @@
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \bibstyle{plainnat}
+\@writefile{toc}{\contentsline {section}{Abstract}{1}{Doc-Start}\protected@file@percent }
 \citation{anderson2012social}
 \citation{tripadvisor2019reviews,reputationdefender2023stats}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{3}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Background}{3}{subsection.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Motivation}{3}{subsection.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Problem statement}{3}{subsection.1.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}Objectives}{3}{subsection.1.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.5}Scope}{3}{subsection.1.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{4}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}Background}{4}{subsection.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.2}Motivation}{4}{subsection.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.3}Problem statement}{4}{subsection.1.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.4}Objectives}{4}{subsection.1.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.5}Scope}{4}{subsection.1.5}\protected@file@percent }
 \citation{pontiki2016semeval}
-\citation{anderson2012social}
-\citation{tripadvisor2019reviews,reputationdefender2023stats}
-\citation{google2025gemini}
-\citation{reimers2019sbert}
+\citation{asia2024ota}
+\citation{tripadvisor2019reviews}
+\@writefile{toc}{\contentsline {section}{\numberline {2}Market Analysis}{5}{section.2}\protected@file@percent }
+\newlabel{sec:market}{{2}{5}{Market Analysis}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}Current approaches and competitors}{5}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Demand and review context}{5}{subsection.2.2}\protected@file@percent }
+\newlabel{sec:demand}{{2.2}{5}{Demand and review context}{subsection.2.2}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are illustrative benchmarks, flagged as such.}}{6}{table.caption.1}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:demand}{{1}{6}{Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are illustrative benchmarks, flagged as such}{table.caption.1}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Market gap and positioning}{6}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Proposed Solution}{6}{section.3}\protected@file@percent }
+\newlabel{sec:solution}{{3}{6}{Proposed Solution}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Overview}{6}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Key features}{6}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Unique value proposition}{6}{subsection.3.3}\protected@file@percent }
 \citation{lewis2020bart}
 \citation{reimers2019sbert}
-\@writefile{toc}{\contentsline {section}{\numberline {2}Related Work}{4}{section.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}System Design and Methodology}{4}{section.3}\protected@file@percent }
-\newlabel{sec:design}{{3}{4}{System Design and Methodology}{section.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Architecture overview}{4}{subsection.3.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Ingestion and the canonical data model}{4}{subsection.3.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces System architecture. Reviews flow from modular platform connectors into the FastAPI service, which analyses them with local NLP models and an external LLM, persists results in PostgreSQL, and serves the operator-facing web client.}}{5}{figure.caption.1}\protected@file@percent }
-\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{fig:arch}{{1}{5}{System architecture. Reviews flow from modular platform connectors into the FastAPI service, which analyses them with local NLP models and an external LLM, persists results in PostgreSQL, and serves the operator-facing web client}{figure.caption.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Canonical data model. Reviews are progressively enriched, and issues are linked back to the exact reviews and snippets that evidence them, giving every issue a traceable basis.}}{5}{figure.caption.2}\protected@file@percent }
-\newlabel{fig:datamodel}{{2}{5}{Canonical data model. Reviews are progressively enriched, and issues are linked back to the exact reviews and snippets that evidence them, giving every issue a traceable basis}{figure.caption.2}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Natural-language analysis}{5}{subsection.3.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Reputation-risk score.}{5}{paragraph*.3}\protected@file@percent }
-\newlabel{eq:risk}{{1}{5}{Reputation-risk score}{equation.1}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces The end-to-end pipeline. Reviews are ingested and analysed, then a three-pass LLM stage extracts, consolidates and assembles concrete, evidence-grounded issues.}}{6}{figure.caption.4}\protected@file@percent }
-\newlabel{fig:pipeline}{{3}{6}{The end-to-end pipeline. Reviews are ingested and analysed, then a three-pass LLM stage extracts, consolidates and assembles concrete, evidence-grounded issues}{figure.caption.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Issue detection through a three-pass LLM pipeline}{6}{subsection.3.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Data and evaluation methodology}{6}{subsection.3.5}\protected@file@percent }
-\newlabel{sec:data}{{3.5}{6}{Data and evaluation methodology}{subsection.3.5}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Dashboard showing the KPI cards (sentiment mix, risk distribution, and active, high-risk and recurred issue counts) with sentiment and risk donuts and per-department issue bars.}}{7}{figure.caption.6}\protected@file@percent }
-\newlabel{fig:dashboard}{{4}{7}{Dashboard showing the KPI cards (sentiment mix, risk distribution, and active, high-risk and recurred issue counts) with sentiment and risk donuts and per-department issue bars}{figure.caption.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {4}Results and Findings}{7}{section.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Scale and compression}{7}{subsection.4.1}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Corpus and detection outcomes.}}{7}{table.caption.5}\protected@file@percent }
-\newlabel{tab:scale}{{1}{7}{Corpus and detection outcomes}{table.caption.5}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}The issues that matter}{7}{subsection.4.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {5}Business and Market Analysis}{7}{section.5}\protected@file@percent }
-\newlabel{sec:business}{{5}{7}{Business and Market Analysis}{section.5}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Top detected issues (verbatim from the system).}}{8}{table.caption.7}\protected@file@percent }
-\newlabel{tab:issues}{{2}{8}{Top detected issues (verbatim from the system)}{table.caption.7}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Issues page showing the active-issue queue with title, owning department, status, priority, reputation-risk score and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals.}}{8}{figure.caption.8}\protected@file@percent }
-\newlabel{fig:issues}{{5}{8}{Issues page showing the active-issue queue with title, owning department, status, priority, reputation-risk score and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals}{figure.caption.8}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Review authenticity and data validity}{8}{subsection.5.1}\protected@file@percent }
-\newlabel{sec:authenticity}{{5.1}{8}{Review authenticity and data validity}{subsection.5.1}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Demand and review context, would the hotel care?}{8}{subsection.5.2}\protected@file@percent }
-\newlabel{sec:demand}{{5.2}{8}{Demand and review context, would the hotel care?}{subsection.5.2}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces System architecture. Reviews flow from modular platform connectors into the FastAPI service, which analyses them with local NLP models and an external LLM, persists results in PostgreSQL, and serves the operator-facing web client.}}{7}{figure.caption.2}\protected@file@percent }
+\newlabel{fig:arch}{{1}{7}{System architecture. Reviews flow from modular platform connectors into the FastAPI service, which analyses them with local NLP models and an external LLM, persists results in PostgreSQL, and serves the operator-facing web client}{figure.caption.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {4}System Design and Methodology}{7}{section.4}\protected@file@percent }
+\newlabel{sec:design}{{4}{7}{System Design and Methodology}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Ingestion and the canonical data model}{7}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Natural-language analysis}{7}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Reputation-risk score.}{7}{paragraph*.3}\protected@file@percent }
+\newlabel{eq:risk}{{1}{7}{Reputation-risk score}{equation.1}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces The end-to-end pipeline. Reviews are ingested and analysed, then a three-pass LLM stage extracts, consolidates and assembles concrete, evidence-grounded issues.}}{8}{figure.caption.4}\protected@file@percent }
+\newlabel{fig:pipeline}{{2}{8}{The end-to-end pipeline. Reviews are ingested and analysed, then a three-pass LLM stage extracts, consolidates and assembles concrete, evidence-grounded issues}{figure.caption.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Issue detection through a three-pass LLM pipeline}{8}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Data and evaluation methodology}{8}{subsection.4.4}\protected@file@percent }
+\newlabel{sec:data}{{4.4}{8}{Data and evaluation methodology}{subsection.4.4}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces The Dashboard, a product showcase of the operations overview.}}{9}{figure.caption.5}\protected@file@percent }
+\newlabel{fig:dashboard}{{3}{9}{The Dashboard, a product showcase of the operations overview}{figure.caption.5}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces The Reviews page, with per-review sentiment, reputation risk, department and issue links.}}{9}{figure.caption.6}\protected@file@percent }
+\newlabel{fig:reviews}{{4}{9}{The Reviews page, with per-review sentiment, reputation risk, department and issue links}{figure.caption.6}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Implementation}{9}{section.5}\protected@file@percent }
+\newlabel{sec:impl}{{5}{9}{Implementation}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Main interfaces}{9}{subsection.5.1}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces The Issues page, the active-issue queue ranked by reputation risk, with status, priority and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals.}}{10}{figure.caption.7}\protected@file@percent }
+\newlabel{fig:issues}{{5}{10}{The Issues page, the active-issue queue ranked by reputation risk, with status, priority and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals}{figure.caption.7}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces The issue detail side-sheet, showing the linked reviews, evidence snippets and the event history for one issue.}}{10}{figure.caption.8}\protected@file@percent }
+\newlabel{fig:issuedetail}{{6}{10}{The issue detail side-sheet, showing the linked reviews, evidence snippets and the event history for one issue}{figure.caption.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Database schema}{10}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Key interaction flows}{10}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Important implementation decisions}{10}{subsection.5.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces The Emerging candidates tab, listing single-mention early-warning signals ranked by reputation risk.}}{11}{figure.caption.9}\protected@file@percent }
+\newlabel{fig:emerging}{{7}{11}{The Emerging candidates tab, listing single-mention early-warning signals ranked by reputation risk}{figure.caption.9}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Database schema. The enrichment chain runs from \texttt  {raw\_reviews} to \texttt  {detected\_issues}, joined to the reviews that evidence them through \texttt  {issue\_review\_links}.}}{12}{figure.caption.10}\protected@file@percent }
+\newlabel{fig:erd}{{8}{12}{Database schema. The enrichment chain runs from \texttt {raw\_reviews} to \texttt {detected\_issues}, joined to the reviews that evidence them through \texttt {issue\_review\_links}}{figure.caption.10}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Detection flow. A review is ingested, scored by the local models, and passed through the three LLM passes before issues are upserted by \texttt  {cluster\_key}.}}{13}{figure.caption.11}\protected@file@percent }
+\newlabel{fig:seqdetect}{{9}{13}{Detection flow. A review is ingested, scored by the local models, and passed through the three LLM passes before issues are upserted by \texttt {cluster\_key}}{figure.caption.11}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Resolution flow. An operations manager opens the ranked issues, inspects the evidence, assigns to a department head, who resolves once the cause is fixed.}}{13}{figure.caption.12}\protected@file@percent }
+\newlabel{fig:seqresolve}{{10}{13}{Resolution flow. An operations manager opens the ranked issues, inspects the evidence, assigns to a department head, who resolves once the cause is fixed}{figure.caption.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Results and Findings}{14}{section.6}\protected@file@percent }
+\newlabel{sec:results}{{6}{14}{Results and Findings}{section.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Scale and compression}{14}{subsection.6.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Corpus and detection outcomes.}}{14}{table.caption.13}\protected@file@percent }
+\newlabel{tab:scale}{{2}{14}{Corpus and detection outcomes}{table.caption.13}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}The issues that matter}{14}{subsection.6.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Top detected issues (verbatim from the system).}}{14}{table.caption.14}\protected@file@percent }
+\newlabel{tab:issues}{{3}{14}{Top detected issues (verbatim from the system)}{table.caption.14}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Feasibility Study}{14}{section.7}\protected@file@percent }
+\newlabel{sec:feasibility}{{7}{14}{Feasibility Study}{section.7}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Financial feasibility}{14}{subsection.7.1}\protected@file@percent }
+\newlabel{sec:financial}{{7.1}{14}{Financial feasibility}{subsection.7.1}{}}
 \citation{anderson2012social}
-\citation{asia2024ota}
 \citation{tripadvisor2019reviews,reputationdefender2023stats}
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are illustrative benchmarks, flagged as such.}}{9}{table.caption.9}\protected@file@percent }
-\newlabel{tab:demand}{{3}{9}{Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are illustrative benchmarks, flagged as such}{table.caption.9}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Estimating the revenue impact}{9}{subsection.5.3}\protected@file@percent }
-\newlabel{sec:revenue}{{5.3}{9}{Estimating the revenue impact}{subsection.5.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative.}}{9}{table.caption.10}\protected@file@percent }
-\newlabel{tab:revenue}{{4}{9}{Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative}{table.caption.10}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}Cost analysis and pricing}{9}{subsection.5.4}\protected@file@percent }
-\newlabel{sec:pricing}{{5.4}{9}{Cost analysis and pricing}{subsection.5.4}{}}
-\@writefile{toc}{\contentsline {paragraph}{Recommended model, a one-time licence plus support.}{10}{paragraph*.11}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Proposed pricing under the recommended model, with indicative figures.}}{10}{table.caption.12}\protected@file@percent }
-\newlabel{tab:cost}{{5}{10}{Proposed pricing under the recommended model, with indicative figures}{table.caption.12}{}}
-\@writefile{toc}{\contentsline {paragraph}{Return on investment.}{10}{paragraph*.13}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {6}Discussion, Limitations, Risks and Mitigations}{10}{section.6}\protected@file@percent }
-\newlabel{sec:discussion}{{6}{10}{Discussion, Limitations, Risks and Mitigations}{section.6}{}}
-\@writefile{toc}{\contentsline {paragraph}{Synthetic-data validity.}{10}{paragraph*.14}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Other risks and their mitigations}{10}{paragraph*.15}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion and Future Work}{10}{section.7}\protected@file@percent }
-\newlabel{sec:conclusion}{{7}{10}{Conclusion and Future Work}{section.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pricing.}{15}{paragraph*.15}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Proposed pricing under the recommended model, with indicative figures.}}{15}{table.caption.16}\protected@file@percent }
+\newlabel{tab:cost}{{4}{15}{Proposed pricing under the recommended model, with indicative figures}{table.caption.16}{}}
+\@writefile{toc}{\contentsline {paragraph}{Revenue impact and return.}{15}{paragraph*.17}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative.}}{15}{table.caption.18}\protected@file@percent }
+\newlabel{tab:revenue}{{5}{15}{Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied to the review-influenced revenue base, and all hotel financials are illustrative}{table.caption.18}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Technical feasibility}{15}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Resource and time feasibility}{16}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Social and legal feasibility}{16}{subsection.7.4}\protected@file@percent }
+\newlabel{sec:legal}{{7.4}{16}{Social and legal feasibility}{subsection.7.4}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Risk and Strategic Analysis}{16}{section.8}\protected@file@percent }
+\newlabel{sec:risk}{{8}{16}{Risk and Strategic Analysis}{section.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1}SWOT}{17}{subsection.8.1}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces SWOT analysis of the system as a product.}}{17}{table.caption.19}\protected@file@percent }
+\newlabel{tab:swot}{{6}{17}{SWOT analysis of the system as a product}{table.caption.19}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Porter's Five Forces}{17}{subsection.8.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Porter's Five Forces.}}{17}{table.caption.20}\protected@file@percent }
+\newlabel{tab:porter}{{7}{17}{Porter's Five Forces}{table.caption.20}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.3}PESTLE}{18}{subsection.8.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces PESTLE macro-environment.}}{18}{table.caption.21}\protected@file@percent }
+\newlabel{tab:pestle}{{8}{18}{PESTLE macro-environment}{table.caption.21}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.4}Risk register and mitigations}{18}{subsection.8.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Top risks ranked by exposure (likelihood by impact) with mitigations.}}{18}{table.caption.22}\protected@file@percent }
+\newlabel{tab:riskreg}{{9}{18}{Top risks ranked by exposure (likelihood by impact) with mitigations}{table.caption.22}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5}Strategic verdict}{18}{subsection.8.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Project Timeline}{19}{section.9}\protected@file@percent }
+\newlabel{sec:timeline}{{9}{19}{Project Timeline}{section.9}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Project timeline across initiation, design, development, evaluation and delivery, from ideation in April 2026 to delivery on 21 June 2026.}}{19}{figure.caption.23}\protected@file@percent }
+\newlabel{fig:gantt}{{11}{19}{Project timeline across initiation, design, development, evaluation and delivery, from ideation in April 2026 to delivery on 21 June 2026}{figure.caption.23}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10}User Journeys}{19}{section.10}\protected@file@percent }
+\newlabel{sec:journeys}{{10}{19}{User Journeys}{section.10}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11}Challenges Faced}{19}{section.11}\protected@file@percent }
+\newlabel{sec:challenges}{{11}{19}{Challenges Faced}{section.11}{}}
 \bibdata{references}
 \bibcite{anderson2012social}{{1}{2012}{{Anderson}}{{}}}
+\@writefile{toc}{\contentsline {section}{\numberline {12}Community and Industry Impact}{20}{section.12}\protected@file@percent }
+\newlabel{sec:impact}{{12}{20}{Community and Industry Impact}{section.12}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {13}Lessons Learned and Future Work}{20}{section.13}\protected@file@percent }
+\newlabel{sec:lessons}{{13}{20}{Lessons Learned and Future Work}{section.13}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {14}Conclusion}{20}{section.14}\protected@file@percent }
+\newlabel{sec:conclusion}{{14}{20}{Conclusion}{section.14}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {15}Individual Contributions}{20}{section.15}\protected@file@percent }
+\newlabel{sec:contrib}{{15}{20}{Individual Contributions}{section.15}{}}
+\@writefile{toc}{\contentsline {paragraph}{EKANAYAKA D.M.Y.N.B. (220153R).}{20}{paragraph*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{FERNANDO N.P.A. (220168R).}{20}{paragraph*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{PRASANNA W.A.S.D. (220488X).}{20}{paragraph*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{RATHNAYAKE R.M.D.D. (220525K).}{20}{paragraph*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{WIJETHUNGA W.M.D.P. (220727G).}{20}{paragraph*.28}\protected@file@percent }
 \bibcite{asia2024ota}{{2}{2024}{{Digital Travel APAC / Cambodge Mag}}{{}}}
-\bibcite{google2025gemini}{{3}{2025}{{Google DeepMind}}{{}}}
-\bibcite{lewis2020bart}{{4}{2020}{{Lewis et~al.}}{{Lewis, Liu, Goyal, Ghazvininejad, Mohamed, Levy, Stoyanov, and Zettlemoyer}}}
-\bibcite{pontiki2016semeval}{{5}{2016}{{Pontiki et~al.}}{{Pontiki, Galanis, Papageorgiou, Androutsopoulos, Manandhar, et~al.}}}
-\bibcite{reimers2019sbert}{{6}{2019}{{Reimers and Gurevych}}{{}}}
-\bibcite{reputationdefender2023stats}{{7}{2023}{{ReputationDefender}}{{}}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Key risks and mitigations.}}{11}{table.caption.16}\protected@file@percent }
-\newlabel{tab:risk}{{6}{11}{Key risks and mitigations}{table.caption.16}{}}
-\bibcite{tripadvisor2019reviews}{{8}{2019}{{Tripadvisor}}{{}}}
-\gdef \@abspage@last{13}
+\bibcite{lewis2020bart}{{3}{2020}{{Lewis et~al.}}{{Lewis, Liu, Goyal, Ghazvininejad, Mohamed, Levy, Stoyanov, and Zettlemoyer}}}
+\bibcite{pontiki2016semeval}{{4}{2016}{{Pontiki et~al.}}{{Pontiki, Galanis, Papageorgiou, Androutsopoulos, Manandhar, et~al.}}}
+\bibcite{reimers2019sbert}{{5}{2019}{{Reimers and Gurevych}}{{}}}
+\bibcite{reputationdefender2023stats}{{6}{2023}{{ReputationDefender}}{{}}}
+\bibcite{tripadvisor2019reviews}{{7}{2019}{{Tripadvisor}}{{}}}
+\gdef \@abspage@last{22}

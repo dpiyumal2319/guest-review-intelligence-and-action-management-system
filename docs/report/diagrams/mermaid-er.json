@@ -1,0 +1,4 @@
+{
+  "er": { "fontSize": 18, "entityPadding": 16, "minEntityWidth": 120 },
+  "themeVariables": { "fontSize": "22px" }
+}

@@ -1,0 +1,25 @@
+sequenceDiagram
+    autonumber
+    participant P as Review platform
+    participant C as Connector
+    participant API as FastAPI service
+    participant DB as PostgreSQL
+    participant NLP as Local NLP models
+    participant LLM as Gemini 2.5 Flash
+
+    P->>C: official-shaped payload
+    C->>API: normalised review
+    API->>DB: store raw + normalised review
+    API->>NLP: sentiment, department, embedding
+    NLP-->>API: scores + 384-d vector
+    API->>API: compute reputation-risk (0-100)
+    API->>DB: store review analysis
+
+    Note over API,LLM: Three-pass detection over negative and mixed reviews
+    API->>LLM: Pass A, extract problem + specifics
+    LLM-->>API: summary, department, specifics
+    API->>LLM: Pass B, consolidate into canonical types
+    LLM-->>API: dynamic issue taxonomy
+    API->>LLM: Pass C, assemble issue + description
+    LLM-->>API: evidence-grounded issue
+    API->>DB: upsert issue by cluster_key + evidence links

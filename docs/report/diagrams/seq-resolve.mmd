@@ -1,0 +1,24 @@
+sequenceDiagram
+    autonumber
+    actor M as Operations manager
+    participant W as Web client
+    participant API as FastAPI service
+    participant DB as PostgreSQL
+    actor H as Department head
+
+    M->>W: open Issues, ranked by reputation risk
+    W->>API: GET /issues
+    API->>DB: query active issues
+    DB-->>API: ranked issue list
+    API-->>W: issues + risk + owner
+    M->>W: open issue detail side-sheet
+    W->>API: GET /issues/{id}
+    API->>DB: issue + linked reviews + events
+    DB-->>API: evidence snippets + history
+    API-->>W: detail view
+    M->>W: assign to department head
+    W->>API: PATCH /issues/{id}
+    API->>DB: update assignee + log event
+    H->>W: resolve after fixing the cause
+    W->>API: PATCH /issues/{id}/resolve
+    API->>DB: set resolved + log event

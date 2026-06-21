@@ -21,7 +21,14 @@
 
 % --- Graphics, tables, colour ---
 \usepackage{graphicx}
+\usepackage{float}
+\usepackage[section]{placeins}
 \usepackage{booktabs}
+% allow large floats to fill more of a page so they place near their reference
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\bottomfraction}{0.9}
+\renewcommand{\textfraction}{0.06}
+\renewcommand{\floatpagefraction}{0.75}
 \usepackage{array}
 \usepackage{tabularx}
 \usepackage{xcolor}
@@ -49,8 +56,10 @@
 \fancyhead[R]{\small The Kingsbury, Colombo}
 \fancyfoot[C]{\small \thepage}
 
-% --- Hyperlinks (blue links in the reference section) ---
-\usepackage[colorlinks=true,linkcolor=black,citecolor=blue,urlcolor=blue]{hyperref}
+% --- Hyperlinks (standard black text, italic URLs; no colour) ---
+\usepackage[hidelinks]{hyperref}
+\urlstyle{same}
+\renewcommand{\UrlFont}{\itshape}
 \usepackage[round]{natbib}
 \bibliographystyle{plainnat}
 
@@ -81,6 +90,24 @@
   \end{figure}
 }
 
+% --- Rendered (mermaid) diagram: include PDF if present, else a note box ---
+\newcommand{\diagram}[4]{%
+  % #1 = filename, #2 = caption, #3 = label, #4 = max height fraction of \textheight
+  \begin{figure}[htbp]
+  \centering
+  \IfFileExists{figures/#1}{%
+    \includegraphics[width=\linewidth,height=#4\textheight,keepaspectratio]{figures/#1}%
+  }{%
+    \fcolorbox{midgray}{lightgray}{%
+      \begin{minipage}[c][3.6cm][c]{0.9\linewidth}\centering
+        {\bfseries\color{midgray} [ diagram: \ttfamily figures/#1 ]}\\[4pt]
+        {\small\color{midgray} run \ttfamily render-diagrams.sh}\end{minipage}}%
+  }
+  \caption{#2}
+  \label{#3}
+  \end{figure}
+}
+
 % ===========================================================================
 \begin{document}
 
@@ -88,32 +115,38 @@
 \begin{titlepage}
 \thispagestyle{empty}
 \centering
-\vspace*{0.7cm}
+\vspace*{0.1cm}
 \IfFileExists{figures/UoM Logo.png}{%
-  \includegraphics[width=3.0cm]{"figures/UoM Logo.png"}\\[0.35cm]
+  \includegraphics[width=2.3cm]{"figures/UoM Logo.png"}\\[0.2cm]
 }{%
-  {\Large\bfseries University of Moratuwa}\\[0.35cm]
+  {\Large\bfseries University of Moratuwa}\\[0.2cm]
 }
-{\Large\bfseries University of Moratuwa}\\[0.15cm]
-{\large Faculty of Computer Science and Engineering}\\[0.75cm]
+{\Large\bfseries University of Moratuwa}\\[0.1cm]
+{\large Faculty of Computer Science and Engineering}\\[0.45cm]
 
-{\color{navy}\rule{\linewidth}{1.4pt}}\\[0.45cm]
-{\Huge\bfseries Guest Review Intelligence\\[4pt] \& Action Management System}\\[0.35cm]
-{\Large A Reputation-Protection Platform for The Kingsbury, Colombo}\\[0.3cm]
-{\color{navy}\rule{\linewidth}{1.4pt}}\\[0.8cm]
+{\color{navy}\rule{\linewidth}{1.4pt}}\\[0.3cm]
+{\Huge\bfseries Guest Review Intelligence\\[4pt] \& Action Management System}\\[0.25cm]
+{\Large A Reputation-Protection Platform for The Kingsbury, Colombo}\\[0.25cm]
+{\color{navy}\rule{\linewidth}{1.4pt}}\\[0.5cm]
 
-{\large\bfseries Final Module Report}\\[0.15cm]
-{\itshape Turning thousands of scattered guest reviews into a prioritised,\\ department-owned action list, before problems define the brand.}\\[0.9cm]
+{\large\bfseries Final Module Report}\\[0.12cm]
+{\itshape Turning thousands of scattered guest reviews into a prioritised,\\ department-owned action list, before problems define the brand.}\\[0.45cm]
 
-\renewcommand{\arraystretch}{1.28}
+{\small\color{midgray} Prepared for}\\[0.15cm]
+\IfFileExists{figures/kingsbury-logo.png}{%
+  \includegraphics[height=1.4cm]{figures/kingsbury-logo.png}\\[0.12cm]
+}{}
+{\large\bfseries The Kingsbury, Colombo}\\[0.55cm]
+
+\renewcommand{\arraystretch}{1.2}
 \begin{tabular}{>{\bfseries}p{3.5cm}p{9.0cm}}
 Module & Professional Portfolio CS3940 \\
 Team & SystemX \\
 Institution & University of Moratuwa \\
 Date & 21 June 2026 \\
-\end{tabular}\\[0.75cm]
+\end{tabular}\\[0.5cm]
 
-{\bfseries Team Members}\\[0.25cm]
+{\bfseries Team Members}\\[0.2cm]
 \begin{tabular}{ll}
 EKANAYAKA D.M.Y.N.B. & 220153R \\
 FERNANDO N.P.A. & 220168R \\
@@ -129,8 +162,8 @@ Hotel financial figures are illustrative and explicitly flagged.}
 \end{titlepage}
 
 % --------------------------- ABSTRACT --------------------------------------
-\begin{abstract}
-\noindent
+\section*{Abstract}
+\addcontentsline{toc}{section}{Abstract}
 A five-star hotel's reputation is no longer written only by its front desk. Increasingly it is
 mediated by algorithms, such as search rankings and conversational AI assistants, that read guest
 reviews and distil them into a one-line verdict. When a recurring complaint is repeated by enough
@@ -146,17 +179,16 @@ small set of concrete, evidence-grounded, department-owned operational issues wh
 guest's exact specifics such as room number, amount and time. Across an analysed corpus of 2{,}939
 reviews (weighted toward the reputation-relevant negative and mixed reviews), 2{,}294 problem reviews
 collapsed into 117 active issues, roughly a 20:1 reduction, alongside 587 single-mention early-warning
-signals, at a marginal detection cost of about US\$0.25 per full run. The report also addresses the
-commercial dimensions of the system. These cover the authenticity of review data, the
-hotel's true booking and review volumes, a defensible and bounded estimate of the room revenue exposed
-to online reputation, and a concrete pricing model. We conclude that even on conservative assumptions
+signals, at a marginal detection cost of about US\$0.25 per full run. The report situates the system
+commercially through a market analysis, a five-part feasibility study, a strategic risk analysis,
+and a pricing model sized for a Sri Lankan property. We conclude that even on conservative assumptions
 the platform protects a multiple of its cost, and we outline the path to production through incremental
 detection and property-management-system integration.
-\end{abstract}
 
+\clearpage
 \tableofcontents
 \thispagestyle{fancy}
-\newpage
+\clearpage
 
 % =========================================================================
 \section{Introduction}
@@ -201,55 +233,92 @@ prioritised, evidence-backed and department-owned list of actionable issues.
         of concrete, de-duplicated, evidence-grounded issues that preserve the guest's specifics.
   \item To \textbf{prioritise and assign} each issue to a department with risk-based ranking, recurrence
         tracking, and human-in-the-loop resolution.
-  \item To \textbf{evaluate the commercial case}, covering data validity, demand context, a bounded
-        revenue impact, and a concrete pricing model, against a real five-star property.
+  \item To \textbf{evaluate the commercial case} through market, feasibility and risk analysis against a
+        real five-star property.
 \end{enumerate}
 
 \subsection{Scope}
 The deliverable is a functioning proof-of-concept (POC) running locally, comprising a web application,
-an API, and a relational database. It uses official-shaped connectors with sample and crawled data
-rather than live production credentials, and is sized for a single property. Production concerns such as
-live platform authorisation, incremental detection at full scale, and property-management integration
-are designed for but deliberately out of POC scope, and are discussed in Sections~\ref{sec:discussion}
-and~\ref{sec:conclusion}.
+an API, and a relational database. It serves four operator roles, namely an administrator, an
+operations manager, a department head, and an analyst, each with a tailored view of the same data. It
+uses official-shaped connectors with sample and crawled data rather than live production credentials,
+and is sized for a single property. Production concerns such as live platform authorisation,
+incremental detection at full scale, and property-management integration are designed for but
+deliberately out of POC scope, and are discussed in Sections~\ref{sec:risk} and~\ref{sec:lessons}.
 
 % =========================================================================
-\section{Related Work}
+\section{Market Analysis}
+\label{sec:market}
 
-\textbf{Review mining and aspect-based sentiment analysis (ABSA).} Extracting opinions about specific
-aspects of a product or service from free text is a well-studied task, and the SemEval ABSA shared
-tasks established standard formulations for aspect-term extraction and polarity classification
-\citep{pontiki2016semeval}. Classical ABSA, however, produces \emph{aspect categories} such as
-``rooms'' or ``staff'' rather than the concrete, owner-assignable \emph{incidents} an operations team
-can act on, and it rarely preserves the specifics, such as a room number or a billed amount, that make
-a complaint a closeable work order.
+\subsection{Current approaches and competitors}
+Hotels manage reviews today in three broad ways, and each leaves a gap. \textbf{Manual triage}, where
+staff read reviews platform by platform, does not scale, drifts in consistency, and never reliably
+connects one complaint to the two hundred like it across a year. \textbf{Generic reputation and
+social-listening tools}, including established suites such as Medallia/ReviewPro, TrustYou and Revinate,
+aggregate reviews and present sentiment dashboards and word clouds, but they report broad themes such as
+``people mention food'' rather than specific, owner-assignable incidents such as ``breakfast buffet ran
+empty by 9\,am'', and they attach no department ownership or tracking. \textbf{Native platform AI and
+general assistants} now summarise reviews directly, which is convenient for a traveller but reactive for
+a hotel, because by the time a theme is prominent enough to be summarised it is already a public caveat.
+Academic work on aspect-based sentiment analysis \citep{pontiki2016semeval} similarly yields aspect
+categories rather than the concrete work orders an operations team can close.
 
-\textbf{Online reputation and revenue.} The link between online reputation and hotel performance is
-empirically established. \citet{anderson2012social} quantified the RevPAR elasticity used throughout
-this report, and subsequent industry studies confirm that the large majority of travellers consult
-reviews before booking on \emph{any} channel \citep{tripadvisor2019reviews,reputationdefender2023stats}.
+\subsection{Demand and review context}
+\label{sec:demand}
+A reasonable question is whether a property of this size even generates enough review pressure to
+warrant a dedicated tool. Table~\ref{tab:demand} sizes the hotel from its real room count of 229 and
+clearly-flagged illustrative operating assumptions. At a representative 72\% occupancy and a US\$130
+average daily rate, the property turns roughly 60{,}000 occupied room-nights and about US\$7.8\,M of room
+revenue per year, and at an estimated average stay of about 2.5 nights it sees on the order of 65
+arrivals per day. Against its roughly 20{,}000 cumulative public reviews, current review velocity is on
+the order of 10 to 20 new reviews per day across platforms. In Asia, online travel agencies account for
+roughly 70\% of \emph{online} hotel bookings \citep{asia2024ota}, and more than 80\% of travellers read
+reviews before booking on \emph{any} channel \citep{tripadvisor2019reviews}, so review pressure shapes a
+large share of demand for a property like this. These are not large numbers to \emph{read}, which is the
+heart of a natural objection that a staff member could simply read them. But reading is not the task.
+The task is \emph{synthesis}, namely connecting one complaint today to the two hundred spread across
+twelve months, three platforms and several languages, scoring each consistently, and spotting the one
+emerging issue among hundreds.
 
-\textbf{Commercial reputation and social-listening tools.} Existing platforms aggregate reviews and
-present sentiment dashboards and word clouds. Their gap, for an operator, is threefold. They report
-generic themes such as ``people mention food'' rather than specific issues such as ``breakfast buffet
-ran empty by 9\,am''. They attach no \emph{ownership} or tracking. And they react to themes only once
-those themes are already prominent. This project's contribution is the combination of hotel-specific
-issue detection, evidence and specifics down to the room number, department ownership and tracking, and
-early-warning detection of single-mention signals, powered by a modern large language model
-\citep{google2025gemini} over locally-computed sentence embeddings \citep{reimers2019sbert}.
+\begin{table}[H]
+\centering
+\caption{Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are
+illustrative benchmarks, flagged as such.}
+\label{tab:demand}
+\begin{tabularx}{\linewidth}{Xr}
+\toprule
+\textbf{Quantity} & \textbf{Estimate} \\
+\midrule
+Rooms (actual) & 229 \\
+Assumed occupancy (illustrative) & 72\% \\
+Assumed average daily rate (illustrative) & US\$130 \\
+Occupied room-nights / year & $\approx$ 60{,}200 \\
+Room revenue / year (illustrative) & $\approx$ US\$7.8\,M \\
+Arrivals / day (at $\sim$2.5-night stay) & $\approx$ 65 \\
+Cumulative public reviews (all platforms) & $\approx$ 20{,}000 \\
+Estimated new reviews / day & $\approx$ 10--20 \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Market gap and positioning}
+The gap is the \emph{action layer}. No mainstream approach combines hotel-specific issue detection,
+evidence and specifics down to the room number, department ownership and tracking, and early-warning
+detection of single-mention signals, at a cost a single property can absorb. That combination is the
+position this system takes.
 
 % =========================================================================
-\section{System Design and Methodology}
-\label{sec:design}
+\section{Proposed Solution}
+\label{sec:solution}
 
-\subsection{Architecture overview}
+\subsection{Overview}
 The system is a three-tier application (Figure~\ref{fig:arch}). A \textbf{Next.js / React} web client
-presents three operator screens, namely Dashboard, Reviews and Issues. A \textbf{FastAPI} service
-exposes a REST API and houses the ingestion connectors, the natural-language analysis, and the
-issue-detection pipeline. State is persisted in \textbf{PostgreSQL}. Heavy natural-language models run
-locally, covering sentiment, zero-shot department classification, and sentence embeddings. Only the
-issue-detection reasoning calls an external large language model (Google Gemini~2.5~Flash), with a
-deterministic offline \emph{stub} provider available for development and testing.
+presents the operator screens. A \textbf{FastAPI} service exposes a REST API and houses the ingestion
+connectors, the natural-language analysis, and the issue-detection pipeline. State is persisted in
+\textbf{PostgreSQL}. Heavy natural-language models run locally, covering sentiment, zero-shot department
+classification, and sentence embeddings. Only the issue-detection reasoning calls an external large
+language model (Google Gemini~2.5~Flash), with a deterministic offline \emph{stub} provider available
+for development and testing.
 
 \begin{figure}[t]
 \centering
@@ -259,29 +328,21 @@ deterministic offline \emph{stub} provider available for development and testing
   src/.style={draw=teal,thick,rounded corners=2pt,align=center,fill=lightgray,minimum height=0.7cm,inner sep=3pt},
   arr/.style={-{Stealth[length=2.5mm]},thick,navy}
 ]
-% sources
-\node[src] (g)  {Google};
-\node[src,below=2mm of g]  (t)  {TripAdvisor};
+\node[box,minimum height=2.6cm,text width=2.8cm] (api)
+  {\textbf{FastAPI service}\\[3pt]\footnotesize Connectors\\ NLP analysis\\ Issue detection};
+\node[src,left=1.9cm of api] (t)  {TripAdvisor};
+\node[src,above=2mm of t]  (g)  {Google};
 \node[src,below=2mm of t]  (b)  {Booking.com};
 \node[draw=teal,thick,rounded corners=3pt,fit=(g)(t)(b),inner sep=6pt,label=above:{\bfseries Review platforms}] (sources) {};
-% api
-\node[box,right=1.6cm of sources,minimum height=2.6cm,text width=2.8cm] (api)
-  {\textbf{FastAPI service}\\[3pt]\footnotesize Connectors\\ NLP analysis\\ Issue detection};
-% db
-\node[box,right=1.4cm of api,text width=2.2cm] (db) {\textbf{PostgreSQL}\\\footnotesize reviews,\\ analyses, issues};
-% web
-\node[box,above=1.0cm of db,text width=2.4cm] (web) {\textbf{Web client}\\\footnotesize Dashboard\\ Reviews / Issues};
-% llm
-\node[box,below=1.0cm of api,text width=2.8cm,draw=teal] (llm) {\textbf{Gemini 2.5 Flash}\\\footnotesize (offline stub fallback)};
-% local models
-\node[box,below=1.0cm of db,text width=2.4cm,draw=teal] (loc) {\textbf{Local NLP}\\\footnotesize BERT / BART /\\ MiniLM};
-
+\node[box,right=1.5cm of api,text width=2.2cm] (db) {\textbf{PostgreSQL}\\\footnotesize reviews,\\ analyses, issues};
+\node[box,above=0.9cm of api,text width=2.6cm] (web) {\textbf{Web client}\\\footnotesize Dashboard\\ Reviews / Issues};
+\node[box,below left=1.15cm and -0.6cm of api,text width=2.6cm,draw=teal] (llm) {\textbf{Gemini 2.5 Flash}\\\footnotesize (offline stub fallback)};
+\node[box,below right=1.15cm and -0.6cm of api,text width=2.4cm,draw=teal] (loc) {\textbf{Local NLP}\\\footnotesize BERT / BART /\\ MiniLM};
 \draw[arr] (sources) -- (api);
-\draw[arr] (api) -- (db);
-\draw[arr] (db) -- (web);
-\draw[arr,<->] (web) |- (api);
+\draw[arr,<->] (api) -- (db);
+\draw[arr,<->] (api) -- (web);
 \draw[arr,<->] (api) -- (llm);
-\draw[arr,<->] (api) |- (loc);
+\draw[arr,<->] (api) -- (loc);
 \end{tikzpicture}
 \caption{System architecture. Reviews flow from modular platform connectors into the FastAPI service,
 which analyses them with local NLP models and an external LLM, persists results in PostgreSQL, and
@@ -289,37 +350,34 @@ serves the operator-facing web client.}
 \label{fig:arch}
 \end{figure}
 
+\subsection{Key features}
+The product surfaces four capabilities. \textbf{One inbox for everywhere} unifies Google, TripAdvisor
+and Booking.com reviews in a single view. \textbf{AI issue detection} distils complaints into concrete,
+named operational issues. \textbf{Reputation-risk scoring} rates every review and issue from 0 to 100
+for urgency. \textbf{Owned actions} route each issue to a department, prioritise it, and track it to
+resolution.
+
+\subsection{Unique value proposition}
+\begin{itemize}
+  \item Turns thousands of scattered complaints into one prioritised, owned and evidenced action list.
+  \item Preserves the guest's exact specifics, so an issue reads as ``room~1413, US\$60 unexplained
+        charge'', not ``billing problems''.
+  \item Catches an emerging problem at its first mention rather than its two-hundredth.
+  \item Runs at near-zero marginal cost, about US\$0.25 for a full detection pass.
+  \item Keeps a human in the loop, so the system proposes and staff decide.
+\end{itemize}
+
+% =========================================================================
+\section{System Design and Methodology}
+\label{sec:design}
+
 \subsection{Ingestion and the canonical data model}
 Each platform has a dedicated \textbf{connector} that accepts the platform's own (``official-shaped'')
 payload and maps it to a canonical review. No scraping is required, and a source can be swapped without
 touching the analysis engine. Raw payloads are preserved verbatim, with a content hash for idempotent
-and duplicate-safe ingestion, and then normalised. The data model (Figure~\ref{fig:datamodel}) is a
-linear enrichment pipeline. A raw review becomes a normalised review, which gains a one-to-one analysis
-record, and may be linked as evidence to one or more detected issues.
-
-\begin{figure}[t]
-\centering
-\resizebox{\linewidth}{!}{%
-\begin{tikzpicture}[
-  font=\small,
-  ent/.style={draw=navy,thick,rounded corners=2pt,fill=white,align=center,minimum height=0.95cm,text width=2.9cm,inner sep=4pt,font=\footnotesize},
-  arr/.style={-{Stealth[length=2.5mm]},thick,navy}
-]
-\node[ent] (raw) {\textbf{raw\_reviews}\\\footnotesize original payload};
-\node[ent,right=1.0cm of raw] (norm) {\textbf{normalized\_reviews}\\\footnotesize rating, body, date};
-\node[ent,right=1.0cm of norm] (an) {\textbf{review\_analyses}\\\footnotesize sentiment, dept, risk};
-\node[ent,below=1.0cm of an,fill=lightgray] (link) {\textbf{issue\_review\_links}\\\footnotesize evidence snippet};
-\node[ent,left=1.0cm of link] (iss) {\textbf{detected\_issues}\\\footnotesize title, dept, status};
-\draw[arr] (raw) -- (norm);
-\draw[arr] (norm) -- (an);
-\draw[arr] (an) -- (link);
-\draw[arr] (link) -- (iss);
-\draw[arr] (iss.west) -- ++(-0.6,0) |- (norm.south);
-\end{tikzpicture}}
-\caption{Canonical data model. Reviews are progressively enriched, and issues are linked back to the
-exact reviews and snippets that evidence them, giving every issue a traceable basis.}
-\label{fig:datamodel}
-\end{figure}
+and duplicate-safe ingestion, and then normalised. The data model is a linear enrichment pipeline. A raw
+review becomes a normalised review, which gains a one-to-one analysis record, and may be linked as
+evidence to one or more detected issues. The full schema is shown in Figure~\ref{fig:erd}.
 
 \subsection{Natural-language analysis}
 Every normalised review is scored by three local models. The first is a multilingual BERT sentiment
@@ -398,26 +456,77 @@ Google and TripAdvisor} for The Kingsbury with a set of \emph{engineered inciden
 was deliberately weighted toward \textbf{negative and mixed} reviews because those are the only
 reputation-actionable inputs. The detection pipeline reads negative and mixed reviews exclusively, and
 positive reviews yield no issues to act on. The engineered fixtures were generated from a library of
-specific incident scenarios, each carrying concrete facts such as room, floor, item, amount and time,
-precisely in order to \textbf{stress-test specificity preservation}. Real crawled reviews frequently
-omit such details, so synthetic incidents let us verify that the pipeline carries a guest's exact facts
-all the way through to the final issue. This is the principal validity caveat of the quantitative
-findings and is discussed further in Section~\ref{sec:discussion}. The macro reputation picture, namely
-the rating, ranking and dominant complaint themes, is corroborated by the real crawled reviews and by
-independent public data.
+specific incident scenarios, each carrying concrete facts such as room, floor, item, amount and time, in
+order to \textbf{stress-test specificity preservation}, because real crawled reviews frequently omit
+such details. On authenticity, two of the three sources are \emph{verified-stay channels}, since on
+Booking.com and predominantly on TripAdvisor reviews come from guests with a booking, which constrains
+fabrication, whereas Google is the open channel and is treated as lower-confidence. The system also
+never acts on a single unverified post, because an issue is meaningful through the \emph{aggregation} of
+many independent reviews, and a human always resolves or dismisses it. The legal and data-protection
+dimension of this is examined in Section~\ref{sec:legal}.
+
+% =========================================================================
+\section{Implementation}
+\label{sec:impl}
+
+\subsection{Main interfaces}
+The web client presents three working screens for the operations team. The Dashboard
+(Figure~\ref{fig:dashboard}) is the at-a-glance product surface. The Reviews page
+(Figure~\ref{fig:reviews}) is the filterable stream of analysed reviews. The Issues page
+(Figure~\ref{fig:issues}) is the ranked action queue, and opening any issue reveals the detail
+side-sheet (Figure~\ref{fig:issuedetail}) with its linked reviews, evidence snippets and event history.
+A separate Emerging candidates tab (Figure~\ref{fig:emerging}) lists the single-mention early-warning
+signals.
+
+\screenshot{dashboard.png}{The Dashboard, a product showcase of the operations overview.}{fig:dashboard}
+\screenshot{reviews.png}{The Reviews page, with per-review sentiment, reputation risk, department and
+issue links.}{fig:reviews}
+\screenshot{issues.png}{The Issues page, the active-issue queue ranked by reputation risk, with status,
+priority and assignee. An ``Emerging candidates'' tab holds the 587 single-mention signals.}{fig:issues}
+\screenshot{issue-detail.png}{The issue detail side-sheet, showing the linked reviews, evidence
+snippets and the event history for one issue.}{fig:issuedetail}
+\screenshot{emerging-issues.png}{The Emerging candidates tab, listing single-mention early-warning
+signals ranked by reputation risk.}{fig:emerging}
+
+\subsection{Database schema}
+The relational schema (Figure~\ref{fig:erd}) preserves provenance from the raw provider payload through
+to a department-owned issue, with every issue traceable to the exact reviews and snippets that evidence
+it.
+
+\diagram{db-schema.pdf}{Database schema. The enrichment chain runs from \texttt{raw\_reviews} to
+\texttt{detected\_issues}, joined to the reviews that evidence them through
+\texttt{issue\_review\_links}.}{fig:erd}{0.8}
+
+\subsection{Key interaction flows}
+Figure~\ref{fig:seqdetect} traces a review from a platform connector through analysis to a detected
+issue, and Figure~\ref{fig:seqresolve} traces an operations manager triaging and resolving an issue.
+
+\diagram{seq-detection.pdf}{Detection flow. A review is ingested, scored by the local models, and passed
+through the three LLM passes before issues are upserted by \texttt{cluster\_key}.}{fig:seqdetect}{0.46}
+
+\diagram{seq-resolve.pdf}{Resolution flow. An operations manager opens the ranked issues, inspects the
+evidence, assigns to a department head, who resolves once the cause is fixed.}{fig:seqresolve}{0.42}
+
+\subsection{Important implementation decisions}
+Three decisions shaped the build. First, \textbf{the heavy NLP runs locally} on commodity hardware,
+which keeps per-review analysis free and private, while only the issue-detection reasoning uses an
+external LLM. Second, \textbf{Gemini 2.5 Flash with an offline stub fallback} gives high-quality
+detection at about US\$0.25 per run, with a deterministic provider for tests and for running without a
+key. Third, \textbf{a stable \texttt{cluster\_key}} makes the full rebuild idempotent, so the pipeline
+can be re-run while preserving manual state such as assignee and resolved status.
 
 % =========================================================================
 \section{Results and Findings}
+\label{sec:results}
 
 \subsection{Scale and compression}
 Table~\ref{tab:scale} summarises the headline result. The 2{,}294 negative and mixed reviews collapsed
 into 117 active issues, a roughly \textbf{20:1 compression}, so that managers act on 117 things rather
 than reading thousands of complaints. A further 587 single-mention \emph{emerging} signals were caught
 as early warnings, and 77\% of complaint reviews were traced to a concrete, fixable issue via 3{,}793
-evidence links. The dashboard and issues screens (Figures~\ref{fig:dashboard} and~\ref{fig:issues})
-surface these for the operations team.
+evidence links.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Corpus and detection outcomes.}
 \label{tab:scale}
@@ -437,19 +546,17 @@ Marginal LLM cost per full detection run & $\approx$ US\$0.25 \\
 \end{tabularx}
 \end{table}
 
-\screenshot{dashboard.png}{Dashboard showing the KPI cards (sentiment mix, risk distribution, and
-active, high-risk and recurred issue counts) with sentiment and risk donuts and per-department issue
-bars.}{fig:dashboard}
-
 \subsection{The issues that matter}
 Table~\ref{tab:issues} lists the highest-impact detected issues. The single most-complained-about
 problem, loud music and event noise with 201 mentions at risk~89, is \emph{exactly} the caveat a
 conversational AI repeats about the hotel, which confirms that the system measures the same signal the
-market already reads. Critically, issues arrive with receipt-level specificity. Billing complaints are
-not a generic category but, for example, ``room~1413, US\$60 unexplained charge'', a work order the
-front office can close immediately.
+market already reads. Issues arrive with receipt-level specificity, so billing complaints are not a
+generic category but, for example, ``room~1413, US\$60 unexplained charge'', a work order the front
+office can close immediately. Active issues distribute across owners as Food \& Beverage~37, Front
+Office~25, Engineering~25, Housekeeping~15, Management~9 and Guest Relations~6, for 117 in total, giving
+each department head a self-contained, ranked queue.
 
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Top detected issues (verbatim from the system).}
 \label{tab:issues}
@@ -468,265 +575,298 @@ Poor food quality                     & 113 & 85 & Food \& Beverage \\
 \end{tabularx}
 \end{table}
 
-Active issues distribute across owners as Food \& Beverage~37, Front Office~25, Engineering~25,
-Housekeeping~15, Management~9 and Guest Relations~6, for 117 in total, giving each department head a
-self-contained, ranked queue.
-
-\screenshot{issues.png}{Issues page showing the active-issue queue with title, owning department,
-status, priority, reputation-risk score and assignee. An ``Emerging candidates'' tab holds the 587
-single-mention signals.}{fig:issues}
-
 % =========================================================================
-\section{Business and Market Analysis}
-\label{sec:business}
+\section{Feasibility Study}
+\label{sec:feasibility}
 
-This section examines the commercial case for the system, covering review authenticity, the hotel's
-true demand and review volumes, a defensible revenue impact, and pricing.
+\subsection{Financial feasibility}
+\label{sec:financial}
+The platform is inexpensive to run. The dominant marginal cost is the LLM detection run at about
+US\$0.25 over roughly 1{,}000 reviews, and even run daily that is under US\$100 per year. Local NLP
+models run on commodity hardware at no per-use cost, and infrastructure for a single property is modest.
 
-\subsection{Review authenticity and data validity}
-\label{sec:authenticity}
-A fair objection is that anyone can post a review claiming a specific room had a fault, and that the
-hotel's own property-management system (PMS) is the authoritative record of who stayed where.
-We make three points. First, two of the three sources are \textbf{verified-stay channels}. On
-Booking.com and, predominantly, TripAdvisor, reviews originate from guests with a booking, which
-constrains fabrication, whereas Google is the open channel and is treated as lower-confidence. Second,
-and more fundamentally, \textbf{authenticity is not the problem this system solves}. Its purpose is to
-reduce the cognitive load of monitoring a high-volume, multi-platform review stream and to surface
-recurring, reputation-damaging patterns early. A pattern of 201 independent guests reporting noise is
-meaningful \emph{regardless} of any single review's provenance, because the signal is in the
-aggregation rather than the individual post. Third, the system never acts autonomously. Every issue
-carries its evidence and a confidence score, and a human resolves or dismisses it. \emph{The system
-proposes, and staff decide.} Integrating the PMS, so as to corroborate a complaint against the actual
-folio for room~1413 on a given night and turn a flagged issue into a verified one, is a high-value
-enhancement, but it requires hotel-internal access and is therefore planned as production work rather
-than POC scope (Section~\ref{sec:conclusion}).
+\paragraph{Pricing.} The product is positioned as a one-time licence plus a small support fee, sized for
+a single Sri Lankan property rather than an enterprise buyer (Table~\ref{tab:cost}).\footnote{Figures are
+indicative and converted at approximately LKR\,300 per US dollar. Hotel financials elsewhere in this
+report are illustrative.} The hotel pays a one-time product and implementation licence, a small monthly
+support fee, and the very low runtime cost directly. An alternative we considered is an annual SaaS fee
+of about LKR\,240{,}000 (around US\$800) with runtime folded in, which is simpler to budget and better
+for a multi-property rollout, listed here as the secondary option.
 
-\subsection{Demand and review context, would the hotel care?}
-\label{sec:demand}
-To judge materiality we size the hotel's demand using its real room count of 229 and clearly-flagged
-illustrative operating assumptions (Table~\ref{tab:demand}). At a representative 72\% occupancy and a
-US\$130 average daily rate, the property turns roughly 60{,}000 occupied room-nights and about
-US\$7.8\,M of room revenue per year, and at an estimated average stay of about 2.5 nights it sees on the
-order of 65 arrivals per day. Against its roughly 20{,}000 cumulative public reviews, current review
-velocity is on the order of 10 to 20 new reviews per day across platforms. These are not large numbers
-to \emph{read}, which is the heart of a natural objection, that a staff member could simply read them. But
-reading is not the task. The task is \emph{synthesis}, namely connecting one complaint today to the two
-hundred spread across twelve months, three platforms and several languages, scoring each consistently,
-and spotting the one emerging issue among hundreds. That is what no human team sustains, and it is what
-the 20:1 compression and 587 early-warning signals deliver.
-
-\begin{table}[h]
+\begin{table}[H]
 \centering
-\caption{Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are
-illustrative benchmarks, flagged as such.}
-\label{tab:demand}
-\begin{tabularx}{\linewidth}{Xr}
+\caption{Proposed pricing under the recommended model, with indicative figures.}
+\label{tab:cost}
+\begin{tabularx}{\linewidth}{Xrr}
 \toprule
-\textbf{Quantity} & \textbf{Estimate} \\
+\textbf{Component} & \textbf{LKR} & \textbf{US\$} \\
 \midrule
-Rooms (actual) & 229 \\
-Assumed occupancy (illustrative) & 72\% \\
-Assumed average daily rate (illustrative) & US\$130 \\
-Occupied room-nights / year & $\approx$ 60{,}200 \\
-Room revenue / year (illustrative) & $\approx$ US\$7.8\,M \\
-Arrivals / day (at $\sim$2.5-night stay) & $\approx$ 65 \\
-Cumulative public reviews (all platforms) & $\approx$ 20{,}000 \\
-Estimated new reviews / day & $\approx$ 10--20 \\
+One-time product licence + implementation & 350{,}000 & $\approx$1{,}150 \\
+Monthly support \& maintenance & 7{,}500 / mo & $\approx$25 / mo \\
+LLM runtime (paid by hotel, daily runs) & $<$15{,}000 / yr & $<$50 / yr \\
+\midrule
+Year-1 total (illustrative) & $\approx$440{,}000 & $\approx$1{,}450 \\
+Ongoing annual (support + runtime) & $\approx$90{,}000 & $\approx$300 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Estimating the revenue impact}
-\label{sec:revenue}
-A naive estimate applies the Cornell elasticity, where +1\% reputation gives +1.42\% RevPAR
-\citep{anderson2012social}, to the \emph{entire} US\$7.8\,M room revenue, giving about US\$111k per 1\%
-of reputation protected. That figure overstates the effect, because not all revenue responds to online
-reputation. A portion of bookings comes through offline channels such as corporate accounts, travel
-agents and walk-in. We therefore estimate the impact against only the revenue base that online
-reputation plausibly influences, and we present a \textbf{range} rather than a single number
-(Table~\ref{tab:revenue}).
+\paragraph{Revenue impact and return.} A naive estimate applies the Cornell elasticity, where +1\%
+reputation gives +1.42\% RevPAR \citep{anderson2012social}, to the entire US\$7.8\,M room revenue, giving
+about US\$111k per 1\% of reputation protected. That overstates the effect, because not all revenue
+responds to online reputation, so we estimate the impact against only the revenue base that online
+reputation plausibly influences and present a range (Table~\ref{tab:revenue}). The floor attributes
+impact only to OTA-booked room-nights, taken as about 25\% of total room-nights for a property with
+substantial direct and corporate business. The ceiling recognises that more than 80\% of travellers read
+reviews before booking on any channel \citep{tripadvisor2019reviews,reputationdefender2023stats}, so
+reputation shapes demand well beyond the OTA slice. Each 1\% of reputation protected is therefore worth
+roughly US\$28k to US\$89k per year, that is about LKR\,8.4\,M to LKR\,26.7\,M, against a year-one cost
+near LKR\,440{,}000. Even on the floor, protecting half a percent of reputation repays the year-one cost
+many times over, and the elasticity cuts both ways, so this is also the revenue at risk from a 1\%
+erosion.
 
-The bounds are reasoned as follows. The \emph{floor} attributes impact only to OTA-booked room-nights.
-In Asia, OTAs account for roughly 70\% of \emph{online} hotel bookings \citep{asia2024ota}, which for a
-five-star city hotel with substantial direct and corporate business we take as about 25\% of
-\emph{total} room-nights. The \emph{ceiling} recognises that review influence is not confined to OTA
-bookings, because more than 80\% of travellers read reviews before booking on \emph{any} channel,
-including the hotel's own website \citep{tripadvisor2019reviews,reputationdefender2023stats}, so
-reputation shapes demand far beyond the OTA slice. The takeaway is not a single dramatic number but a
-robust one. \textbf{Each 1\% of reputation protected is worth roughly US\$28k to US\$89k per year},
-with a midpoint near US\$60k, and the elasticity cuts both ways, so this is also the revenue \emph{at
-risk} from a 1\% erosion.
-
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \caption{Bounded annual value of protecting 1\% of online reputation. The Cornell elasticity is applied
 to the review-influenced revenue base, and all hotel financials are illustrative.}
 \label{tab:revenue}
 \begin{tabularx}{\linewidth}{Xccc}
 \toprule
-\textbf{Scenario} & \textbf{Influenced base} & \textbf{Revenue base} & \textbf{Value / 1\%} \\
+\textbf{Scenario} & \textbf{Influenced base} & \textbf{Value / 1\% (US\$)} & \textbf{Value / 1\% (LKR)} \\
 \midrule
-Floor (OTA room-nights only)        & $\approx$25\% & $\approx$US\$2.0\,M & $\approx$US\$28k \\
-Mid (all online bookings)           & $\approx$55\% & $\approx$US\$4.3\,M & $\approx$US\$61k \\
-Ceiling (all review-influenced demand) & $\approx$80\% & $\approx$US\$6.3\,M & $\approx$US\$89k \\
+Floor (OTA room-nights only)        & $\approx$25\% & $\approx$28k & $\approx$8.4\,M \\
+Mid (all online bookings)           & $\approx$55\% & $\approx$61k & $\approx$18.3\,M \\
+Ceiling (all review-influenced demand) & $\approx$80\% & $\approx$89k & $\approx$26.7\,M \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\subsection{Cost analysis and pricing}
-\label{sec:pricing}
-The platform is inexpensive to run. The dominant marginal cost is the LLM detection run at about
-US\$0.25 over roughly 1{,}000 reviews, and even run daily that is under US\$100 per year. Local NLP
-models run on commodity hardware at no per-use cost, and infrastructure for a single property is modest.
-Table~\ref{tab:cost} sets out the proposed commercial model.
+\subsection{Technical feasibility}
+The system is built and running on a conventional stack of Next.js, FastAPI and PostgreSQL, with the
+heavy models (BERT sentiment, BART zero-shot classification, MiniLM embeddings) running locally and only
+the detection reasoning calling Gemini. The deterministic stub provider means the entire pipeline runs
+offline without an API key, which de-risks both development and demonstration. Nothing in the design
+requires specialised hardware beyond a commodity machine.
 
-\paragraph{Recommended model, a one-time licence plus support.} The hotel pays a one-time product and
-implementation licence, a small monthly support fee, and the very low runtime cost directly. This suits
-a single flagship property that prefers a capital purchase over an open-ended subscription, and it keeps
-the vendor's incentives aligned with reliability rather than usage. \emph{An alternative we considered
-is an annual SaaS fee}, a flat per-property annual charge with runtime folded in, which is simpler to
-budget and better for a multi-property rollout, and it is listed here as the secondary option.
+\subsection{Resource and time feasibility}
+The proof-of-concept was delivered by a five-member student team within a single academic cycle using
+free-tier and open-source components, so no licence costs were incurred. The same modular structure that
+made the POC tractable, namely independent connectors, local models and a single detection service,
+keeps the path to a production pilot short.
 
-\begin{table}[h]
-\centering
-\caption{Proposed pricing under the recommended model, with indicative figures.}
-\label{tab:cost}
-\begin{tabularx}{\linewidth}{Xr}
-\toprule
-\textbf{Component} & \textbf{Indicative} \\
-\midrule
-One-time product licence + implementation & $\approx$US\$9{,}500 \\
-Monthly support \& maintenance & $\approx$US\$200 / month \\
-LLM runtime (paid by hotel, daily runs) & $<$US\$100 / year \\
-\midrule
-Year-1 total (illustrative) & $\approx$US\$12{,}000 \\
-Ongoing annual (support + runtime) & $\approx$US\$2{,}500 \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\paragraph{Return on investment.} Even on the conservative floor of Table~\ref{tab:revenue}, protecting
-just half a percent of reputation is worth about US\$14k per year, which is above the year-one cost, and
-on the midpoint the platform pays for itself many times over. Because the value scales with revenue
-protected while the cost is near-fixed, the return is order-of-magnitude rather than marginal.
+\subsection{Social and legal feasibility}
+\label{sec:legal}
+Socially, the platform improves guest experience by helping a hotel fix recurring faults faster, and it
+fits existing operations as a ranked, owned action list rather than another raw feed. Legally, the design
+is built to respect the constraints that a review-driven product faces. It uses official-shaped,
+modular connectors rather than scraping, which keeps ingestion within platform terms of service.
+Personal data is minimised and redacted in the interface, and the system stores operational issues
+rather than guest profiles, which aligns it with Sri Lanka's Personal Data Protection Act and with the
+GDPR principles that apply to international guests. Because the system proposes and a human decides, and
+because every issue is evidence-linked, the legal exposure of acting on a fabricated review is low. The
+clearest dependency is on third-party platform terms, which is treated as a first-class risk in
+Section~\ref{sec:risk}.
 
 % =========================================================================
-\section{Discussion, Limitations, Risks and Mitigations}
-\label{sec:discussion}
+\section{Risk and Strategic Analysis}
+\label{sec:risk}
 
-\paragraph{Synthetic-data validity.} The clearest limitation is that the quantitative corpus is
-augmented with engineered incident fixtures (Section~\ref{sec:data}), so the absolute issue counts
-should be read as a demonstration of the pipeline's behaviour at scale rather than as a precise census
-of The Kingsbury's faults. The augmentation was a deliberate methodological choice to test specificity
-preservation, and the dominant themes are corroborated by real crawled reviews. A full production run
-over the hotel's complete real review history is the natural next step.
+We analyse the system as a product venture using four standard frameworks.
 
-\paragraph{Other risks and their mitigations} are summarised in Table~\ref{tab:risk}.
-
-\begin{table}[h]
+\subsection{SWOT}
+\begin{table}[H]
 \centering
-\caption{Key risks and mitigations.}
-\label{tab:risk}
-\renewcommand{\arraystretch}{1.25}
-\begin{tabularx}{\linewidth}{>{\bfseries}p{3.4cm}X}
+\caption{SWOT analysis of the system as a product.}
+\label{tab:swot}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{2.35cm}X}
 \toprule
-\textnormal{\textbf{Risk}} & \textbf{Mitigation} \\
+Strengths & Specificity-preserving detection, where room, amount and time give real work orders.
+Multi-platform unification. Evidence-linked and confidence-scored with a human in the loop. Early-warning
+detection of 587 single-review signals. Near-zero marginal cost with a department-ownership workflow. \\
 \midrule
-Data-source dependency & Official-shaped, modular connectors with no scraping. A source can be swapped
-without touching the detection engine. \\
-LLM cost at scale & The pipeline already stores a cluster centroid per issue, which enables
-\emph{incremental} detection. New reviews are matched to existing clusters cheaply and the LLM is called
-only for genuinely novel problems, so cost tracks new volume rather than total history. \\
-Detection accuracy and false positives & Every issue is evidence-linked and confidence-scored with
-human-in-the-loop resolve or dismiss. The system proposes, and staff decide. \\
-Adoption (``another dashboard'') & The output is a prioritised, department-owned action list that fits
-existing operations rather than a raw feed, with near-zero cost to trial. \\
+Weaknesses & Third-party data dependency with no official live API yet. A full-corpus LLM rebuild whose
+cost grows with volume. Possible LLM mis-merge or hallucination needing human checks. A heuristic
+reputation-risk score not yet validated against revenue outcomes. Cold-start and variable non-English
+quality. \\
+\midrule
+Opportunities & AI-era reputation defence as guests decide via assistants. Chain and multi-property
+rollout. Closing the loop with PMS and ticketing and auto-drafted responses. Predictive analytics and
+cross-hotel benchmarking. More sources and languages. \\
+\midrule
+Threats & Platform terms or API changes restricting review access. Funded incumbents such as
+Medallia/ReviewPro, TrustYou and Revinate. LLM-provider pricing or policy changes. Native platform AI
+summaries commoditising review insight. Privacy regulation and review fraud polluting the signal. \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
+\subsection{Porter's Five Forces}
+\begin{table}[H]
+\centering
+\caption{Porter's Five Forces.}
+\label{tab:porter}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{3.1cm}p{2.0cm}X}
+\toprule
+Force & Rating & Why \\
+\midrule
+New entrants & Moderate & LLM APIs lower the barrier, but domain depth, specificity and the ownership
+workflow form a moat. \\
+Supplier power & High & Dependence on review platforms and one LLM provider, mitigated by modular
+connectors and a provider-agnostic LLM layer with an offline fallback. \\
+Buyer power & Moderate & Hotels have alternatives and low trial cost, but the embedded workflow creates
+stickiness once adopted. \\
+Substitutes & High & Manual triage, generic listening tools, native platform AI and general assistants.
+This is the force to beat, answered by action-management and early warning rather than summaries. \\
+Rivalry & Moderate--High & Established vendors exist, but few combine detection, ownership and early
+warning at this cost point. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{PESTLE}
+\begin{table}[H]
+\centering
+\caption{PESTLE macro-environment.}
+\label{tab:pestle}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{>{\bfseries}p{2.6cm}p{1.8cm}X}
+\toprule
+Factor & Direction & Implication \\
+\midrule
+Political & Neutral & Tourism policy and stability drive hotel demand, and data-localization sentiment is
+rising. \\
+Economic & Tailwind & Cost-pressured hotels find cheap automation attractive, and reputation ties
+directly to ADR and RevPAR. \\
+Social & Tailwind & Guests increasingly decide via AI assistants and reviews, raising demand for
+reputation defence. \\
+Technological & Mixed & Cheaper and better LLMs help, but native platform AI summaries threaten. \\
+Legal & Headwind & GDPR, Sri Lanka PDPA, platform terms, PII handling and anti-manipulation rules impose
+a compliance burden. \\
+Environmental & Neutral & Low direct impact, and it can surface sustainability complaints with a modest
+compute footprint. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Risk register and mitigations}
+\begin{table}[H]
+\centering
+\caption{Top risks ranked by exposure (likelihood by impact) with mitigations.}
+\label{tab:riskreg}
+\renewcommand{\arraystretch}{1.2}
+\begin{tabularx}{\linewidth}{p{3.4cm}p{1.7cm}X}
+\toprule
+\textbf{Risk} & \textbf{L $\times$ I} & \textbf{Mitigation} \\
+\midrule
+Platform access or terms change cuts off review data & High $\times$ High & Modular, official-shaped
+connectors with no scraping, so a source can be swapped without touching the engine. \\
+LLM cost explodes at scale & High $\times$ Med & Incremental detection, matching new reviews to stored
+cluster centroids and calling the LLM only for novel issues, so cost tracks new volume. \\
+False positives erode trust & Med $\times$ High & Evidence-linked and confidence-scored issues with
+human resolve or dismiss. \\
+Incumbent or native-AI competition & Med $\times$ High & Differentiate on action-management, specificity
+and early warning, not summarisation. \\
+Privacy or PII non-compliance & Low $\times$ High & PII redaction in the UI, explicit data policy, no
+scraping, regional-law awareness. \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Strategic verdict}
+The position is a viable and defensible niche. The system is strong on workflow, specificity and cost,
+and exposed on supplier power and substitutes, both of which were engineered around through modular
+suppliers and an action layer that summarisers do not replicate. The investment priorities are clear,
+namely incremental detection for scale, live integrations to close the loop, a provider-agnostic LLM
+layer, and ongoing compliance. The reputation-risk score is the strategic anchor that keeps the
+highest-damage issues surfaced first even as volume grows.
+
 % =========================================================================
-\section{Conclusion and Future Work}
+\section{Project Timeline}
+\label{sec:timeline}
+The project ran across one academic cycle, from idea framing through design, development, evaluation and
+reporting (Figure~\ref{fig:gantt}). Development was sequenced so that ingestion and analysis were
+in place before the issue-detection pipeline, which in turn preceded evaluation on the assembled corpus.
+
+\diagram{timeline.pdf}{Project timeline across initiation, design, development, evaluation and
+delivery, from ideation in April 2026 to delivery on 21 June 2026.}{fig:gantt}{0.40}
+
+% =========================================================================
+\section{User Journeys}
+\label{sec:journeys}
+The product is designed around a single recurring journey for the operations team. A guest leaves a
+review on any platform. The connector ingests it, the analysis scores it, and if it describes a
+recurring problem the detection pipeline attaches it to an issue, or raises a new emerging signal if it
+is the first of its kind. The operations manager opens the Issues page, already ranked by reputation
+risk, inspects the evidence in the detail side-sheet, and assigns the issue to the responsible
+department head. The department head fixes the underlying cause and marks the issue resolved, which is
+recorded in the issue's event history. The same flow is shown as an interaction sequence in
+Figure~\ref{fig:seqresolve}. A second journey serves the analyst, who uses the Dashboard and Reviews
+filters to monitor sentiment and risk trends and to confirm that resolved issues stop recurring.
+
+% =========================================================================
+\section{Challenges Faced}
+\label{sec:challenges}
+The hardest problem was detection quality. An earlier embedding-and-clustering approach produced
+hundreds of vague, overlapping clusters that no manager could act on. Rebuilding it as the three-pass
+LLM pipeline, with a dynamic taxonomy and deliberate separation of severe distinct incidents, was what
+turned the output into a small set of clean, specific issues. Preserving specificity was itself a
+challenge, since a model summarising at scale tends to generalise away the room number and the amount,
+which is why those facts are extracted explicitly and carried through every pass. Controlling cost while
+keeping quality drove the choice of a fast, inexpensive model with an offline fallback. Finally, real
+crawled reviews often lacked the concrete details needed to test specificity, which is why the corpus was
+augmented with engineered incident fixtures.
+
+% =========================================================================
+\section{Community and Industry Impact}
+\label{sec:impact}
+Reputation is a shared asset for Sri Lanka's hospitality sector, where tourism is a major source of
+foreign earnings. A tool that helps a hotel detect and fix recurring faults early protects not only that
+property's revenue but also the guest experience that shapes the country's wider reputation as a
+destination. Because the cost structure is low, the same capability is within reach of smaller and
+independent hotels that cannot afford enterprise reputation suites, which helps level the field between
+large chains and local operators.
+
+% =========================================================================
+\section{Lessons Learned and Future Work}
+\label{sec:lessons}
+Two lessons stood out. First, for review intelligence the value is in the action layer, not the summary,
+so designing around owned, evidenced, early action from the start was the decision that mattered most.
+Second, evaluating on data with concrete specifics early would have surfaced the specificity-preservation
+requirement sooner. The principal next steps are a full detection run over the hotel's complete real
+review history, the incremental-detection path that bounds LLM cost at production scale, property-management
+integration to corroborate complaints against actual folios and convert flagged issues into verified
+ones, and multi-property support to amortise the platform across a hotel group.
+
+% =========================================================================
+\section{Conclusion}
 \label{sec:conclusion}
-
-This report presented a working proof-of-concept that turns a high-volume, multi-platform stream of
-guest reviews into a short, prioritised, evidence-grounded and department-owned list of operational
-issues. On an analysed corpus of 2{,}939 reviews the system compressed 2{,}294 problem reviews into 117
-active issues, a roughly 20:1 reduction, plus 587 early-warning signals, at a marginal cost of about
-US\$0.25 per run, while preserving the guest's exact specifics down to room numbers and billed amounts.
-We grounded the commercial case in bounded, sourced figures. These covered
-verified-stay data with human-in-the-loop validation, a realistic demand and review-velocity picture, a
-revenue impact of roughly US\$28k to US\$89k per 1\% of reputation protected against a year-one cost
-near US\$12k, and a concrete one-time-licence-plus-support pricing model.
-
-The principal next steps are a full detection run over the hotel's complete real review history, the
-incremental-detection path that bounds LLM cost at production scale, PMS integration to corroborate
-complaints against actual folios and convert flagged issues into verified ones, and multi-property
-support to amortise the platform across a hotel group. The core thesis stands. A hotel cannot delete
-what an algorithm has already learned about its past, but for cents per analysis it can ensure
-tomorrow's problems never become the next permanent caveat.
+This report presented a working proof-of-concept that turns a high-volume, multi-platform stream of guest
+reviews into a short, prioritised, evidence-grounded and department-owned list of operational issues. On
+an analysed corpus of 2{,}939 reviews the system compressed 2{,}294 problem reviews into 117 active
+issues, a roughly 20:1 reduction, plus 587 early-warning signals, at a marginal cost of about US\$0.25
+per run, while preserving the guest's exact specifics down to room numbers and billed amounts. The market,
+feasibility and risk analyses show a defensible niche with a low, realistic price for a Sri Lankan
+property and a revenue-protection value that dwarfs that price. A hotel cannot delete what an algorithm
+has already learned about its past, but for cents per analysis it can ensure tomorrow's problems never
+become the next permanent caveat.
 
 % =========================================================================
-\appendix
-\section{Annex: Individual Contribution Summary}
-\label{annex:contributions}
+\section{Individual Contributions}
+\label{sec:contrib}
+\emph{This section is to be completed by each team member with a short reflective paragraph on their
+individual contribution.}
 
-The project was completed as an integrated team effort from initial problem discovery through to
-solution implementation and reporting. All team members contributed to brainstorming the hotel review
-intelligence concept, refining the scope around The Kingsbury case study, reviewing the final demo
-flow, and validating that the system remained an academic proof-of-concept rather than a claim of live
-production platform access. The table below records the main responsibility areas used to divide the
-work.
+\paragraph{EKANAYAKA D.M.Y.N.B. (220153R).} \textit{[Contribution to be added.]}
 
-\begin{table}[h]
-\centering
-\caption{Team member contributions from ideation to implementation.}
-\label{tab:contributions}
-\renewcommand{\arraystretch}{1.28}
-\begin{tabularx}{\linewidth}{>{\bfseries}p{4.0cm}X}
-\toprule
-\textbf{Team member} & \textbf{Primary contributions} \\
-\midrule
-EKANAYAKA D.M.Y.N.B. (220153R) &
-Led problem framing and business-domain analysis. Contributed to brainstorming the AI-era reputation
-risk concept, defining the hotel operations workflow, mapping review complaints to department-owned
-issues, preparing the commercial value argument, and writing the introduction, motivation, business
-analysis, limitations and conclusion sections of the report. \\
+\paragraph{FERNANDO N.P.A. (220168R).} \textit{[Contribution to be added.]}
 
-FERNANDO N.P.A. (220168R) &
-Led backend architecture and API implementation. Designed and implemented the FastAPI service
-structure, connector-shaped ingestion flow, canonical review storage, database migrations and seed
-data, REST endpoints for dashboard, review and issue screens, and operational scripts for migration,
-import, verification, database restore and demo execution. \\
+\paragraph{PRASANNA W.A.S.D. (220488X).} \textit{[Contribution to be added.]}
 
-PRASANNA W.A.S.D. (220488X) &
-Led natural-language processing and issue-detection implementation. Worked on sentiment analysis,
-zero-shot department classification, embedding generation, reputation-risk scoring, LLM extraction and
-consolidation prompts, evidence linking, active versus emerging issue logic, and the provider-agnostic
-LLM client with Gemini and deterministic stub modes. \\
+\paragraph{RATHNAYAKE R.M.D.D. (220525K).} \textit{[Contribution to be added.]}
 
-RATHNAYAKE R.M.D.D. (220525K) &
-Led data preparation, evaluation and validation. Prepared connector fixtures and real-review
-transforms, validated fixture identity and import consistency, helped generate specificity-preserving
-incident datasets, verified review and issue counts, checked top issue findings against the database,
-documented data-source policy, evaluation caveats and risk mitigation, and handled communication with
-The Kingsbury for case-study coordination and project context. \\
-
-WIJETHUNGA W.M.D.P. (220727G) &
-Led frontend implementation and presentation material. Built and refined the Next.js/React operator
-interface for dashboard, reviews and issues, including filtering, issue status visibility, risk and
-department presentation, evidence badges and demo usability. Prepared screenshots, presentation flow,
-speaker notes and visual reporting material for the final submission. \\
-\bottomrule
-\end{tabularx}
-\end{table}
-
-\noindent
-In addition to these primary areas, final integration, testing, report review and presentation
-rehearsal were shared responsibilities. The team jointly checked that the delivered system could be
-run locally with PostgreSQL, FastAPI and Next.js, that review ingestion and detection produced the
-reported 2{,}939-review / 117-active-issue outcome, and that the final narrative remained consistent
-with the source-code implementation and project documentation.
+\paragraph{WIJETHUNGA W.M.D.P. (220727G).} \textit{[Contribution to be added.]}
 
 % =========================================================================
 \bibliography{references}
