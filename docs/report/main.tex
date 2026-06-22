@@ -159,7 +159,8 @@ WIJETHUNGA W.M.D.P. & 220727G \\
 \vfill
 {\small\color{midgray} A working proof-of-concept built on live analysis of real Kingsbury reviews crawled
 from Google, TripAdvisor and Booking.com, augmented with engineered incident fixtures.
-Hotel financial figures are illustrative and explicitly flagged.}
+Hotel demand and revenue figures are derived from public disclosures, platform snapshots and cited
+market benchmarks.}
 \end{titlepage}
 
 % --------------------------- ABSTRACT --------------------------------------
@@ -182,8 +183,8 @@ reviews (weighted toward the reputation-relevant negative and mixed reviews), 2{
 collapsed into 117 active issues, roughly a 20:1 reduction, alongside 587 single-mention early-warning
 signals, at a marginal detection cost of about US\$0.25 per full run. The report situates the system
 commercially through a market analysis, a five-part feasibility study, a strategic risk analysis,
-and a pricing model sized for a Sri Lankan property. We conclude that even on conservative assumptions
-the platform protects a multiple of its cost, and we outline the path to production through incremental
+and a pricing model sized for a Sri Lankan property. We conclude that even on conservative market
+benchmarks the platform protects a multiple of its cost, and we outline the path to production through incremental
 detection and property-management-system integration.
 
 \clearpage
@@ -267,13 +268,17 @@ categories rather than the concrete work orders an operations team can close.
 \subsection{Demand and review context}
 \label{sec:demand}
 A reasonable question is whether a property of this size even generates enough review pressure to
-warrant a dedicated tool. Table~\ref{tab:demand} sizes the hotel from its real room count of 229 and
-clearly-flagged illustrative operating assumptions. At a representative 72\% occupancy and a US\$130
-average daily rate, the property turns roughly 60{,}000 occupied room-nights and about US\$7.8\,M of room
-revenue per year, and at an estimated average stay of about 2.5 nights it sees on the order of 65
-arrivals per day. Against its roughly 20{,}000 cumulative public reviews, current review velocity is on
-the order of 10 to 20 new reviews per day across platforms. In Asia, online travel agencies (OTAs), the
-commission booking channels such as Booking.com, account for
+warrant a dedicated tool. Table~\ref{tab:demand} sizes the hotel from public company disclosures and
+live platform snapshots. The Kingsbury PLC reports 229 rooms, 83{,}585 available room-nights and a 67\%
+average occupancy rate for FY~2024/25, which gives about 56{,}001 occupied room-nights
+\citep{kingsbury2025annual}. Using the reported room-revenue base of about LKR\,1.72\,B and the
+FY~2024/25 exchange relationship implied by the disclosures gives an average daily rate of roughly
+US\$101 and annual room revenue of roughly US\$5.7\,M. At a Colombo city-hotel stay length benchmark of
+about two nights \citep{firstcapital2025tourism}, that volume implies about 76 arrivals per day. Public
+platform snapshots across Google, TripAdvisor, Five Star Alliance, Agoda, Booking.com and Expedia sum to
+about 52{,}036 reviews \citep{kingsburyGoogle2026,kingsburyTripadvisor2026,kingsburyFivestar2026,kingsburyAgoda2026,kingsburyBooking2026,kingsburyExpedia2026}. Spread over the roughly 2013--2026 post-refurbishment operating period \citep{kingsbury2025annual}, that footprint averages about 11 public reviews per day, so a 7--12 review/day monitoring load is a defensible operating range rather than a guess.
+
+In Asia, online travel agencies (OTAs), the commission booking channels such as Booking.com, account for
 roughly 70\% of \emph{online} hotel bookings \citep{asia2024ota}, and more than 80\% of travellers read
 reviews before booking on \emph{any} channel \citep{tripadvisor2019reviews}, so review pressure shapes a
 large share of demand for a property like this. These are not large numbers to \emph{read}, which is the
@@ -284,21 +289,21 @@ emerging issue among hundreds.
 
 \begin{table}[H]
 \centering
-\caption{Demand context for The Kingsbury. The room count of 229 is real, and operating ratios are
-illustrative benchmarks, flagged as such.}
+\caption{Demand context for The Kingsbury, derived from public disclosures, platform snapshots and
+market benchmarks.}
 \label{tab:demand}
 \begin{tabularx}{\linewidth}{Xr}
 \toprule
 \textbf{Quantity} & \textbf{Estimate} \\
 \midrule
 Rooms (actual) & 229 \\
-Assumed occupancy (illustrative) & 72\% \\
-Assumed average daily rate (illustrative) & US\$130 \\
-Occupied room-nights / year & $\approx$ 60{,}200 \\
-Room revenue / year (illustrative) & $\approx$ US\$7.8\,M \\
-Arrivals / day (at $\sim$2.5-night stay) & $\approx$ 65 \\
-Cumulative public reviews (all platforms) & $\approx$ 20{,}000 \\
-Estimated new reviews / day & $\approx$ 10--20 \\
+Actual occupancy rate & 67\% \\
+Estimated average daily rate & $\approx$ US\$101 ($\approx$ LKR\,30{,}350) \\
+Occupied room-nights / year & $\approx$ 56{,}001 \\
+Room revenue / year & $\approx$ US\$5.7\,M ($\approx$ LKR\,1.72\,B) \\
+Arrivals / day (at $\sim$2.0-night stay) & $\approx$ 76 \\
+Cumulative public reviews (major platforms) & $\approx$ 52{,}036 \\
+Long-run public-review velocity & $\approx$ 7--12 / day \\
 \bottomrule
 \end{tabularx}
 \end{table}
@@ -588,9 +593,8 @@ US\$0.25 over roughly 1{,}000 reviews, and even run daily that is under US\$100 
 models run on commodity hardware at no per-use cost, and infrastructure for a single property is modest.
 
 \paragraph{Pricing.} The product is positioned as a one-time licence plus a small support fee, sized for
-a single Sri Lankan property rather than an enterprise buyer (Table~\ref{tab:cost}).\footnote{Figures are
-indicative and converted at approximately LKR\,300 per US dollar. Hotel financials elsewhere in this
-report are illustrative.} The hotel pays a one-time product and implementation licence, a small monthly
+a single Sri Lankan property rather than an enterprise buyer (Table~\ref{tab:cost}).\footnote{Proposed
+prices are converted at approximately LKR\,300 per US dollar for readability.} The hotel pays a one-time product and implementation licence, a small monthly
 support fee, and the very low runtime cost directly. An alternative we considered is an annual SaaS fee
 of about LKR\,240{,}000 (around US\$800) with runtime folded in, which is simpler to budget and better
 for a multi-property rollout, listed here as the secondary option.
@@ -607,50 +611,48 @@ One-time product licence + implementation & 350{,}000 & $\approx$1{,}150 \\
 Monthly support \& maintenance & 7{,}500 / mo & $\approx$25 / mo \\
 LLM runtime (paid by hotel, daily runs) & $<$15{,}000 / yr & $<$50 / yr \\
 \midrule
-Year-1 total (illustrative) & $\approx$440{,}000 & $\approx$1{,}450 \\
+Year-1 total & $\approx$440{,}000 & $\approx$1{,}450 \\
 Ongoing annual (support + runtime) & $\approx$90{,}000 & $\approx$300 \\
 \bottomrule
 \end{tabularx}
 \end{table}
 
-\paragraph{Revenue impact and return.} A naive estimate applies the Cornell elasticity, where +1\%
-reputation gives +1.42\% RevPAR \citep{anderson2012social}, to the entire US\$7.8\,M room revenue, giving
-about US\$111k per 1\% of reputation protected. That overstates the effect, because not all revenue
-responds to online reputation, so we estimate the impact against only the revenue base that online
-reputation plausibly influences and present a range (Table~\ref{tab:revenue}). The lower bound attributes
-impact only to OTA-booked room-nights, taken as about 25\% of total room-nights for a property with
-substantial direct and corporate business. The upper bound recognises that more than 80\% of travellers read
-reviews before booking on any channel \citep{tripadvisor2019reviews,reputationdefender2023stats}, so
-reputation shapes demand well beyond the OTA slice. Each 1\% of reputation protected is therefore worth
-roughly US\$28k to US\$89k per year, that is about LKR\,8.4\,M to LKR\,26.7\,M, against a year-one cost
-near LKR\,440{,}000. Even on the lower bound, protecting half a percent of reputation repays the year-one cost
-many times over, and the elasticity cuts both ways, so this is also the revenue at risk from a 1\%
-erosion.
+\paragraph{Revenue impact and return.} Cornell's lodging-performance study found that a 1\% improvement
+in online reputation is associated with a 1.42\% increase in RevPAR \citep{anderson2012social}. Applied
+to The Kingsbury's full derived room-revenue base of about US\$5.7\,M, that relationship gives a ceiling
+of roughly US\$81k per year for each 1\% of reputation protected. The more defensible calculation applies
+the elasticity only to the revenue base that online reviews plausibly influence and presents a range
+(Table~\ref{tab:revenue}). The lower bound attributes impact only to OTA-booked room-nights. The middle
+case uses the global online/direct distribution benchmark \citep{skift2024ota}. The upper bound reflects
+the fact that 81\% of travellers report always or frequently reading reviews before booking
+accommodation \citep{tripadvisor2019reviews}. Each 1\% of reputation protected is therefore worth roughly
+US\$20k to US\$65k per year, that is about LKR\,6.1\,M to LKR\,19.4\,M, against a year-one price near
+LKR\,440{,}000. The elasticity cuts both ways, so the same range is also the room revenue at risk from a
+1\% reputation erosion.
 
 \begin{table}[H]
 \centering
 \caption{Annual value of protecting 1\% of online reputation, applying the Cornell RevPAR elasticity
-only to the share of room revenue that online reviews actually influence. All hotel financials are
-illustrative.}
+only to the share of The Kingsbury's derived room-revenue base that online reviews influence.}
 \label{tab:revenue}
 \begin{tabularx}{\linewidth}{Xccc}
 \toprule
 \textbf{Scenario} & \textbf{Influenced} & \textbf{Influenced revenue} & \textbf{Value of +1\%} \\
  & \textbf{share} & \textbf{base (US\$)} & \textbf{(US\$ / LKR)} \\
 \midrule
-Lower bound (OTA bookings only)        & $\approx$25\% & $\approx$2.0\,M & 28k / 8.4\,M \\
-Middle estimate (all online bookings)  & $\approx$55\% & $\approx$4.3\,M & 61k / 18.3\,M \\
-Upper bound (all review-influenced demand) & $\approx$80\% & $\approx$6.3\,M & 89k / 26.7\,M \\
+Lower bound (OTA bookings only)        & $\approx$25\% & $\approx$1.4\,M & 20k / 6.1\,M \\
+Middle estimate (all online bookings)  & $\approx$55\% & $\approx$3.1\,M & 45k / 13.4\,M \\
+Upper bound (review-reading travellers) & $\approx$80\% & $\approx$4.6\,M & 65k / 19.4\,M \\
 \bottomrule
 \end{tabularx}
 
 \smallskip
 {\footnotesize\itshape OTA means an online travel agency such as Booking.com, the commission channel a
 guest books through online, as opposed to direct website, corporate or walk-in bookings. The influenced
-share is the portion of the hotel's roughly US\$7.8\,M annual room revenue whose demand is shaped by
+share is the portion of the hotel's roughly US\$5.7\,M annual room revenue whose demand is shaped by
 online reviews. The value of +1\% is that influenced revenue base times the Cornell figure of 1.42\%
-RevPAR per 1\% of reputation, for example 1.42\% of US\$2.0\,M is about US\$28k, which is roughly
-LKR\,8.4\,M.}
+RevPAR per 1\% of reputation, for example 1.42\% of US\$1.4\,M is about US\$20k, which is roughly
+LKR\,6.1\,M.}
 \end{table}
 
 \subsection{Technical feasibility}

@@ -1,48 +1,46 @@
-This is BibTeX, Version 0.99e
+This is BibTeX, Version 0.99d (TeX Live 2025/Debian)
 Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
 The top-level auxiliary file: main.aux
-Reallocating 'name_of_file' (item size: 1) to 9 items.
 The style file: plainnat.bst
-Reallocating 'name_of_file' (item size: 1) to 11 items.
 Database file #1: references.bib
-You've used 7 entries,
+You've used 16 entries,
             2773 wiz_defined-function locations,
-            636 strings with 6886 characters,
-and the built_in function-call counts, 3493 in all, are:
-= -- 318
-> -- 192
-< -- 9
-+ -- 67
-- -- 60
-* -- 235
-:= -- 521
-add.period$ -- 26
-call.type$ -- 7
-change.case$ -- 40
-chr.to.int$ -- 7
-cite$ -- 14
-duplicate$ -- 161
-empty$ -- 284
-format.name$ -- 69
-if$ -- 757
+            687 strings with 9189 characters,
+and the built_in function-call counts, 6220 in all, are:
+= -- 570
+> -- 282
+< -- 18
++ -- 103
+- -- 87
+* -- 352
+:= -- 944
+add.period$ -- 62
+call.type$ -- 16
+change.case$ -- 76
+chr.to.int$ -- 16
+cite$ -- 32
+duplicate$ -- 296
+empty$ -- 572
+format.name$ -- 105
+if$ -- 1351
 int.to.chr$ -- 1
 int.to.str$ -- 1
 missing$ -- 3
-newline$ -- 47
-num.names$ -- 28
-pop$ -- 97
+newline$ -- 101
+num.names$ -- 64
+pop$ -- 205
 preamble$ -- 1
-purify$ -- 33
+purify$ -- 60
 quote$ -- 0
-skip$ -- 142
+skip$ -- 250
 stack$ -- 0
-substring$ -- 118
-swap$ -- 40
+substring$ -- 136
+swap$ -- 49
 text.length$ -- 4
 text.prefix$ -- 0
 top$ -- 0
-type$ -- 77
+type$ -- 176
 warning$ -- 0
-while$ -- 30
+while$ -- 57
 width$ -- 0
-write$ -- 104
+write$ -- 230

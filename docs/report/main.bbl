@@ -1,9 +1,18 @@
-\begin{thebibliography}{7}
+\begin{thebibliography}{16}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
   \providecommand{\doi}[1]{doi: #1}\else
   \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[{Agoda}(2026)]{kingsburyAgoda2026}
+{Agoda}.
+\newblock The kingsbury colombo reviews.
+\newblock
+  \url{https://www.agoda.com/the-kingsbury-colombo/reviews/colombo-lk.html},
+  2026.
+\newblock Platform snapshot used for rating, sub-rating and review-count
+  context, accessed 21 June 2026.
 
 \bibitem[Anderson(2012)]{anderson2012social}
 Chris~K. Anderson.
@@ -13,6 +22,13 @@ Chris~K. Anderson.
 \newblock A 1\% improvement in a hotel's online reputation score is associated
   with a 1.42\% increase in RevPAR.
 
+\bibitem[{Booking.com}(2026)]{kingsburyBooking2026}
+{Booking.com}.
+\newblock The kingsbury colombo.
+\newblock \url{https://www.booking.com/hotel/lk/ceylon-continental.html}, 2026.
+\newblock Platform snapshot used for rating, sub-rating and verified
+  review-count context, accessed 21 June 2026.
+
 \bibitem[{Digital Travel APAC / Cambodge Mag}(2024)]{asia2024ota}
 {Digital Travel APAC / Cambodge Mag}.
 \newblock Direct bookings: Asia's hoteliers reclaim margins from {OTA}
@@ -21,6 +37,40 @@ Chris~K. Anderson.
 \newblock OTAs capture approximately 70\% of online hotel bookings across Asia,
   with direct website bookings under 30\%. Intermediary commissions reach up to
   30\% of room revenue.
+
+\bibitem[{Expedia}(2026)]{kingsburyExpedia2026}
+{Expedia}.
+\newblock The kingsbury colombo reviews, deals and photos.
+\newblock
+  \url{https://www.expedia.com/Colombo-Hotels-The-Kingsbury-Colombo.h19910.Hotel-Information},
+  2026.
+\newblock Platform snapshot used for rating and review-count context, accessed
+  21 June 2026.
+
+\bibitem[{First Capital Holdings}(2025)]{firstcapital2025tourism}
+{First Capital Holdings}.
+\newblock Tourism sector in sri lanka.
+\newblock
+  \url{https://firstcapital.lk/wp-content/uploads/2026/01/Tourism-Sector-Update-17-11-25.pdf},
+  2025.
+\newblock Used as a Sri Lanka tourism-market benchmark for Colombo stay-length
+  context, accessed 21 June 2026.
+
+\bibitem[{Five Star Alliance}(2026)]{kingsburyFivestar2026}
+{Five Star Alliance}.
+\newblock The kingsbury, colombo.
+\newblock
+  \url{https://www.fivestaralliance.com/luxury-hotels/colombo/the-kingsbury},
+  2026.
+\newblock Platform snapshot used for verified review-count context, accessed 21
+  June 2026.
+
+\bibitem[{Google Travel}(2026)]{kingsburyGoogle2026}
+{Google Travel}.
+\newblock The kingsbury colombo hotel listing.
+\newblock \url{https://www.google.com/travel/hotels}, 2026.
+\newblock Platform snapshot used for Google rating and review-count context,
+  accessed 21 June 2026.
 
 \bibitem[Lewis et~al.(2020)Lewis, Liu, Goyal, Ghazvininejad, Mohamed, Levy,
   Stoyanov, and Zettlemoyer]{lewis2020bart}
@@ -53,6 +103,24 @@ Nils Reimers and Iryna Gurevych.
 \newblock Over 80\% of travellers read reviews before booking, and 52\% would
   not book a hotel with no reviews.
 
+\bibitem[{Skift}(2024)]{skift2024ota}
+{Skift}.
+\newblock Hotel versus {OTA} direct-booking tussle will shape distribution for
+  years to come.
+\newblock Skift Research, 2024.
+\newblock Online travel agencies account for roughly 45\% of global travel
+  bookings; direct channels around 55\%.
+
+\bibitem[{The Kingsbury PLC}(2025)]{kingsbury2025annual}
+{The Kingsbury PLC}.
+\newblock Annual report 2024/25.
+\newblock
+  \url{https://www.hayleys.com/wp-content/uploads/2025/06/The-Kingsbury-PLC-Annual-Report-FY-2024-25.pdf},
+  2025.
+\newblock Used for room inventory, occupancy, available room-night, revenue and
+  market-context disclosures. Also available from the public annual-report
+  archive on The Kingsbury Hotel website.
+
 \bibitem[{Tripadvisor}(2019)]{tripadvisor2019reviews}
 {Tripadvisor}.
 \newblock Online reviews remain a trusted source of information when booking
@@ -61,5 +129,14 @@ Nils Reimers and Iryna Gurevych.
 \newblock 81\% of travellers report always or frequently reading reviews before
   booking accommodation. Travellers read on average nine reviews before
   deciding.
+
+\bibitem[{Tripadvisor}(2026)]{kingsburyTripadvisor2026}
+{Tripadvisor}.
+\newblock The kingsbury colombo reviews.
+\newblock
+  \url{https://www.tripadvisor.com/Hotel_Review-g293962-d301900-Reviews-The_Kingsbury_Colombo-Colombo_Western_Province.html},
+  2026.
+\newblock Platform snapshot used for TripAdvisor rating and review-count
+  context, accessed 21 June 2026.
 
 \end{thebibliography}
